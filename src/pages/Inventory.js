@@ -69,8 +69,8 @@ export default function Inventory() {
     { key: 'age_range', label: 'Age', render: r => <Badge color="blue">{r.age_range}</Badge> },
     { key: 'brand', label: 'Brand', render: r => <span style={{ color: '#888' }}>{r.brand || '—'}</span> },
     { key: 'stock_qty', label: 'Stock', render: r => r.stock_qty },
-    { key: 'cost_price', label: 'Cost', render: r => `$${Number(r.cost_price).toFixed(2)}` },
-    { key: 'sell_price', label: 'Price', render: r => `$${Number(r.sell_price).toFixed(2)}` },
+    { key: 'cost_price', label: 'Cost', render: r => `MVR ${Number(r.cost_price).toFixed(2)}` },
+    { key: 'sell_price', label: 'Price', render: r => `MVR ${Number(r.sell_price).toFixed(2)}` },
     { key: 'margin', label: 'Margin', render: r => {
       const m = r.sell_price > 0 ? Math.round((r.sell_price - r.cost_price) / r.sell_price * 100) : 0
       return <span style={{ color: m >= 40 ? '#2e7d32' : m >= 20 ? '#f57f17' : '#c62828', fontWeight: 500 }}>{m}%</span>

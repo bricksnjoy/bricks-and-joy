@@ -100,7 +100,7 @@ export default function PurchaseOrders() {
     { key: 'supplier_name', label: 'Supplier', render: r => <span style={{ fontWeight: 500 }}>{r.supplier_name || '—'}</span> },
     { key: 'product_name', label: 'Product' },
     { key: 'qty', label: 'Qty' },
-    { key: 'unit_cost', label: 'Unit cost', render: r => `$${Number(r.unit_cost).toFixed(2)}` },
+    { key: 'unit_cost', label: 'Unit cost', render: r => `MVR ${Number(r.unit_cost).toFixed(2)}` },
     { key: 'total_cost', label: 'Total', render: r => <span style={{ fontWeight: 500 }}>${Number(r.total_cost || 0).toFixed(2)}</span> },
     { key: 'order_date', label: 'Ordered', render: r => <span style={{ color: '#888', fontSize: 12 }}>{r.order_date}</span> },
     { key: 'expected_date', label: 'Expected', render: r => <span style={{ color: '#888', fontSize: 12 }}>{r.expected_date || '—'}</span> },
@@ -115,7 +115,7 @@ export default function PurchaseOrders() {
 
   return (
     <div>
-      <PageHeader title="Purchase Orders" subtitle={`$${totalSpend.toFixed(2)} received this period`}
+      <PageHeader title="Purchase Orders" subtitle={`MVR ${totalSpend.toFixed(2)} received this period`}
         action={
           <div style={{ display: 'flex', gap: 8 }}>
             <Button variant="ghost" onClick={() => setSupplierModal(true)}><Plus size={15} /> Add supplier</Button>
@@ -161,7 +161,7 @@ export default function PurchaseOrders() {
           </FormRow>
           <Select label="Status" value={form.status} onChange={f('status')} options={STATUSES} style={{ marginBottom: 12 }} />
           <div style={{ background: '#f8f7f4', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 13 }}>
-            <strong>Order total:</strong> ${(parseFloat(form.qty || 0) * parseFloat(form.unit_cost || 0)).toFixed(2)}
+            <strong>Order total:</strong> MVR {(parseFloat(form.qty || 0) * parseFloat(form.unit_cost || 0)).toFixed(2)}
             <span style={{ marginLeft: 12, color: '#aaa', fontSize: 12 }}>Marking as "Received" will automatically add to stock</span>
           </div>
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>

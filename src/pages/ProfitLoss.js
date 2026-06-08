@@ -84,7 +84,7 @@ export default function ProfitLoss() {
     { key: 'expense_date', label: 'Date', render: r => <span style={{ color: '#888', fontSize: 12 }}>{r.expense_date}</span> },
     { key: 'description', label: 'Description', render: r => <span style={{ fontWeight: 500 }}>{r.description}</span> },
     { key: 'category', label: 'Category', render: r => <span style={{ color: '#888', fontSize: 12 }}>{r.category}</span> },
-    { key: 'amount', label: 'Amount', render: r => <span style={{ color: '#c62828', fontWeight: 500 }}>-${Number(r.amount).toFixed(2)}</span> },
+    { key: 'amount', label: 'Amount', render: r => <span style={{ color: '#c62828', fontWeight: 500 }}>-MVR {Number(r.amount).toFixed(2)}</span> },
     { key: 'actions', label: '', render: r => <Button variant="danger" size="sm" onClick={() => delExpense(r.id)}><Trash2 size={13} /></Button> },
   ]
 
@@ -97,10 +97,10 @@ export default function ProfitLoss() {
 
       {/* Key metrics */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 14, marginBottom: 24 }}>
-        <MetricCard label="Revenue" value={`$${revenue.toFixed(2)}`} icon={TrendingUp} />
-        <MetricCard label="Gross profit" value={`$${grossProfit.toFixed(2)}`} color={grossProfit >= 0 ? '#2e7d32' : '#c62828'} icon={TrendingUp} sub={`${grossMargin}% margin`} />
-        <MetricCard label="Total expenses" value={`$${totalExpenses.toFixed(2)}`} color="#c62828" icon={TrendingDown} />
-        <MetricCard label="Net profit" value={`${netProfit >= 0 ? '$' : '-$'}${Math.abs(netProfit).toFixed(2)}`} color={netProfit >= 0 ? '#2e7d32' : '#c62828'} icon={netProfit >= 0 ? TrendingUp : TrendingDown} sub={`${netMargin}% margin`} />
+        <MetricCard label="Revenue" value={`MVR ${revenue.toFixed(2)}`} icon={TrendingUp} />
+        <MetricCard label="Gross profit" value={`MVR ${grossProfit.toFixed(2)}`} color={grossProfit >= 0 ? '#2e7d32' : '#c62828'} icon={TrendingUp} sub={`${grossMargin}% margin`} />
+        <MetricCard label="Total expenses" value={`MVR ${totalExpenses.toFixed(2)}`} color="#c62828" icon={TrendingDown} />
+        <MetricCard label="Net profit" value={`${netProfit >= 0 ? 'MVR ' : '-MVR '}${Math.abs(netProfit).toFixed(2)}`} color={netProfit >= 0 ? '#2e7d32' : '#c62828'} icon={netProfit >= 0 ? TrendingUp : TrendingDown} sub={`${netMargin}% margin`} />
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
@@ -125,7 +125,7 @@ export default function ProfitLoss() {
                 fontWeight: row.bold ? 700 : 500,
                 color: row.type === 'profit' ? '#2e7d32' : row.type === 'loss' ? '#c62828' : row.type === 'cost' ? '#c62828' : '#333'
               }}>
-                {row.value >= 0 ? `$${row.value.toFixed(2)}` : `-$${Math.abs(row.value).toFixed(2)}`}
+                {row.value >= 0 ? `MVR ${row.value.toFixed(2)}` : `-MVR ${Math.abs(row.value).toFixed(2)}`}
               </span>
             </div>
           ))}
@@ -142,7 +142,7 @@ export default function ProfitLoss() {
               <div key={cat} style={{ marginBottom: 12 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#666', marginBottom: 4 }}>
                   <span>{cat}</span>
-                  <span>${amt.toFixed(2)} <span style={{ color: '#aaa' }}>({pct}%)</span></span>
+                  <span>MVR {amt.toFixed(2)} <span style={{ color: '#aaa' }}>({pct}%)</span></span>
                 </div>
                 <div style={{ height: 6, background: '#f0f0f0', borderRadius: 3, overflow: 'hidden' }}>
                   <div style={{ width: `${pct}%`, height: '100%', background: '#FFA500', borderRadius: 3 }} />
@@ -166,7 +166,7 @@ export default function ProfitLoss() {
           </FormRow>
           <FormRow>
             <Select label="Category" value={form.category} onChange={f('category')} options={EXP_CATS} />
-            <Input label="Amount ($) *" type="number" step="0.01" value={form.amount} onChange={f('amount')} placeholder="0.00" />
+            <Input label="Amount (MVR) *" type="number" step="0.01" value={form.amount} onChange={f('amount')} placeholder="0.00" />
           </FormRow>
           <Input label="Date" type="date" value={form.expense_date} onChange={f('expense_date')} style={{ marginBottom: 16 }} />
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>

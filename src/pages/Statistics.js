@@ -113,8 +113,8 @@ export default function Statistics() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 14, marginBottom: 24 }}>
         <MetricCard label="Total orders" value={data.totalOrders} icon={ShoppingCart} />
         <MetricCard label="Fulfilment rate" value={`${data.fulfilmentRate}%`} color={data.fulfilmentRate >= 80 ? '#2e7d32' : '#f57f17'} icon={TrendingUp} />
-        <MetricCard label="Avg order value" value={`$${data.avgOrderValue.toFixed(2)}`} icon={TrendingUp} />
-        <MetricCard label="Net profit" value={`${data.netProfit >= 0 ? '$' : '-$'}${Math.abs(data.netProfit).toFixed(0)}`} color={data.netProfit >= 0 ? '#2e7d32' : '#c62828'} icon={TrendingUp} />
+        <MetricCard label="Avg order value" value={`MVR ${data.avgOrderValue.toFixed(2)}`} icon={TrendingUp} />
+        <MetricCard label="Net profit" value={`${data.netProfit >= 0 ? 'MVR ' : '-MVR '}${Math.abs(data.netProfit).toFixed(0)}`} color={data.netProfit >= 0 ? '#2e7d32' : '#c62828'} icon={TrendingUp} />
         <MetricCard label="Products" value={data.totalProducts} icon={Package} />
         <MetricCard label="Customers" value={data.totalCustomers} icon={Users} />
       </div>
@@ -127,8 +127,8 @@ export default function Statistics() {
             <LineChart data={revenueChart}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
               <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#999' }} />
-              <YAxis tick={{ fontSize: 11, fill: '#999' }} tickFormatter={v => `$${v}`} />
-              <Tooltip contentStyle={tooltipStyle} formatter={v => [`$${v}`, 'Revenue']} />
+              <YAxis tick={{ fontSize: 11, fill: '#999' }} tickFormatter={v => `MVR ${v}`} />
+              <Tooltip contentStyle={tooltipStyle} formatter={v => [`MVR ${v}`, 'Revenue']} />
               <Line type="monotone" dataKey="revenue" stroke="#FFA500" strokeWidth={2.5} dot={{ fill: '#FFA500', r: 4 }} />
             </LineChart>
           </ResponsiveContainer>
@@ -143,9 +143,9 @@ export default function Statistics() {
             <ResponsiveContainer width="100%" height={220}>
               <BarChart data={productChart} layout="vertical">
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" horizontal={false} />
-                <XAxis type="number" tick={{ fontSize: 10, fill: '#999' }} tickFormatter={v => `$${v}`} />
+                <XAxis type="number" tick={{ fontSize: 10, fill: '#999' }} tickFormatter={v => `MVR ${v}`} />
                 <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: '#666' }} width={100} />
-                <Tooltip contentStyle={tooltipStyle} formatter={v => [`$${v}`, 'Revenue']} />
+                <Tooltip contentStyle={tooltipStyle} formatter={v => [`MVR ${v}`, 'Revenue']} />
                 <Bar dataKey="value" fill="#FFA500" radius={[0, 4, 4, 0]} />
               </BarChart>
             </ResponsiveContainer>
@@ -161,7 +161,7 @@ export default function Statistics() {
                 <Pie data={catChart} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={false} fontSize={10}>
                   {catChart.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                 </Pie>
-                <Tooltip contentStyle={tooltipStyle} formatter={v => [`$${v}`, 'Revenue']} />
+                <Tooltip contentStyle={tooltipStyle} formatter={v => [`MVR ${v}`, 'Revenue']} />
               </PieChart>
             </ResponsiveContainer>
           </Card>
@@ -177,8 +177,8 @@ export default function Statistics() {
               <BarChart data={channelChart}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                 <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#999' }} />
-                <YAxis tick={{ fontSize: 10, fill: '#999' }} tickFormatter={v => `$${v}`} />
-                <Tooltip contentStyle={tooltipStyle} formatter={v => [`$${v}`, 'Revenue']} />
+                <YAxis tick={{ fontSize: 10, fill: '#999' }} tickFormatter={v => `MVR ${v}`} />
+                <Tooltip contentStyle={tooltipStyle} formatter={v => [`MVR ${v}`, 'Revenue']} />
                 <Bar dataKey="value" fill="#0d1b2a" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
@@ -223,7 +223,7 @@ export default function Statistics() {
                   <td style={{ padding: '10px 12px', color: '#aaa', fontSize: 12 }}>#{i + 1}</td>
                   <td style={{ padding: '10px 12px', fontWeight: 500 }}>{name}</td>
                   <td style={{ padding: '10px 12px', color: '#666' }}>{stats.orders}</td>
-                  <td style={{ padding: '10px 12px', fontWeight: 600, color: '#2e7d32' }}>${stats.revenue.toFixed(2)}</td>
+                  <td style={{ padding: '10px 12px', fontWeight: 600, color: '#2e7d32' }}>MVR {stats.revenue.toFixed(2)}</td>
                 </tr>
               ))}
             </tbody>

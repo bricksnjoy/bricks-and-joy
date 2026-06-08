@@ -72,7 +72,7 @@ export default function Customers() {
     { key: 'email', label: 'Email', render: r => <span style={{ color: '#888' }}>{r.email || '—'}</span> },
     { key: 'phone', label: 'Phone', render: r => <span style={{ color: '#888' }}>{r.phone || '—'}</span> },
     { key: 'orders', label: 'Orders', render: r => (orderCounts[r.id]?.total || 0) },
-    { key: 'revenue', label: 'Total spent', render: r => <span style={{ fontWeight: 500 }}>${(orderCounts[r.id]?.revenue || 0).toFixed(2)}</span> },
+    { key: 'revenue', label: 'Total spent', render: r => <span style={{ fontWeight: 500 }}>MVR {(orderCounts[r.id]?.revenue || 0).toFixed(2)}</span> },
     { key: 'address', label: 'Address', render: r => <span style={{ color: '#aaa', fontSize: 12 }}>{r.address || '—'}</span> },
     { key: 'actions', label: '', render: r => (
       <div style={{ display: 'flex', gap: 6 }}>

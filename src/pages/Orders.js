@@ -79,7 +79,7 @@ export default function Orders() {
     { key: 'customer_name', label: 'Customer', render: r => <span style={{ fontWeight: 500 }}>{r.customer_name || '—'}</span> },
     { key: 'product_name', label: 'Product' },
     { key: 'qty', label: 'Qty' },
-    { key: 'unit_price', label: 'Unit price', render: r => `$${Number(r.unit_price).toFixed(2)}` },
+    { key: 'unit_price', label: 'Unit price', render: r => `MVR ${Number(r.unit_price).toFixed(2)}` },
     { key: 'total_price', label: 'Total', render: r => <span style={{ fontWeight: 500 }}>${Number(r.total_price || 0).toFixed(2)}</span> },
     { key: 'channel', label: 'Channel', render: r => <span style={{ color: '#888', fontSize: 12 }}>{r.channel}</span> },
     { key: 'order_date', label: 'Date', render: r => <span style={{ color: '#888', fontSize: 12 }}>{r.order_date}</span> },
@@ -94,7 +94,7 @@ export default function Orders() {
 
   return (
     <div>
-      <PageHeader title="Orders" subtitle={`$${totalRevenue.toFixed(2)} delivered revenue`}
+      <PageHeader title="Orders" subtitle={`MVR ${totalRevenue.toFixed(2)} delivered revenue`}
         action={<Button onClick={openAdd}><Plus size={15} /> New order</Button>} />
 
       <Card>
@@ -139,7 +139,7 @@ export default function Orders() {
             <Input label="Order date" type="date" value={form.order_date} onChange={f('order_date')} />
           </FormRow>
           <div style={{ background: '#f8f7f4', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 13 }}>
-            <strong>Order total:</strong> ${(parseFloat(form.qty || 0) * parseFloat(form.unit_price || 0)).toFixed(2)}
+            <strong>Order total:</strong> MVR {(parseFloat(form.qty || 0) * parseFloat(form.unit_price || 0)).toFixed(2)}
           </div>
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <Button variant="ghost" onClick={() => setModal(false)}>Cancel</Button>
