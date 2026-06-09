@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { StockBadge, StatusBadge, Spinner } from '../components/UI'
-import { Package, ShoppingCart, Users, TrendingUp, TrendingDown, AlertTriangle, Clock, CheckCircle, DollarSign } from 'lucide-react'
+import { Package, ShoppingCart, Users, TrendingUp, TrendingDown, AlertTriangle, CheckCircle, DollarSign } from 'lucide-react'
 
 export default function Dashboard() {
   const [stats, setStats] = useState(null)
@@ -20,7 +20,6 @@ export default function Dashboard() {
       supabase.from('customers').select('*').order('created_at', { ascending: false }),
       supabase.from('expenses').select('amount'),
     ])
-
     const prods = products.data || []
     const ords = orders.data || []
     const custs = customers.data || []
@@ -32,16 +31,7 @@ export default function Dashboard() {
     }, 0)
     const totalExp = (expenses.data || []).reduce((s, e) => s + Number(e.amount), 0)
     const netProfit = revenue - cogs - totalExp
-
-    setStats({
-      products: prods.length,
-      totalStock: prods.reduce((s, p) => s + (p.stock_qty || 0), 0),
-      customers: custs.length,
-      activeOrders: ords.filter(o => o.status === 'pending' || o.status === 'transit').length,
-      deliveredOrders: delivered.length,
-      revenue, netProfit,
-      pendingOrders: ords.filter(o => o.status === 'pending').length,
-    })
+    setStats({ products: prods.length, totalStock: prods.reduce((s, p) => s + (p.stock_qty || 0), 0), customers: custs.length, activeOrders: ords.filter(o => o.status === 'pending' || o.status === 'transit').length, deliveredOrders: delivered.length, revenue, netProfit, pendingOrders: ords.filter(o => o.status === 'pending').length })
     setLowStock(prods.filter(p => p.stock_qty <= (p.low_stock_threshold || 10)).slice(0, 5))
     setRecentOrders(ords.slice(0, 6))
     setRecentCustomers(custs.slice(0, 4))
@@ -53,93 +43,107 @@ export default function Dashboard() {
   const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
 
   const metrics = [
-    { label: 'Total revenue', value: `$${stats.revenue.toFixed(2)}`, icon: DollarSign, color: '#1D9E75', bg: '#E1F5EE', trend: '+' },
+    { label: 'Revenue', value: `$${stats.revenue.toFixed(2)}`, icon: DollarSign, color: '#1D9E75', bg: '#E1F5EE' },
     { label: 'Net profit', value: `${stats.netProfit >= 0 ? '$' : '-$'}${Math.abs(stats.netProfit).toFixed(2)}`, icon: stats.netProfit >= 0 ? TrendingUp : TrendingDown, color: stats.netProfit >= 0 ? '#1D9E75' : '#E24B4A', bg: stats.netProfit >= 0 ? '#E1F5EE' : '#FCEBEB' },
     { label: 'Active orders', value: stats.activeOrders, icon: ShoppingCart, color: '#FFA500', bg: '#FFF8E7' },
     { label: 'Products', value: stats.products, icon: Package, color: '#378ADD', bg: '#E6F1FB' },
     { label: 'Customers', value: stats.customers, icon: Users, color: '#7F77DD', bg: '#EEEDFE' },
-    { label: 'Units in stock', value: stats.totalStock, icon: Package, color: '#0F6E56', bg: '#E1F5EE' },
+    { label: 'In stock', value: stats.totalStock, icon: Package, color: '#0F6E56', bg: '#E1F5EE' },
   ]
 
   return (
     <div style={{ fontFamily: "'DM Sans', sans-serif" }}>
+      <style>{`
+        .dash-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 24px; }
+        .dash-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+        .dash-summary { display: flex; gap: 24px; align-items: center; flex-wrap: wrap; }
+        .metric-card { background: #fff; border-radius: 14px; padding: 18px 20px; border: 1px solid #eee; }
+        @media (max-width: 768px) {
+          .dash-metrics { grid-template-columns: repeat(2, 1fr) !important; gap: 10px !important; }
+          .dash-grid { grid-template-columns: 1fr !important; }
+          .dash-summary { gap: 14px !important; }
+          .metric-card { padding: 14px 16px !important; }
+        }
+        @media (max-width: 380px) {
+          .dash-metrics { grid-template-columns: repeat(2, 1fr) !important; }
+        }
+      `}</style>
+
       {/* Header */}
-      <div style={{ marginBottom: 28 }}>
-        <h1 style={{ fontSize: 28, fontWeight: 800, margin: 0, color: '#0d1b2a', letterSpacing: '-0.5px' }}>Good morning! 👋</h1>
-        <p style={{ margin: '4px 0 0', color: '#999', fontSize: 14 }}>{today}</p>
+      <div style={{ marginBottom: 22 }}>
+        <h1 style={{ fontSize: 24, fontWeight: 800, margin: 0, color: '#0d1b2a', letterSpacing: '-0.5px' }}>Good morning! 👋</h1>
+        <p style={{ margin: '4px 0 0', color: '#999', fontSize: 13 }}>{today}</p>
       </div>
 
-      {/* Big bold metrics */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 16, marginBottom: 32 }}>
+      {/* Metrics grid */}
+      <div className="dash-metrics">
         {metrics.map((m, i) => (
-          <div key={i} style={{ background: '#fff', borderRadius: 16, padding: '20px 22px', border: '1px solid #eee', position: 'relative', overflow: 'hidden' }}>
+          <div key={i} className="metric-card">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <div>
-                <div style={{ fontSize: 12, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8, fontWeight: 500 }}>{m.label}</div>
-                <div style={{ fontSize: 30, fontWeight: 800, color: m.color, letterSpacing: '-1px', lineHeight: 1 }}>{m.value}</div>
+                <div style={{ fontSize: 11, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 6, fontWeight: 500 }}>{m.label}</div>
+                <div style={{ fontSize: 26, fontWeight: 800, color: m.color, letterSpacing: '-1px', lineHeight: 1 }}>{m.value}</div>
               </div>
-              <div style={{ background: m.bg, borderRadius: 12, padding: 10, flexShrink: 0 }}>
-                <m.icon size={20} color={m.color} />
+              <div style={{ background: m.bg, borderRadius: 10, padding: 8, flexShrink: 0 }}>
+                <m.icon size={18} color={m.color} />
               </div>
             </div>
           </div>
         ))}
       </div>
 
-      {/* Activity feed */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
-
+      {/* Activity grid */}
+      <div className="dash-grid">
         {/* Recent orders */}
-        <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #eee', overflow: 'hidden' }}>
-          <div style={{ padding: '18px 20px 14px', borderBottom: '1px solid #f5f5f5', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #eee', overflow: 'hidden' }}>
+          <div style={{ padding: '16px 18px 12px', borderBottom: '1px solid #f5f5f5', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{ background: '#FFF8E7', borderRadius: 8, padding: 6 }}><ShoppingCart size={16} color="#FFA500" /></div>
-              <span style={{ fontWeight: 700, fontSize: 15, color: '#0d1b2a' }}>Recent orders</span>
+              <div style={{ background: '#FFF8E7', borderRadius: 8, padding: 6 }}><ShoppingCart size={15} color="#FFA500" /></div>
+              <span style={{ fontWeight: 700, fontSize: 14, color: '#0d1b2a' }}>Recent orders</span>
             </div>
-            <span style={{ fontSize: 12, color: '#aaa' }}>{recentOrders.length} total</span>
+            <span style={{ fontSize: 11, color: '#aaa' }}>{recentOrders.length} orders</span>
           </div>
-          <div style={{ padding: '8px 0' }}>
+          <div>
             {recentOrders.length === 0 ? (
-              <p style={{ color: '#aaa', fontSize: 13, padding: '16px 20px', margin: 0 }}>No orders yet.</p>
+              <p style={{ color: '#aaa', fontSize: 13, padding: '16px 18px', margin: 0 }}>No orders yet.</p>
             ) : recentOrders.map(o => (
-              <div key={o.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 20px', borderBottom: '1px solid #fafafa' }}>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e' }}>{o.customer_name || 'Walk-in'}</div>
-                  <div style={{ fontSize: 12, color: '#aaa', marginTop: 2 }}>{o.product_name} × {o.qty}</div>
+              <div key={o.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 18px', borderBottom: '1px solid #fafafa' }}>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.customer_name || 'Walk-in'}</div>
+                  <div style={{ fontSize: 11, color: '#aaa', marginTop: 1 }}>{o.product_name} × {o.qty}</div>
                 </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#0d1b2a' }}>${Number(o.total_price || 0).toFixed(2)}</div>
-                  <div style={{ marginTop: 4 }}><StatusBadge status={o.status} /></div>
+                <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 8 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700 }}>${Number(o.total_price || 0).toFixed(2)}</div>
+                  <div style={{ marginTop: 3 }}><StatusBadge status={o.status} /></div>
                 </div>
               </div>
             ))}
           </div>
         </div>
 
-        {/* Right column */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-
-          {/* Low stock alerts */}
-          <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #eee', overflow: 'hidden' }}>
-            <div style={{ padding: '18px 20px 14px', borderBottom: '1px solid #f5f5f5', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        {/* Right col */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {/* Low stock */}
+          <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #eee', overflow: 'hidden' }}>
+            <div style={{ padding: '16px 18px 12px', borderBottom: '1px solid #f5f5f5', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <div style={{ background: '#FFF8E1', borderRadius: 8, padding: 6 }}><AlertTriangle size={16} color="#f57f17" /></div>
-                <span style={{ fontWeight: 700, fontSize: 15, color: '#0d1b2a' }}>Low stock</span>
+                <div style={{ background: '#FFF8E1', borderRadius: 8, padding: 6 }}><AlertTriangle size={15} color="#f57f17" /></div>
+                <span style={{ fontWeight: 700, fontSize: 14, color: '#0d1b2a' }}>Low stock</span>
               </div>
-              {lowStock.length > 0 && <span style={{ background: '#FAEEDA', color: '#854F0B', fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 99 }}>{lowStock.length} items</span>}
+              {lowStock.length > 0 && <span style={{ background: '#FAEEDA', color: '#854F0B', fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 99 }}>{lowStock.length}</span>}
             </div>
-            <div style={{ padding: '8px 0' }}>
+            <div>
               {lowStock.length === 0 ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 20px' }}>
-                  <CheckCircle size={16} color="#1D9E75" />
-                  <span style={{ fontSize: 13, color: '#aaa' }}>All products well stocked!</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 18px' }}>
+                  <CheckCircle size={15} color="#1D9E75" />
+                  <span style={{ fontSize: 13, color: '#aaa' }}>All stocked up!</span>
                 </div>
               ) : lowStock.map(p => (
-                <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 20px', borderBottom: '1px solid #fafafa' }}>
-                  <div style={{ fontSize: 13, fontWeight: 500, color: '#1a1a2e' }}>{p.name}</div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 18px', borderBottom: '1px solid #fafafa' }}>
+                  <div style={{ fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{p.name}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, marginLeft: 8 }}>
                     <StockBadge qty={p.stock_qty} threshold={p.low_stock_threshold} />
-                    <span style={{ fontSize: 12, color: '#aaa' }}>{p.stock_qty} left</span>
+                    <span style={{ fontSize: 11, color: '#aaa' }}>{p.stock_qty}</span>
                   </div>
                 </div>
               ))}
@@ -147,22 +151,22 @@ export default function Dashboard() {
           </div>
 
           {/* Recent customers */}
-          <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #eee', overflow: 'hidden' }}>
-            <div style={{ padding: '18px 20px 14px', borderBottom: '1px solid #f5f5f5', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{ background: '#EEEDFE', borderRadius: 8, padding: 6 }}><Users size={16} color="#7F77DD" /></div>
-              <span style={{ fontWeight: 700, fontSize: 15, color: '#0d1b2a' }}>Recent customers</span>
+          <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #eee', overflow: 'hidden' }}>
+            <div style={{ padding: '16px 18px 12px', borderBottom: '1px solid #f5f5f5', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ background: '#EEEDFE', borderRadius: 8, padding: 6 }}><Users size={15} color="#7F77DD" /></div>
+              <span style={{ fontWeight: 700, fontSize: 14, color: '#0d1b2a' }}>Customers</span>
             </div>
-            <div style={{ padding: '8px 0' }}>
+            <div>
               {recentCustomers.length === 0 ? (
-                <p style={{ color: '#aaa', fontSize: 13, padding: '12px 20px', margin: 0 }}>No customers yet.</p>
+                <p style={{ color: '#aaa', fontSize: 13, padding: '12px 18px', margin: 0 }}>No customers yet.</p>
               ) : recentCustomers.map(c => (
-                <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 20px', borderBottom: '1px solid #fafafa' }}>
-                  <div style={{ width: 34, height: 34, borderRadius: '50%', background: '#EEEDFE', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, color: '#7F77DD', flexShrink: 0 }}>
+                <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 18px', borderBottom: '1px solid #fafafa' }}>
+                  <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#EEEDFE', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: '#7F77DD', flexShrink: 0 }}>
                     {c.name.charAt(0).toUpperCase()}
                   </div>
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e' }}>{c.name}</div>
-                    <div style={{ fontSize: 12, color: '#aaa' }}>{c.email || c.phone || 'No contact info'}</div>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</div>
+                    <div style={{ fontSize: 11, color: '#aaa' }}>{c.email || c.phone || '—'}</div>
                   </div>
                 </div>
               ))}
@@ -172,25 +176,27 @@ export default function Dashboard() {
       </div>
 
       {/* Order summary bar */}
-      <div style={{ background: '#0d1b2a', borderRadius: 16, padding: '20px 24px', display: 'flex', gap: 32, alignItems: 'center', flexWrap: 'wrap' }}>
-        <div style={{ color: '#fff' }}>
-          <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Order summary</div>
-          <div style={{ fontSize: 20, fontWeight: 800 }}>{recentOrders.length} total orders</div>
-        </div>
-        {[
-          { label: 'Pending', count: recentOrders.filter(o => o.status === 'pending').length, color: '#FFA500' },
-          { label: 'Dispatched', count: recentOrders.filter(o => o.status === 'transit').length, color: '#29b6f6' },
-          { label: 'Delivered', count: recentOrders.filter(o => o.status === 'delivered').length, color: '#1D9E75' },
-          { label: 'Cancelled', count: recentOrders.filter(o => o.status === 'cancelled').length, color: '#E24B4A' },
-        ].map(s => (
-          <div key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ width: 10, height: 10, borderRadius: '50%', background: s.color }} />
-            <div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: s.color }}>{s.count}</div>
-              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{s.label}</div>
-            </div>
+      <div style={{ background: '#0d1b2a', borderRadius: 14, padding: '18px 22px' }}>
+        <div className="dash-summary">
+          <div style={{ color: '#fff' }}>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 3 }}>Total orders</div>
+            <div style={{ fontSize: 22, fontWeight: 800 }}>{recentOrders.length}</div>
           </div>
-        ))}
+          {[
+            { label: 'Pending', count: recentOrders.filter(o => o.status === 'pending').length, color: '#FFA500' },
+            { label: 'Dispatched', count: recentOrders.filter(o => o.status === 'transit').length, color: '#29b6f6' },
+            { label: 'Delivered', count: recentOrders.filter(o => o.status === 'delivered').length, color: '#1D9E75' },
+            { label: 'Cancelled', count: recentOrders.filter(o => o.status === 'cancelled').length, color: '#E24B4A' },
+          ].map(s => (
+            <div key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ width: 8, height: 8, borderRadius: '50%', background: s.color, flexShrink: 0 }} />
+              <div>
+                <div style={{ fontSize: 20, fontWeight: 800, color: s.color, lineHeight: 1 }}>{s.count}</div>
+                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{s.label}</div>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   )

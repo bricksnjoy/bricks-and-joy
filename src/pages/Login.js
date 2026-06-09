@@ -36,9 +36,9 @@ export default function Login() {
   return (
     <div style={{
       minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-      background: 'linear-gradient(135deg, #fff8f0 0%, #e8f4fd 100%)', fontFamily: "'DM Sans', sans-serif", padding: 20
+      background: 'linear-gradient(135deg, #fff8f0 0%, #e8f4fd 100%)', fontFamily: "'DM Sans', sans-serif", padding: "16px"
     }}>
-      <div style={{ width: '100%', maxWidth: 400 }}>
+      <div style={{ width: '100%', maxWidth: 420 }}>
         {/* Logo */}
         <div style={{ textAlign: 'center', marginBottom: 40 }}>
           <img src="/logo.png" alt="Brick's & Joy" style={{ width: 100, height: 100, objectFit: 'contain', display: 'block', margin: '0 auto 12px' }} />

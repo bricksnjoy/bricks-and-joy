@@ -12,7 +12,7 @@ import Statistics from './pages/Statistics'
 import InstagramDMs from './pages/InstagramDMs'
 import {
   LayoutDashboard, Package, ShoppingCart, Users,
-  Truck, TrendingUp, BarChart3, LogOut, Instagram
+  Truck, TrendingUp, BarChart3, LogOut, Instagram, Menu, X
 } from 'lucide-react'
 
 export const AuthContext = createContext(null)
@@ -20,6 +20,7 @@ export const useAuth = () => useContext(AuthContext)
 
 function Layout({ children }) {
   const { user, signOut } = useAuth()
+  const [mobileOpen, setMobileOpen] = useState(false)
   const [expanded, setExpanded] = useState(false)
 
   const nav = [
@@ -33,73 +34,179 @@ function Layout({ children }) {
     { to: '/instagram', icon: Instagram, label: 'Instagram DMs' },
   ]
 
+  const SidebarContent = ({ mobile = false }) => (
+    <>
+      <div style={{ padding: '16px', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <img src="/logo.png" alt="Brick's & Joy" style={{ width: 36, height: 36, borderRadius: 8, objectFit: 'contain', background: '#fff', padding: 2, flexShrink: 0 }} />
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#fff', whiteSpace: 'nowrap' }}>Brick's & Joy</div>
+            <div style={{ fontSize: 10, color: '#29b6f6', textTransform: 'uppercase', letterSpacing: '1px' }}>Toy Company</div>
+          </div>
+        </div>
+        {mobile && (
+          <button onClick={() => setMobileOpen(false)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', padding: 4 }}>
+            <X size={20} />
+          </button>
+        )}
+      </div>
+      <nav style={{ flex: 1, padding: '10px 0', overflowY: 'auto' }}>
+        {nav.map(({ to, icon: Icon, label }) => (
+          <NavLink key={to} to={to} end={to === '/'}
+            onClick={() => mobile && setMobileOpen(false)}
+            style={({ isActive }) => ({
+              display: 'flex', alignItems: 'center', gap: 12, padding: '11px 16px',
+              color: isActive ? '#fff' : 'rgba(255,255,255,0.5)',
+              background: isActive ? 'rgba(255,165,0,0.12)' : 'transparent',
+              textDecoration: 'none', fontSize: 13, fontWeight: isActive ? 600 : 400,
+              borderLeft: isActive ? '3px solid #FFA500' : '3px solid transparent',
+              transition: 'all 0.15s', whiteSpace: 'nowrap'
+            })}>
+            <Icon size={18} style={{ flexShrink: 0 }} />
+            {label}
+          </NavLink>
+        ))}
+      </nav>
+      <div style={{ padding: '14px 16px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', marginBottom: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user?.email}</div>
+        <button onClick={signOut} style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: 13, padding: 0, fontFamily: 'inherit' }}>
+          <LogOut size={15} /> Sign out
+        </button>
+      </div>
+    </>
+  )
+
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: '#f5f8ff', fontFamily: "'DM Sans', sans-serif" }}>
-      {/* Slim icon sidebar */}
+
+      {/* Desktop sidebar - icon only, expands on hover */}
       <aside
         onMouseEnter={() => setExpanded(true)}
         onMouseLeave={() => setExpanded(false)}
         style={{
-          width: expanded ? 220 : 64, background: '#0d1b2a', color: '#fff',
+          width: expanded ? 220 : 64, background: '#0d1b2a',
           display: 'flex', flexDirection: 'column', flexShrink: 0,
           position: 'sticky', top: 0, height: '100vh',
           transition: 'width 0.2s ease', overflow: 'hidden',
-          borderRight: '1px solid rgba(255,255,255,0.06)', zIndex: 100
-        }}>
-        {/* Logo */}
-        <div style={{ padding: expanded ? '18px 16px' : '18px 10px', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', gap: 10, overflow: 'hidden', transition: 'padding 0.2s' }}>
+          zIndex: 100,
+          // Hide on mobile
+          display: 'none',
+        }}
+        className="desktop-sidebar"
+      >
+        <div style={{ padding: expanded ? '16px' : '16px 10px', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', gap: 10, transition: 'padding 0.2s', overflow: 'hidden' }}>
           <img src="/logo.png" alt="Brick's & Joy" style={{ width: 36, height: 36, borderRadius: 8, objectFit: 'contain', background: '#fff', padding: 2, flexShrink: 0 }} />
           {expanded && (
-            <div style={{ whiteSpace: 'nowrap', overflow: 'hidden' }}>
+            <div style={{ whiteSpace: 'nowrap' }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>Brick's & Joy</div>
               <div style={{ fontSize: 10, color: '#29b6f6', textTransform: 'uppercase', letterSpacing: '1px' }}>Toy Company</div>
             </div>
           )}
         </div>
-
-        {/* Nav items */}
         <nav style={{ flex: 1, padding: '10px 0', overflowY: 'auto', overflowX: 'hidden' }}>
           {nav.map(({ to, icon: Icon, label }) => (
-            <NavLink key={to} to={to} end={to === '/'} style={({ isActive }) => ({
-              display: 'flex', alignItems: 'center', gap: 12,
-              padding: expanded ? '10px 16px' : '10px 0',
-              justifyContent: expanded ? 'flex-start' : 'center',
-              color: isActive ? '#fff' : 'rgba(255,255,255,0.45)',
-              background: isActive ? 'rgba(255,165,0,0.12)' : 'transparent',
-              textDecoration: 'none', fontSize: 13, fontWeight: isActive ? 600 : 400,
-              borderLeft: isActive ? '3px solid #FFA500' : '3px solid transparent',
-              transition: 'all 0.15s', whiteSpace: 'nowrap', overflow: 'hidden'
-            })}>
+            <NavLink key={to} to={to} end={to === '/'}
+              style={({ isActive }) => ({
+                display: 'flex', alignItems: 'center', gap: 12,
+                padding: expanded ? '11px 16px' : '11px 0',
+                justifyContent: expanded ? 'flex-start' : 'center',
+                color: isActive ? '#fff' : 'rgba(255,255,255,0.45)',
+                background: isActive ? 'rgba(255,165,0,0.12)' : 'transparent',
+                textDecoration: 'none', fontSize: 13, fontWeight: isActive ? 600 : 400,
+                borderLeft: isActive ? '3px solid #FFA500' : '3px solid transparent',
+                transition: 'all 0.15s', whiteSpace: 'nowrap', overflow: 'hidden'
+              })}>
               <Icon size={18} style={{ flexShrink: 0 }} />
               {expanded && label}
             </NavLink>
           ))}
         </nav>
-
-        {/* Sign out */}
-        <div style={{ padding: expanded ? '14px 16px' : '14px 0', borderTop: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', gap: 10, justifyContent: expanded ? 'flex-start' : 'center' }}>
-          <button onClick={signOut} style={{
-            display: 'flex', alignItems: 'center', gap: 8, background: 'none',
-            border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer',
-            fontSize: 13, padding: 0, whiteSpace: 'nowrap'
-          }}>
+        <div style={{ padding: expanded ? '14px 16px' : '14px 0', borderTop: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: expanded ? 'flex-start' : 'center' }}>
+          <button onClick={signOut} style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: 13, padding: 0, fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
             <LogOut size={16} style={{ flexShrink: 0 }} />
             {expanded && 'Sign out'}
           </button>
         </div>
       </aside>
 
+      {/* Mobile overlay sidebar */}
+      {mobileOpen && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex' }}>
+          <div style={{ background: '#0d1b2a', width: 260, height: '100%', display: 'flex', flexDirection: 'column', boxShadow: '4px 0 20px rgba(0,0,0,0.3)' }}>
+            <SidebarContent mobile />
+          </div>
+          <div style={{ flex: 1, background: 'rgba(0,0,0,0.4)' }} onClick={() => setMobileOpen(false)} />
+        </div>
+      )}
+
       {/* Main content */}
-      <main style={{ flex: 1, padding: '32px', overflowY: 'auto', maxWidth: '100%' }}>
-        {children}
-      </main>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+
+        {/* Mobile top bar */}
+        <div className="mobile-topbar" style={{
+          display: 'none', alignItems: 'center', justifyContent: 'space-between',
+          padding: '12px 16px', background: '#0d1b2a', position: 'sticky', top: 0, zIndex: 99
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <img src="/logo.png" alt="Brick's & Joy" style={{ width: 30, height: 30, borderRadius: 6, objectFit: 'contain', background: '#fff', padding: 2 }} />
+            <span style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>Brick's & Joy</span>
+          </div>
+          <button onClick={() => setMobileOpen(true)} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', padding: 4 }}>
+            <Menu size={22} />
+          </button>
+        </div>
+
+        <main style={{ flex: 1, padding: '24px', overflowY: 'auto' }}>
+          {children}
+        </main>
+
+        {/* Mobile bottom navigation */}
+        <div className="mobile-bottomnav" style={{
+          display: 'none', position: 'sticky', bottom: 0, background: '#0d1b2a',
+          borderTop: '1px solid rgba(255,255,255,0.08)', zIndex: 99
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-around', padding: '8px 0' }}>
+            {nav.slice(0, 5).map(({ to, icon: Icon, label }) => (
+              <NavLink key={to} to={to} end={to === '/'}
+                style={({ isActive }) => ({
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
+                  padding: '6px 8px', color: isActive ? '#FFA500' : 'rgba(255,255,255,0.4)',
+                  textDecoration: 'none', fontSize: 10, fontWeight: isActive ? 600 : 400,
+                  minWidth: 50, textAlign: 'center'
+                })}>
+                <Icon size={20} />
+                {label.split(' ')[0]}
+              </NavLink>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Responsive CSS */}
+      <style>{`
+        @media (min-width: 769px) {
+          .desktop-sidebar { display: flex !important; }
+          .mobile-topbar { display: none !important; }
+          .mobile-bottomnav { display: none !important; }
+        }
+        @media (max-width: 768px) {
+          .desktop-sidebar { display: none !important; }
+          .mobile-topbar { display: flex !important; }
+          .mobile-bottomnav { display: flex !important; }
+        }
+      `}</style>
     </div>
   )
 }
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth()
-  if (loading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', fontFamily: 'DM Sans, sans-serif', color: '#888' }}>Loading…</div>
+  if (loading) return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', fontFamily: 'DM Sans, sans-serif', color: '#888', flexDirection: 'column', gap: 12 }}>
+      <img src="/logo.png" alt="logo" style={{ width: 48, borderRadius: 10 }} />
+      <span style={{ fontSize: 13 }}>Loading…</span>
+    </div>
+  )
   if (!user) return <Navigate to="/login" replace />
   return <Layout>{children}</Layout>
 }
