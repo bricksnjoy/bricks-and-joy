@@ -1,5 +1,5 @@
 import React, { useState, useEffect, createContext, useContext } from 'react'
-import { BrowserRouter, Routes, Route, Navigate, NavLink, useNavigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, NavLink } from 'react-router-dom'
 import { supabase } from './lib/supabase'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
@@ -9,10 +9,8 @@ import Customers from './pages/Customers'
 import PurchaseOrders from './pages/PurchaseOrders'
 import ProfitLoss from './pages/ProfitLoss'
 import Statistics from './pages/Statistics'
-import InstagramDMs from './pages/InstagramDMs'
 import {
   LayoutDashboard, Package, ShoppingCart, Users,
-  Truck, TrendingUp, BarChart3, LogOut, Instagram, Menu, X
 } from 'lucide-react'
 
 export const AuthContext = createContext(null)
@@ -31,7 +29,6 @@ function Layout({ children }) {
     { to: '/purchase-orders', icon: Truck, label: 'Purchase Orders' },
     { to: '/profit-loss', icon: TrendingUp, label: 'Profit & Loss' },
     { to: '/statistics', icon: BarChart3, label: 'Statistics' },
-    { to: '/instagram', icon: Instagram, label: 'Instagram DMs' },
   ]
 
   const SidebarContent = ({ mobile = false }) => (
@@ -40,7 +37,7 @@ function Layout({ children }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <img src="/logo.png" alt="Brick's & Joy" style={{ width: 36, height: 36, borderRadius: 8, objectFit: 'contain', background: '#fff', padding: 2, flexShrink: 0 }} />
           <div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#fff', whiteSpace: 'nowrap' }}>Brick's & Joy</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>Brick's & Joy</div>
             <div style={{ fontSize: 10, color: '#29b6f6', textTransform: 'uppercase', letterSpacing: '1px' }}>Toy Company</div>
           </div>
         </div>
@@ -78,30 +75,15 @@ function Layout({ children }) {
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: '#f5f8ff', fontFamily: "'DM Sans', sans-serif" }}>
-
-      {/* Desktop sidebar - icon only, expands on hover */}
+      {/* Desktop sidebar */}
       <aside
         onMouseEnter={() => setExpanded(true)}
         onMouseLeave={() => setExpanded(false)}
-        style={{
-          width: expanded ? 220 : 64, background: '#0d1b2a',
-          display: 'flex', flexDirection: 'column', flexShrink: 0,
-          position: 'sticky', top: 0, height: '100vh',
-          transition: 'width 0.2s ease', overflow: 'hidden',
-          zIndex: 100,
-          // Hide on mobile
-          display: 'none',
-        }}
         className="desktop-sidebar"
-      >
+        style={{ width: expanded ? 220 : 64, background: '#0d1b2a', display: 'flex', flexDirection: 'column', flexShrink: 0, position: 'sticky', top: 0, height: '100vh', transition: 'width 0.2s ease', overflow: 'hidden', zIndex: 100 }}>
         <div style={{ padding: expanded ? '16px' : '16px 10px', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', gap: 10, transition: 'padding 0.2s', overflow: 'hidden' }}>
           <img src="/logo.png" alt="Brick's & Joy" style={{ width: 36, height: 36, borderRadius: 8, objectFit: 'contain', background: '#fff', padding: 2, flexShrink: 0 }} />
-          {expanded && (
-            <div style={{ whiteSpace: 'nowrap' }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>Brick's & Joy</div>
-              <div style={{ fontSize: 10, color: '#29b6f6', textTransform: 'uppercase', letterSpacing: '1px' }}>Toy Company</div>
-            </div>
-          )}
+          {expanded && <div><div style={{ fontSize: 13, fontWeight: 700, color: '#fff', whiteSpace: 'nowrap' }}>Brick's & Joy</div><div style={{ fontSize: 10, color: '#29b6f6', textTransform: 'uppercase', letterSpacing: '1px' }}>Toy Company</div></div>}
         </div>
         <nav style={{ flex: 1, padding: '10px 0', overflowY: 'auto', overflowX: 'hidden' }}>
           {nav.map(({ to, icon: Icon, label }) => (
@@ -129,7 +111,7 @@ function Layout({ children }) {
         </div>
       </aside>
 
-      {/* Mobile overlay sidebar */}
+      {/* Mobile overlay */}
       {mobileOpen && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex' }}>
           <div style={{ background: '#0d1b2a', width: 260, height: '100%', display: 'flex', flexDirection: 'column', boxShadow: '4px 0 20px rgba(0,0,0,0.3)' }}>
@@ -139,14 +121,9 @@ function Layout({ children }) {
         </div>
       )}
 
-      {/* Main content */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-
         {/* Mobile top bar */}
-        <div className="mobile-topbar" style={{
-          display: 'none', alignItems: 'center', justifyContent: 'space-between',
-          padding: '12px 16px', background: '#0d1b2a', position: 'sticky', top: 0, zIndex: 99
-        }}>
+        <div className="mobile-topbar" style={{ display: 'none', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: '#0d1b2a', position: 'sticky', top: 0, zIndex: 99 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <img src="/logo.png" alt="Brick's & Joy" style={{ width: 30, height: 30, borderRadius: 6, objectFit: 'contain', background: '#fff', padding: 2 }} />
             <span style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>Brick's & Joy</span>
@@ -160,20 +137,12 @@ function Layout({ children }) {
           {children}
         </main>
 
-        {/* Mobile bottom navigation */}
-        <div className="mobile-bottomnav" style={{
-          display: 'none', position: 'sticky', bottom: 0, background: '#0d1b2a',
-          borderTop: '1px solid rgba(255,255,255,0.08)', zIndex: 99
-        }}>
+        {/* Mobile bottom nav */}
+        <div className="mobile-bottomnav" style={{ display: 'none', position: 'sticky', bottom: 0, background: '#0d1b2a', borderTop: '1px solid rgba(255,255,255,0.08)', zIndex: 99 }}>
           <div style={{ display: 'flex', justifyContent: 'space-around', padding: '8px 0' }}>
             {nav.slice(0, 5).map(({ to, icon: Icon, label }) => (
               <NavLink key={to} to={to} end={to === '/'}
-                style={({ isActive }) => ({
-                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
-                  padding: '6px 8px', color: isActive ? '#FFA500' : 'rgba(255,255,255,0.4)',
-                  textDecoration: 'none', fontSize: 10, fontWeight: isActive ? 600 : 400,
-                  minWidth: 50, textAlign: 'center'
-                })}>
+                style={({ isActive }) => ({ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, padding: '6px 8px', color: isActive ? '#FFA500' : 'rgba(255,255,255,0.4)', textDecoration: 'none', fontSize: 10, fontWeight: isActive ? 600 : 400, minWidth: 50, textAlign: 'center' })}>
                 <Icon size={20} />
                 {label.split(' ')[0]}
               </NavLink>
@@ -182,18 +151,9 @@ function Layout({ children }) {
         </div>
       </div>
 
-      {/* Responsive CSS */}
       <style>{`
-        @media (min-width: 769px) {
-          .desktop-sidebar { display: flex !important; }
-          .mobile-topbar { display: none !important; }
-          .mobile-bottomnav { display: none !important; }
-        }
-        @media (max-width: 768px) {
-          .desktop-sidebar { display: none !important; }
-          .mobile-topbar { display: flex !important; }
-          .mobile-bottomnav { display: flex !important; }
-        }
+        @media (min-width: 769px) { .desktop-sidebar { display: flex !important; } .mobile-topbar { display: none !important; } .mobile-bottomnav { display: none !important; } }
+        @media (max-width: 768px) { .desktop-sidebar { display: none !important; } .mobile-topbar { display: flex !important; } .mobile-bottomnav { display: flex !important; } }
       `}</style>
     </div>
   )
@@ -202,9 +162,9 @@ function Layout({ children }) {
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth()
   if (loading) return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', fontFamily: 'DM Sans, sans-serif', color: '#888', flexDirection: 'column', gap: 12 }}>
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', fontFamily: 'DM Sans, sans-serif', flexDirection: 'column', gap: 12 }}>
       <img src="/logo.png" alt="logo" style={{ width: 48, borderRadius: 10 }} />
-      <span style={{ fontSize: 13 }}>Loading…</span>
+      <span style={{ fontSize: 13, color: '#888' }}>Loading…</span>
     </div>
   )
   if (!user) return <Navigate to="/login" replace />
@@ -226,10 +186,7 @@ export default function App() {
     return () => subscription.unsubscribe()
   }, [])
 
-  const signOut = async () => {
-    await supabase.auth.signOut()
-    setUser(null)
-  }
+  const signOut = async () => { await supabase.auth.signOut(); setUser(null) }
 
   return (
     <AuthContext.Provider value={{ user, loading, signOut }}>
@@ -243,7 +200,6 @@ export default function App() {
           <Route path="/purchase-orders" element={<ProtectedRoute><PurchaseOrders /></ProtectedRoute>} />
           <Route path="/profit-loss" element={<ProtectedRoute><ProfitLoss /></ProtectedRoute>} />
           <Route path="/statistics" element={<ProtectedRoute><Statistics /></ProtectedRoute>} />
-          <Route path="/instagram" element={<ProtectedRoute><InstagramDMs /></ProtectedRoute>} />
         </Routes>
       </BrowserRouter>
     </AuthContext.Provider>
