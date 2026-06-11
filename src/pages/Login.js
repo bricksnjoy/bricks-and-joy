@@ -36,7 +36,7 @@ export default function Login() {
   return (
     <div style={{
       minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-      background: 'linear-gradient(135deg, #fff8f0 0%, #e8f4fd 100%)', fontFamily: "'DM Sans', sans-serif", padding: "16px"
+      background: 'linear-gradient(135deg, #fff8f0 0%, #e8f4fd 100%)', fontFamily: "'Poppins', sans-serif", padding: "16px"
     }}>
       <div style={{ width: '100%', maxWidth: 420 }}>
         {/* Logo */}

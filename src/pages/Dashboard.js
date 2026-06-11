@@ -43,8 +43,8 @@ export default function Dashboard() {
   const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
 
   const metrics = [
-    { label: 'Revenue', value: `$${stats.revenue.toFixed(2)}`, icon: DollarSign, color: '#1D9E75', bg: '#E1F5EE' },
-    { label: 'Net profit', value: `${stats.netProfit >= 0 ? '$' : '-$'}${Math.abs(stats.netProfit).toFixed(2)}`, icon: stats.netProfit >= 0 ? TrendingUp : TrendingDown, color: stats.netProfit >= 0 ? '#1D9E75' : '#E24B4A', bg: stats.netProfit >= 0 ? '#E1F5EE' : '#FCEBEB' },
+    { label: 'Revenue', value: `MVR ${(stats.revenue).toFixed(2)}`, icon: DollarSign, color: '#1D9E75', bg: '#E1F5EE' },
+    { label: 'Net profit', value: `${stats.netProfit >= 0 ? 'MVR ' : '-MVR '}${Math.abs(stats.netProfit).toFixed(2)}`, icon: stats.netProfit >= 0 ? TrendingUp : TrendingDown, color: stats.netProfit >= 0 ? '#1D9E75' : '#E24B4A', bg: stats.netProfit >= 0 ? '#E1F5EE' : '#FCEBEB' },
     { label: 'Active orders', value: stats.activeOrders, icon: ShoppingCart, color: '#FFA500', bg: '#FFF8E7' },
     { label: 'Products', value: stats.products, icon: Package, color: '#378ADD', bg: '#E6F1FB' },
     { label: 'Customers', value: stats.customers, icon: Users, color: '#7F77DD', bg: '#EEEDFE' },
@@ -52,7 +52,7 @@ export default function Dashboard() {
   ]
 
   return (
-    <div style={{ fontFamily: "'DM Sans', sans-serif" }}>
+    <div style={{ fontFamily: "'Poppins', sans-serif" }}>
       <style>{`
         .dash-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 24px; }
         .dash-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
@@ -113,7 +113,7 @@ export default function Dashboard() {
                   <div style={{ fontSize: 11, color: '#aaa', marginTop: 1 }}>{o.product_name} × {o.qty}</div>
                 </div>
                 <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 8 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700 }}>${Number(o.total_price || 0).toFixed(2)}</div>
+                  <div style={{ fontSize: 13, fontWeight: 700 }}>MVR {Number(o.total_price || 0).toFixed(2)}</div>
                   <div style={{ marginTop: 3 }}><StatusBadge status={o.status} /></div>
                 </div>
               </div>
