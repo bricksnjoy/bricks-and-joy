@@ -312,7 +312,7 @@ export default function Orders() {
 
       {/* New order modal */}
       {modal && (
-        <Modal title="New order" onClose={() => { setModal(false); stopOrderScan() }} width={560}>
+        <Modal title="New order" onClose={() => { setModal(false); setScanning(false) }} width={560}>
           <FormRow>
             <Select label="Customer" value={form.customer_id} onChange={handleCustomerChange}
               options={[{ value: '', label: '— Walk-in / No customer —' }, ...customers.map(c => ({ value: c.id, label: c.name }))]}
@@ -323,7 +323,7 @@ export default function Orders() {
           <div style={{ marginBottom: 14 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
               <label style={{ fontSize: 12, color: '#666', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.4px' }}>Product *</label>
-              <button onClick={scanning ? stopOrderScan : startOrderScan}
+              <button onClick={scanning ? () => setScanning(false) : () => setScanning(true)}
                 style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px', background: scanning ? '#c62828' : '#FFA500', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600, fontFamily: 'inherit' }}>
                 <Camera size={13} /> {scanning ? '⏹ Stop scan' : '📷 Scan barcode'}
               </button>

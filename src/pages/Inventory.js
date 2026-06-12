@@ -81,6 +81,7 @@ export default function Inventory() {
   }
   function openEdit(p) { setForm({ ...EMPTY, ...p, sizes: p.sizes || '', tags: p.tags || '' }); setModal('edit') }
   function openView(p) { setViewModal(p) }
+  function startScanner() { setScanModal(true); setScanResult(null) }
   function openBarcode(p) { 
     if (!p.barcode) {
       const bc = genBarcode(p.name, p.id)
