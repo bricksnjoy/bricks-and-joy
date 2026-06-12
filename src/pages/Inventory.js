@@ -4,6 +4,7 @@ import { PageHeader, Card, Button, Input, Select, Table, Modal, Badge, StockBadg
 import { Plus, Trash2, Edit2, Upload, X, Package, Eye, Barcode, Download, Printer, Camera } from 'lucide-react'
 import JsBarcode from 'jsbarcode'
 import QRCode from 'qrcode'
+import BarcodeScanner from '../components/BarcodeScanner'
 
 const CATEGORIES = ['Building & Blocks','Action Figures','Dolls & Plush','Board Games','Outdoor & Sports','Educational','Vehicles & RC','Arts & Crafts','Puzzles','Other']
 const AGE_RANGES = ['0–2','3–5','6–8','9–12','12+','All ages']
@@ -254,48 +255,10 @@ export default function Inventory() {
     w.document.close()
   }
 
-  // Barcode scanner using camera
-  async function startScanner() {
-    setScanModal(true)
-    setScanResult(null)
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream
-        videoRef.current.play()
-      }
-      // Use BarcodeDetector API if available
-      if ('BarcodeDetector' in window) {
-        const detector = new window.BarcodeDetector({ formats: ['code_128', 'ean_13', 'qr_code'] })
-        scannerRef.current = setInterval(async () => {
-          if (videoRef.current && videoRef.current.readyState === 4) {
-            try {
-              const barcodes = await detector.detect(videoRef.current)
-              if (barcodes.length > 0) {
-                const code = barcodes[0].rawValue
-                clearInterval(scannerRef.current)
-                stream.getTracks().forEach(t => t.stop())
-                // Find product
-                const found = products.find(p => p.barcode === code || p.sku === code)
-                setScanResult({ code, product: found || null })
-              }
-            } catch {}
-          }
-        }, 300)
-      } else {
-        toast.info('Camera scanning not supported on this browser. Try Chrome on Android.')
-      }
-    } catch {
-      toast.error('Camera access denied. Please allow camera permission.')
-      setScanModal(false)
-    }
-  }
-
-  function stopScanner() {
-    if (scannerRef.current) clearInterval(scannerRef.current)
-    if (videoRef.current?.srcObject) videoRef.current.srcObject.getTracks().forEach(t => t.stop())
+  function handleScanResult(code) {
+    const found = products.find(p => p.barcode === code || p.sku === code)
+    setScanResult({ code, product: found || null })
     setScanModal(false)
-    setScanResult(null)
   }
 
   const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
@@ -408,44 +371,41 @@ export default function Inventory() {
 
       {/* ── SCANNER MODAL ── */}
       {scanModal && (
-        <Modal title="📷 Scan barcode" onClose={stopScanner} width={420}>
-          <div style={{ position: 'relative', borderRadius: 12, overflow: 'hidden', background: '#000', marginBottom: 16 }}>
-            <video ref={videoRef} style={{ width: '100%', display: 'block', borderRadius: 12 }} playsInline muted />
-            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
-              <div style={{ width: 200, height: 100, border: '2px solid #FFA500', borderRadius: 8, boxShadow: '0 0 0 9999px rgba(0,0,0,0.4)' }} />
-            </div>
-          </div>
-          {scanResult ? (
-            <div style={{ padding: '16px', borderRadius: 12, background: scanResult.product ? '#E1F5EE' : '#FFF8E1', border: `1px solid ${scanResult.product ? '#cde' : '#FAEEDA'}` }}>
-              {scanResult.product ? (
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: 15, color: '#0d1b2a', marginBottom: 8 }}>✅ Product found!</div>
-                  <div style={{ fontSize: 14, fontWeight: 600 }}>{scanResult.product.name}</div>
-                  <div style={{ fontSize: 13, color: '#666', marginTop: 4 }}>Price: MVR {Number(scanResult.product.sell_price).toFixed(2)}</div>
-                  <div style={{ fontSize: 13, color: '#666' }}>Stock: {scanResult.product.stock_qty}</div>
-                  <div style={{ fontSize: 11, color: '#aaa', fontFamily: 'monospace', marginTop: 4 }}>{scanResult.code}</div>
-                  <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-                    <Button onClick={() => { openView(scanResult.product); stopScanner() }}>View details</Button>
-                    <Button variant="ghost" onClick={() => { setScanResult(null); startScanner() }}>Scan again</Button>
-                  </div>
-                </div>
-              ) : (
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: 15, color: '#854F0B', marginBottom: 8 }}>⚠️ Not found</div>
-                  <div style={{ fontSize: 13, color: '#666' }}>Barcode <span style={{ fontFamily: 'monospace' }}>{scanResult.code}</span> not in inventory</div>
-                  <Button onClick={() => { setScanResult(null) }} style={{ marginTop: 10 }} variant="ghost">Scan again</Button>
-                </div>
-              )}
-            </div>
+        <Modal title="📷 Scan barcode or QR code" onClose={() => { setScanModal(false); setScanResult(null) }} width={420}>
+          {!scanResult ? (
+            <BarcodeScanner
+              onScan={handleScanResult}
+              onClose={() => setScanModal(false)}
+            />
           ) : (
-            <div style={{ textAlign: 'center', color: '#888', fontSize: 13, padding: '8px 0' }}>
-              Point camera at a barcode or QR code…
-              <div style={{ fontSize: 11, color: '#aaa', marginTop: 4 }}>Works best on Chrome (Android/desktop)</div>
+            <div>
+              <div style={{ padding: '16px', borderRadius: 12, background: scanResult.product ? '#E1F5EE' : '#FFF8E1', border: `1px solid ${scanResult.product ? '#cde' : '#FAEEDA'}`, marginBottom: 16 }}>
+                {scanResult.product ? (
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 15, color: '#0d1b2a', marginBottom: 8 }}>✅ Product found!</div>
+                    {scanResult.product.photo_url && <img src={scanResult.product.photo_url} alt="" style={{ width: 60, height: 60, borderRadius: 8, objectFit: 'cover', marginBottom: 8 }} />}
+                    <div style={{ fontSize: 14, fontWeight: 600 }}>{scanResult.product.name}</div>
+                    <div style={{ fontSize: 13, color: '#666', marginTop: 4 }}>Price: MVR {Number(scanResult.product.sell_price).toFixed(2)}</div>
+                    <div style={{ fontSize: 13, color: '#666' }}>Stock: {scanResult.product.stock_qty}</div>
+                    <div style={{ fontSize: 11, color: '#aaa', fontFamily: 'monospace', marginTop: 4 }}>{scanResult.code}</div>
+                    <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                      <Button onClick={() => { openView(scanResult.product); setScanModal(false); setScanResult(null) }}>View details</Button>
+                      <Button variant="ghost" onClick={() => setScanResult(null)}>Scan again</Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 15, color: '#854F0B', marginBottom: 8 }}>⚠️ Not found</div>
+                    <div style={{ fontSize: 13, color: '#666' }}>Code <span style={{ fontFamily: 'monospace' }}>{scanResult.code}</span> not in your inventory.</div>
+                    <Button onClick={() => setScanResult(null)} style={{ marginTop: 10 }} variant="ghost">Scan again</Button>
+                  </div>
+                )}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <Button variant="ghost" onClick={() => { setScanModal(false); setScanResult(null) }}>Close</Button>
+              </div>
             </div>
           )}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
-            <Button variant="ghost" onClick={stopScanner}>Close scanner</Button>
-          </div>
         </Modal>
       )}
 

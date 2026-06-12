@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Button, Input, Select, Table, Modal, StatusBadge, StockBadge, Spinner, FormRow, useToast, Toasts, Badge } from '../components/UI'
 import { Plus, Trash2, AlertTriangle, Package, Upload, Eye, CreditCard, X, Camera } from 'lucide-react'
+import BarcodeScanner from '../components/BarcodeScanner'
 
 const CHANNELS = ['Retail store','Online','Wholesale','Pop-up / Market','Instagram','Phone']
 const STATUSES = [{ value: 'pending', label: 'Pending' },{ value: 'transit', label: 'Dispatched' },{ value: 'delivered', label: 'Delivered' },{ value: 'cancelled', label: 'Cancelled' }]
@@ -48,50 +49,15 @@ export default function Orders() {
     setModal(true) 
   }
 
-  // Scanner for order form
-  async function startOrderScan() {
-    setScanning(true)
-    setScanError('')
-    setTimeout(async () => {
-      try {
-        const { Html5Qrcode } = await import('html5-qrcode')
-        const scanner = new Html5Qrcode('order-scan-region')
-        scannerRef.current = scanner
-        await scanner.start(
-          { facingMode: 'environment' },
-          { fps: 10, qrbox: { width: 250, height: 150 }, supportedScanTypes: [] },
-          (decodedText) => {
-            scanner.stop().catch(() => {})
-            let code = decodedText
-            // Handle QR with JSON
-            try { const p = JSON.parse(decodedText); if (p.barcode) code = p.barcode } catch {}
-            // Find product
-            const found = products.find(p => p.barcode === code || p.sku === code)
-            if (found) {
-              setForm(prev => ({ ...prev, product_id: found.id, product_name: found.name, unit_price: found.sell_price || 0 }))
-              toast.success(`✅ ${found.name} selected!`)
-              setScanning(false)
-            } else {
-              setScanError(`No product found for code: ${code}`)
-              setScanning(false)
-            }
-          },
-          () => {}
-        )
-      } catch {
-        setScanError('Camera access denied. Please allow camera permission.')
-        setScanning(false)
-      }
-    }, 300)
-  }
-
-  function stopOrderScan() {
-    if (scannerRef.current) {
-      try { scannerRef.current.stop().catch(() => {}) } catch {}
-      scannerRef.current = null
+  function handleOrderScan(code) {
+    const found = products.find(p => p.barcode === code || p.sku === code)
+    if (found) {
+      setForm(prev => ({ ...prev, product_id: found.id, product_name: found.name, unit_price: found.sell_price || 0 }))
+      toast.success(`✅ ${found.name} selected!`)
+    } else {
+      setScanError(`No product found for barcode: ${code}`)
     }
     setScanning(false)
-    setScanError('')
   }
 
   function handleProductChange(e) {
@@ -365,11 +331,11 @@ export default function Orders() {
 
             {/* Live scanner */}
             {scanning && (
-              <div style={{ marginBottom: 10, borderRadius: 10, overflow: 'hidden', border: '2px solid #FFA500' }}>
-                <div id="order-scan-region" style={{ width: '100%' }} />
-                <div style={{ background: '#fff8f0', padding: '8px 12px', fontSize: 12, color: '#854F0B', textAlign: 'center' }}>
-                  📷 Point at product barcode or QR code — auto-selects instantly
-                </div>
+              <div style={{ marginBottom: 10 }}>
+                <BarcodeScanner
+                  onScan={handleOrderScan}
+                  onClose={() => setScanning(false)}
+                />
               </div>
             )}
 
