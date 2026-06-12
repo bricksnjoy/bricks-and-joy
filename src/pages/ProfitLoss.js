@@ -22,7 +22,7 @@ export default function Accounting() {
     setLoading(true)
     const [o, p, e, po, c] = await Promise.all([
       supabase.from('orders').select('*').order('order_date'),
-      supabase.from('products').select('id, name, cost_price'),
+      supabase.from('products').select('id, name, cost_price, stock_qty'),
       supabase.from('expenses').select('*').order('expense_date', { ascending: false }),
       supabase.from('purchase_orders').select('*'),
       supabase.from('customers').select('*'),
