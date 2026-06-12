@@ -9,12 +9,11 @@ import CostManagement from './pages/CostManagement'
 import ProfitLoss from './pages/ProfitLoss'
 import Statistics from './pages/Statistics'
 import PurchaseOrders from './pages/PurchaseOrders'
-import InstagramDMs from './pages/InstagramDMs'
 import Vendors from './pages/Vendors'
 import {
   LayoutDashboard, ShoppingCart, Package, Users, TrendingUp,
-  DollarSign, BarChart2, Truck, Instagram, ChevronDown, ChevronRight,
-  LogOut, Building2, FileText, Menu, X
+  DollarSign, BarChart2, Truck, ChevronDown, ChevronRight,
+  LogOut, Building2, FileText, Menu
 } from 'lucide-react'
 
 const NAV = [
@@ -31,7 +30,6 @@ const NAV = [
       { id: 'inventory', label: 'Inventory', icon: Package },
       { id: 'purchase-orders', label: 'Purchase Orders', icon: Truck },
       { id: 'customers', label: 'Customers', icon: Users },
-      { id: 'instagram', label: 'Instagram Orders', icon: Instagram },
     ]
   },
   {
@@ -86,7 +84,6 @@ export default function App() {
     inventory: <Inventory />,
     'purchase-orders': <PurchaseOrders />,
     customers: <Customers />,
-    instagram: <InstagramDMs />,
     'profit-loss': <ProfitLoss />,
     costs: <CostManagement />,
     vendors: <Vendors />,
