@@ -278,7 +278,7 @@ export default function Accounting() {
 
       {/* Tabs */}
       <div className="acc-tabs">
-        {[['income', 'Income Statement', FileText], ['monthly', 'Monthly Reports', Calendar], ['journal', 'Journal', BookOpen], ['download', 'Download Documents', Download]].map(([id, label, Icon]) => (
+        {[['income', 'Income Statement', FileText], ['balance', 'Balance Sheet', BookOpen], ['cashflow', 'Cash Flow', TrendingUp], ['transactions', 'Transactions', Calendar], ['monthly', 'Monthly Reports', Calendar], ['journal', 'Journal', BookOpen], ['download', 'Download Documents', Download]].map(([id, label, Icon]) => (
           <button key={id} className="acc-tab" onClick={() => setActiveTab(id)}
             style={{ background: activeTab === id ? '#fff' : 'transparent', color: activeTab === id ? '#0d1b2a' : '#888', boxShadow: activeTab === id ? '0 1px 4px rgba(0,0,0,0.1)' : 'none', fontWeight: activeTab === id ? 700 : 500 }}>
             <Icon size={14} /> {label}
@@ -351,6 +351,191 @@ export default function Accounting() {
           </div>
         </div>
       )}
+
+      {/* ── BALANCE SHEET ── */}
+      {activeTab === 'balance' && (() => {
+        const inventory = products.reduce((s, p) => s + (p.stock_qty || 0) * Number(p.cost_price || 0), 0)
+        const cashFromSales = delivered.reduce((s, o) => s + Number(o.total_price || 0), 0)
+        const totalAssets = inventory + cashFromSales
+        const accountsPayable = purchaseOrders.filter(po => po.status !== 'received').reduce((s, po) => s + Number(po.total_cost || 0), 0)
+        const totalLiabilities = accountsPayable
+        const equity = totalAssets - totalLiabilities
+        return (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+            <Card>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20, paddingBottom: 16, borderBottom: '2px solid #0d1b2a' }}>
+                <div>
+                  <div style={{ fontSize: 17, fontWeight: 800, color: '#0d1b2a' }}>{companyName}</div>
+                  <div style={{ fontSize: 13, color: '#555', marginTop: 2 }}>Balance Sheet</div>
+                  <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>{periodLabel}</div>
+                </div>
+              </div>
+              <table className="is-table"><tbody>
+                <tr><td style={{ fontWeight: 700, color: '#0d1b2a' }}>ASSETS</td><td></td></tr>
+                <tr><td style={{ paddingLeft: 24 }}>Cash & Accounts Receivable</td><td style={{ textAlign: 'right', fontWeight: 500 }}>{fmt(cashFromSales)}</td></tr>
+                <tr><td style={{ paddingLeft: 24 }}>Inventory (at cost)</td><td style={{ textAlign: 'right', fontWeight: 500 }}>{fmt(inventory)}</td></tr>
+                <tr style={{ borderTop: '2px solid #0d1b2a' }}><td style={{ fontWeight: 800, fontSize: 14, paddingTop: 10 }}>TOTAL ASSETS</td><td style={{ textAlign: 'right', fontWeight: 800, fontSize: 14, paddingTop: 10, color: '#1D9E75' }}>{fmt(totalAssets)}</td></tr>
+                <tr><td style={{ fontWeight: 700, color: '#0d1b2a', paddingTop: 20 }}>LIABILITIES</td><td></td></tr>
+                <tr><td style={{ paddingLeft: 24 }}>Accounts Payable (open POs)</td><td style={{ textAlign: 'right', fontWeight: 500, color: '#c62828' }}>{fmt(accountsPayable)}</td></tr>
+                <tr style={{ borderTop: '2px solid #0d1b2a' }}><td style={{ fontWeight: 800, fontSize: 14, paddingTop: 10 }}>TOTAL LIABILITIES</td><td style={{ textAlign: 'right', fontWeight: 800, fontSize: 14, paddingTop: 10, color: '#c62828' }}>{fmt(totalLiabilities)}</td></tr>
+                <tr><td style={{ fontWeight: 700, color: '#0d1b2a', paddingTop: 20 }}>EQUITY</td><td></td></tr>
+                <tr><td style={{ paddingLeft: 24 }}>Retained Earnings</td><td style={{ textAlign: 'right', fontWeight: 500 }}>{fmt(netIncome)}</td></tr>
+                <tr style={{ borderTop: '3px double #0d1b2a' }}><td style={{ fontWeight: 800, fontSize: 15, paddingTop: 14 }}>TOTAL EQUITY</td><td style={{ textAlign: 'right', fontWeight: 800, fontSize: 16, paddingTop: 14, color: equity >= 0 ? '#1D9E75' : '#c62828' }}>{fmt(equity)}</td></tr>
+              </tbody></table>
+              <div style={{ marginTop: 16, padding: '8px 12px', background: '#f8f7f4', borderRadius: 8, fontSize: 11, color: '#999', textAlign: 'center' }}>
+                Assets = Liabilities + Equity · Inventory valued at cost price
+              </div>
+            </Card>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {[
+                { label: 'Total Assets', val: totalAssets, color: '#1D9E75' },
+                { label: 'Total Liabilities', val: totalLiabilities, color: '#c62828' },
+                { label: 'Net Equity', val: equity, color: equity >= 0 ? '#1D9E75' : '#c62828' },
+                { label: 'Inventory Value', val: inventory, color: '#378ADD' },
+              ].map((m, i) => (
+                <div key={i} style={{ background: '#fff', borderRadius: 12, padding: '16px 20px', border: '1px solid #eee' }}>
+                  <div style={{ fontSize: 11, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>{m.label}</div>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: m.color }}>{fmt(m.val)}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* ── CASH FLOW ── */}
+      {activeTab === 'cashflow' && (() => {
+        const cashIn = delivered.reduce((s, o) => s + Number(o.total_price || 0), 0)
+        const cashOutExpenses = expenses.filter(e => inPeriod(e.expense_date)).reduce((s, e) => s + Number(e.amount || 0), 0)
+        const cashOutPurchases = purchaseOrders.filter(po => po.status === 'received' && inPeriod(po.order_date)).reduce((s, po) => s + Number(po.total_cost || 0), 0)
+        const operatingCashFlow = cashIn - cashOutExpenses
+        const investingCashFlow = -cashOutPurchases
+        const netCashFlow = operatingCashFlow + investingCashFlow
+
+        const monthlyFlow = {}
+        delivered.forEach(o => { const m = o.order_date?.slice(0,7); if(m) { if(!monthlyFlow[m]) monthlyFlow[m]={in:0,out:0}; monthlyFlow[m].in += Number(o.total_price||0) } })
+        expenses.forEach(e => { const m = e.expense_date?.slice(0,7); if(m) { if(!monthlyFlow[m]) monthlyFlow[m]={in:0,out:0}; monthlyFlow[m].out += Number(e.amount||0) } })
+        purchaseOrders.filter(po=>po.status==='received').forEach(po => { const m = po.order_date?.slice(0,7); if(m) { if(!monthlyFlow[m]) monthlyFlow[m]={in:0,out:0}; monthlyFlow[m].out += Number(po.total_cost||0) } })
+
+        return (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+            <Card>
+              <div style={{ marginBottom: 20, paddingBottom: 16, borderBottom: '2px solid #0d1b2a' }}>
+                <div style={{ fontSize: 17, fontWeight: 800, color: '#0d1b2a' }}>{companyName}</div>
+                <div style={{ fontSize: 13, color: '#555', marginTop: 2 }}>Cash Flow Statement</div>
+                <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>{periodLabel}</div>
+              </div>
+              <table className="is-table"><tbody>
+                <tr><td style={{ fontWeight: 700, color: '#0d1b2a' }}>OPERATING ACTIVITIES</td><td></td></tr>
+                <tr><td style={{ paddingLeft: 24 }}>Cash received from customers</td><td style={{ textAlign: 'right', color: '#1D9E75', fontWeight: 500 }}>{fmt(cashIn)}</td></tr>
+                <tr><td style={{ paddingLeft: 24 }}>Cash paid for expenses</td><td style={{ textAlign: 'right', color: '#c62828', fontWeight: 500 }}>({fmt(cashOutExpenses)})</td></tr>
+                <tr style={{ borderTop: '1px solid #eee' }}><td style={{ fontWeight: 700 }}>Net Operating Cash Flow</td><td style={{ textAlign: 'right', fontWeight: 700, color: operatingCashFlow >= 0 ? '#1D9E75' : '#c62828' }}>{fmt(operatingCashFlow)}</td></tr>
+                <tr><td style={{ fontWeight: 700, color: '#0d1b2a', paddingTop: 20 }}>INVESTING ACTIVITIES</td><td></td></tr>
+                <tr><td style={{ paddingLeft: 24 }}>Purchase of inventory</td><td style={{ textAlign: 'right', color: '#c62828', fontWeight: 500 }}>({fmt(cashOutPurchases)})</td></tr>
+                <tr style={{ borderTop: '1px solid #eee' }}><td style={{ fontWeight: 700 }}>Net Investing Cash Flow</td><td style={{ textAlign: 'right', fontWeight: 700, color: '#c62828' }}>{fmt(Math.abs(investingCashFlow))}</td></tr>
+                <tr style={{ borderTop: '3px double #0d1b2a' }}><td style={{ fontWeight: 800, fontSize: 15, paddingTop: 14 }}>NET CASH FLOW</td><td style={{ textAlign: 'right', fontWeight: 800, fontSize: 16, paddingTop: 14, color: netCashFlow >= 0 ? '#1D9E75' : '#c62828' }}>{fmt(netCashFlow)}</td></tr>
+              </tbody></table>
+            </Card>
+            <div>
+              <h3 style={{ fontSize: 14, fontWeight: 700, color: '#0d1b2a', marginBottom: 14 }}>Monthly cash flow</h3>
+              {Object.entries(monthlyFlow).sort((a,b)=>b[0].localeCompare(a[0])).slice(0,6).map(([m, flow]) => {
+                const net = flow.in - flow.out
+                return (
+                  <div key={m} style={{ background: '#fff', borderRadius: 10, border: '1px solid #eee', padding: '12px 16px', marginBottom: 10 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                      <span style={{ fontWeight: 600, fontSize: 13 }}>{new Date(m+'-01').toLocaleDateString('en',{month:'long',year:'numeric'})}</span>
+                      <span style={{ fontWeight: 700, color: net >= 0 ? '#1D9E75' : '#c62828' }}>{net >= 0 ? '+' : ''}{fmt(net)}</span>
+                    </div>
+                    <div style={{ display: 'flex', gap: 16, fontSize: 12 }}>
+                      <span style={{ color: '#1D9E75' }}>▲ {fmt(flow.in)}</span>
+                      <span style={{ color: '#c62828' }}>▼ {fmt(flow.out)}</span>
+                    </div>
+                  </div>
+                )
+              })}
+              {Object.keys(monthlyFlow).length === 0 && <p style={{ color: '#aaa', fontSize: 13 }}>No cash flow data yet.</p>}
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* ── TRANSACTIONS ── */}
+      {activeTab === 'transactions' && (() => {
+        const allTxn = [
+          ...orders.filter(o => inPeriod(o.order_date)).map(o => ({
+            date: o.order_date, type: 'sale', ref: o.invoice_number || `ORD-${o.id?.slice(0,6)}`,
+            description: `Sale: ${o.product_name} ×${o.qty} — ${o.customer_name || 'Walk-in'}`,
+            amount: Number(o.total_price || 0), direction: 'in',
+            status: o.status, payment: o.payment_status || 'unpaid', channel: o.channel
+          })),
+          ...expenses.filter(e => inPeriod(e.expense_date)).map(e => ({
+            date: e.expense_date, type: 'expense', ref: `EXP-${e.id?.slice(0,6)}`,
+            description: `${e.category}: ${e.description}`,
+            amount: Number(e.amount || 0), direction: 'out', status: 'done', payment: 'paid'
+          })),
+          ...purchaseOrders.filter(po => inPeriod(po.order_date)).map(po => ({
+            date: po.order_date, type: 'purchase', ref: `PO-${po.id?.slice(0,6)}`,
+            description: `Purchase: ${po.product_name} ×${po.qty} from ${po.supplier_name || 'Supplier'}`,
+            amount: Number(po.total_cost || 0), direction: 'out', status: po.status, payment: po.status === 'received' ? 'paid' : 'pending'
+          })),
+        ].sort((a,b) => new Date(b.date) - new Date(a.date))
+
+        const totalIn = allTxn.filter(t=>t.direction==='in').reduce((s,t)=>s+t.amount,0)
+        const totalOut = allTxn.filter(t=>t.direction==='out').reduce((s,t)=>s+t.amount,0)
+
+        return (
+          <div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 14, marginBottom: 20 }}>
+              {[
+                { label: 'Total in', val: totalIn, color: '#1D9E75' },
+                { label: 'Total out', val: totalOut, color: '#c62828' },
+                { label: 'Net', val: totalIn - totalOut, color: (totalIn-totalOut) >= 0 ? '#1D9E75' : '#c62828' },
+              ].map((m,i) => (
+                <div key={i} style={{ background: '#fff', borderRadius: 12, padding: '16px 20px', border: '1px solid #eee' }}>
+                  <div style={{ fontSize: 11, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>{m.label}</div>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: m.color }}>{fmt(m.val)}</div>
+                </div>
+              ))}
+            </div>
+            <Card>
+              <h3 style={{ fontSize: 14, fontWeight: 700, color: '#0d1b2a', marginBottom: 16 }}>All transactions</h3>
+              {allTxn.length === 0 ? <p style={{ color: '#aaa', fontSize: 13, textAlign: 'center', padding: '30px 0' }}>No transactions in this period.</p> : (
+                <div style={{ border: '1px solid #eee', borderRadius: 10, overflow: 'hidden' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                    <thead><tr style={{ background: '#fafafa' }}>
+                      {['Date','Ref','Description','Type','Amount',''].map(h => (
+                        <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontSize: 11, color: '#999', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.4px', borderBottom: '1px solid #eee' }}>{h}</th>
+                      ))}
+                    </tr></thead>
+                    <tbody>
+                      {allTxn.map((t, i) => (
+                        <tr key={i} style={{ borderBottom: i < allTxn.length-1 ? '1px solid #f5f5f5' : 'none' }}>
+                          <td style={{ padding: '9px 12px', color: '#888', fontSize: 12, whiteSpace: 'nowrap' }}>{t.date}</td>
+                          <td style={{ padding: '9px 12px', fontSize: 11, fontFamily: 'monospace', color: '#aaa' }}>{t.ref}</td>
+                          <td style={{ padding: '9px 12px', fontWeight: 500, maxWidth: 260 }}>{t.description}</td>
+                          <td style={{ padding: '9px 12px' }}>
+                            <span style={{ padding: '2px 8px', borderRadius: 99, fontSize: 11, fontWeight: 600,
+                              background: t.type==='sale' ? '#E1F5EE' : t.type==='expense' ? '#FCEBEB' : '#EEF4FF',
+                              color: t.type==='sale' ? '#1D9E75' : t.type==='expense' ? '#c62828' : '#378ADD' }}>
+                              {t.type}
+                            </span>
+                          </td>
+                          <td style={{ padding: '9px 12px', fontWeight: 700, color: t.direction==='in' ? '#1D9E75' : '#c62828', whiteSpace: 'nowrap' }}>
+                            {t.direction==='in' ? '+' : '-'}{fmt(t.amount)}
+                          </td>
+                          <td style={{ padding: '9px 12px' }}>
+                            <span style={{ fontSize: 11, color: t.payment==='paid' ? '#1D9E75' : '#f57f17', fontWeight: 600 }}>{t.payment}</span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Card>
+          </div>
+        )
+      })()}
 
       {/* ── MONTHLY REPORTS ── */}
       {activeTab === 'monthly' && (

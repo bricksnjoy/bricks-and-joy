@@ -210,7 +210,7 @@ export default function Customers() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
                   <tr style={{ background: '#fafafa' }}>
-                    {['Invoice', 'Product', 'Qty', 'Total', 'Date', 'Status', 'Payment', ''].map(h => (
+                    {['Invoice', 'Product', 'Qty', 'Total', 'Date', 'Status', 'Payment', 'Slip', ''].map(h => (
                       <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontSize: 11, color: '#999', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.4px', borderBottom: '1px solid #eee' }}>{h}</th>
                     ))}
                   </tr>
@@ -228,6 +228,15 @@ export default function Customers() {
                         <Badge color={(o.payment_status || 'unpaid') === 'paid' ? 'green' : (o.payment_status || 'unpaid') === 'partial' ? 'amber' : 'red'}>
                           {o.payment_status || 'unpaid'}
                         </Badge>
+                      </td>
+                      <td style={{ padding: '9px 12px' }}>
+                        {o.transfer_slip_url
+                          ? <a href={o.transfer_slip_url} target="_blank" rel="noopener noreferrer"
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', background: '#E1F5EE', color: '#1D9E75', borderRadius: 6, fontSize: 11, fontWeight: 600, textDecoration: 'none' }}>
+                              🧾 View slip
+                            </a>
+                          : <span style={{ color: '#ddd', fontSize: 11 }}>—</span>
+                        }
                       </td>
                       <td style={{ padding: '9px 12px' }}>
                         <button onClick={() => printPayslip(o, viewModal)}
