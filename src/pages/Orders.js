@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Button, Input, Select, Table, Modal, StatusBadge, StockBadge, Spinner, FormRow, useToast, Toasts, Badge } from '../components/UI'
-import { Plus, Trash2, AlertTriangle, Package, Upload, Eye, CreditCard, X } from 'lucide-react'
+import { Plus, Trash2, AlertTriangle, Package, Upload, Eye, CreditCard, X, Camera } from 'lucide-react'
 
 const CHANNELS = ['Retail store','Online','Wholesale','Pop-up / Market','Instagram','Phone']
 const STATUSES = [{ value: 'pending', label: 'Pending' },{ value: 'transit', label: 'Dispatched' },{ value: 'delivered', label: 'Delivered' },{ value: 'cancelled', label: 'Cancelled' }]
@@ -22,6 +22,9 @@ export default function Orders() {
   const [filter, setFilter] = useState('all')
   const [payFilter, setPayFilter] = useState('all')
   const [uploadingSlip, setUploadingSlip] = useState(false)
+  const [scanning, setScanning] = useState(false)
+  const [scanError, setScanError] = useState('')
+  const scannerRef = useRef(null)
   const toast = useToast()
 
   useEffect(() => { load() }, [])
@@ -43,6 +46,52 @@ export default function Orders() {
     const num = `INV-${Date.now().toString().slice(-6)}`
     setForm({ ...EMPTY, order_date: new Date().toISOString().split('T')[0], invoice_number: num })
     setModal(true) 
+  }
+
+  // Scanner for order form
+  async function startOrderScan() {
+    setScanning(true)
+    setScanError('')
+    setTimeout(async () => {
+      try {
+        const { Html5Qrcode } = await import('html5-qrcode')
+        const scanner = new Html5Qrcode('order-scan-region')
+        scannerRef.current = scanner
+        await scanner.start(
+          { facingMode: 'environment' },
+          { fps: 10, qrbox: { width: 250, height: 150 }, supportedScanTypes: [] },
+          (decodedText) => {
+            scanner.stop().catch(() => {})
+            let code = decodedText
+            // Handle QR with JSON
+            try { const p = JSON.parse(decodedText); if (p.barcode) code = p.barcode } catch {}
+            // Find product
+            const found = products.find(p => p.barcode === code || p.sku === code)
+            if (found) {
+              setForm(prev => ({ ...prev, product_id: found.id, product_name: found.name, unit_price: found.sell_price || 0 }))
+              toast.success(`✅ ${found.name} selected!`)
+              setScanning(false)
+            } else {
+              setScanError(`No product found for code: ${code}`)
+              setScanning(false)
+            }
+          },
+          () => {}
+        )
+      } catch {
+        setScanError('Camera access denied. Please allow camera permission.')
+        setScanning(false)
+      }
+    }, 300)
+  }
+
+  function stopOrderScan() {
+    if (scannerRef.current) {
+      try { scannerRef.current.stop().catch(() => {}) } catch {}
+      scannerRef.current = null
+    }
+    setScanning(false)
+    setScanError('')
   }
 
   function handleProductChange(e) {
@@ -297,17 +346,62 @@ export default function Orders() {
 
       {/* New order modal */}
       {modal && (
-        <Modal title="New order" onClose={() => setModal(false)} width={560}>
+        <Modal title="New order" onClose={() => { setModal(false); stopOrderScan() }} width={560}>
           <FormRow>
             <Select label="Customer" value={form.customer_id} onChange={handleCustomerChange}
               options={[{ value: '', label: '— Walk-in / No customer —' }, ...customers.map(c => ({ value: c.id, label: c.name }))]}
               style={{ gridColumn: 'span 2' }} />
           </FormRow>
-          <FormRow>
-            <Select label="Product *" value={form.product_id} onChange={handleProductChange}
-              options={[{ value: '', label: '— Select product —' }, ...products.map(p => ({ value: p.id, label: `${p.name} (${p.stock_qty} in stock)` }))]}
-              style={{ gridColumn: 'span 2' }} />
-          </FormRow>
+
+          {/* Product — scan or select */}
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+              <label style={{ fontSize: 12, color: '#666', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.4px' }}>Product *</label>
+              <button onClick={scanning ? stopOrderScan : startOrderScan}
+                style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px', background: scanning ? '#c62828' : '#FFA500', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600, fontFamily: 'inherit' }}>
+                <Camera size={13} /> {scanning ? '⏹ Stop scan' : '📷 Scan barcode'}
+              </button>
+            </div>
+
+            {/* Live scanner */}
+            {scanning && (
+              <div style={{ marginBottom: 10, borderRadius: 10, overflow: 'hidden', border: '2px solid #FFA500' }}>
+                <div id="order-scan-region" style={{ width: '100%' }} />
+                <div style={{ background: '#fff8f0', padding: '8px 12px', fontSize: 12, color: '#854F0B', textAlign: 'center' }}>
+                  📷 Point at product barcode or QR code — auto-selects instantly
+                </div>
+              </div>
+            )}
+
+            {/* Scan error */}
+            {scanError && (
+              <div style={{ background: '#FCEBEB', border: '1px solid #fcc', borderRadius: 8, padding: '8px 12px', marginBottom: 8, fontSize: 13, color: '#c62828' }}>
+                ⚠️ {scanError} — try selecting from the list below
+              </div>
+            )}
+
+            {/* Scanned product confirmation */}
+            {form.product_id && !scanning && (
+              <div style={{ background: '#E1F5EE', border: '1px solid #cde', borderRadius: 10, padding: '10px 14px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
+                <span style={{ fontSize: 18 }}>✅</span>
+                <div style={{ flex: 1 }}>
+                  <strong style={{ color: '#0d1b2a' }}>{form.product_name}</strong>
+                  <span style={{ color: '#1D9E75', marginLeft: 8, fontWeight: 600 }}>MVR {Number(form.unit_price).toFixed(2)}</span>
+                </div>
+                <button onClick={() => setForm(p => ({ ...p, product_id: '', product_name: '', unit_price: 0 }))}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#aaa', padding: 2 }}>
+                  <X size={14} />
+                </button>
+              </div>
+            )}
+
+            {/* Manual dropdown */}
+            <select value={form.product_id} onChange={handleProductChange}
+              style={{ width: '100%', padding: '9px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', background: '#fff', outline: 'none', cursor: 'pointer', color: form.product_id ? '#0d1b2a' : '#aaa' }}>
+              <option value="">— Or select from list —</option>
+              {products.map(p => <option key={p.id} value={p.id}>{p.name} ({p.stock_qty} in stock)</option>)}
+            </select>
+          </div>
           {selectedProduct && (
             <div style={{ background: insufficientStock ? '#FCEBEB' : stockAfter <= lowThreshold ? '#FFF8E1' : '#E1F5EE', border: `1px solid ${insufficientStock ? '#fcc' : stockAfter <= lowThreshold ? '#FAEEDA' : '#cde'}`, borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 13, display: 'flex', alignItems: 'center', gap: 10 }}>
               <Package size={15} color={insufficientStock ? '#c62828' : stockAfter <= lowThreshold ? '#f57f17' : '#1D9E75'} />
