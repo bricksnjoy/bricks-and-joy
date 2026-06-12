@@ -118,7 +118,9 @@ export default function Inventory() {
     setSaving(true)
     // Auto-generate barcode if empty
     const barcode = form.barcode || genBarcode(form.name, form.id || Date.now())
-    const payload = { ...form, barcode, stock_qty: parseInt(form.stock_qty) || 0, cost_price: parseFloat(form.cost_price) || 0, sell_price: parseFloat(form.sell_price) || 0, low_stock_threshold: parseInt(form.low_stock_threshold) || 10 }
+    // Strip out nested relation data (suppliers object) before saving
+    const { suppliers: _s, ...formClean } = form
+    const payload = { ...formClean, barcode, stock_qty: parseInt(form.stock_qty) || 0, cost_price: parseFloat(form.cost_price) || 0, sell_price: parseFloat(form.sell_price) || 0, low_stock_threshold: parseInt(form.low_stock_threshold) || 10 }
     const { error } = modal === 'add'
       ? await supabase.from('products').insert(payload)
       : await supabase.from('products').update(payload).eq('id', form.id)
