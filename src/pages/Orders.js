@@ -7,12 +7,14 @@ import BarcodeScanner from '../components/BarcodeScanner'
 const CHANNELS = ['Retail store','Online','Wholesale','Pop-up / Market','Instagram','Phone']
 const STATUSES = [{ value: 'pending', label: 'Pending' },{ value: 'transit', label: 'Dispatched' },{ value: 'delivered', label: 'Delivered' },{ value: 'cancelled', label: 'Cancelled' }]
 const PAY_METHODS = ['Cash','BML Transfer','Bank Transfer','Card','Other']
-const EMPTY = { customer_id:'', customer_name:'', product_id:'', product_name:'', qty:1, unit_price:0, channel:'Retail store', status:'pending', order_date: new Date().toISOString().split('T')[0], notes:'', payment_status:'unpaid', payment_method:'', transfer_reference:'', invoice_number:'' }
+const EMPTY = { customer_id:'', customer_name:'', product_id:'', product_name:'', qty:1, unit_price:0, channel:'Retail store', status:'pending', order_date: new Date().toISOString().split('T')[0], notes:'', payment_status:'unpaid', payment_method:'', transfer_reference:'', invoice_number:'', delivery_person:'' }
 
 export default function Orders() {
   const [orders, setOrders] = useState([])
   const [customers, setCustomers] = useState([])
   const [products, setProducts] = useState([])
+  const [deliveryStaff, setDeliveryStaff] = useState(() => { try { return JSON.parse(localStorage.getItem('deliveryStaff') || '[]') } catch { return [] } })
+  const [newStaff, setNewStaff] = useState('')
   const [loading, setLoading] = useState(true)
   const [modal, setModal] = useState(false)
   const [viewModal, setViewModal] = useState(null)
@@ -176,6 +178,7 @@ export default function Orders() {
       </div>
     )},
     { key: 'channel', label: 'Channel', render: r => <span style={{ color: '#888', fontSize: 12 }}>{r.channel}</span> },
+    { key: 'delivery_person', label: 'Delivery', render: r => r.delivery_person ? <span style={{ fontSize: 12, background: '#EEF4FF', color: '#378ADD', padding: '2px 8px', borderRadius: 99, fontWeight: 600 }}>🚴 {r.delivery_person}</span> : <span style={{ color: '#ddd' }}>—</span> },
     { key: 'order_date', label: 'Date', render: r => <span style={{ color: '#888', fontSize: 12 }}>{r.order_date}</span> },
     { key: 'status', label: 'Status', render: r => (
       <select value={r.status} onChange={e => updateStatus(r.id, e.target.value)}
@@ -383,6 +386,22 @@ export default function Orders() {
             <Select label="Channel" value={form.channel} onChange={f('channel')} options={CHANNELS} />
             <Select label="Status" value={form.status} onChange={f('status')} options={STATUSES} />
           </FormRow>
+          {/* Delivery person */}
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ fontSize: 12, color: '#666', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.4px', display: 'block', marginBottom: 6 }}>Delivery person</label>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <select value={form.delivery_person} onChange={f('delivery_person')}
+                style={{ flex: 1, padding: '9px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', background: '#fff', outline: 'none' }}>
+                <option value="">— None / Self pickup —</option>
+                {deliveryStaff.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+              <input value={newStaff} onChange={e => setNewStaff(e.target.value)} placeholder="Add new…"
+                style={{ width: 120, padding: '9px 10px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', outline: 'none' }}
+                onKeyDown={e => { if (e.key === 'Enter' && newStaff.trim()) { const updated = [...deliveryStaff, newStaff.trim()]; setDeliveryStaff(updated); localStorage.setItem('deliveryStaff', JSON.stringify(updated)); setForm(p => ({ ...p, delivery_person: newStaff.trim() })); setNewStaff('') } }} />
+              <button onClick={() => { if (newStaff.trim()) { const updated = [...deliveryStaff, newStaff.trim()]; setDeliveryStaff(updated); localStorage.setItem('deliveryStaff', JSON.stringify(updated)); setForm(p => ({ ...p, delivery_person: newStaff.trim() })); setNewStaff('') } }}
+                style={{ padding: '9px 14px', background: '#FFA500', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600, fontFamily: 'inherit' }}>+</button>
+            </div>
+          </div>
           <FormRow>
             <Select label="Payment" value={form.payment_status} onChange={f('payment_status')} options={[{ value:'unpaid', label:'Unpaid' },{ value:'paid', label:'Paid' },{ value:'partial', label:'Partial' }]} />
             <Input label="Order date" type="date" value={form.order_date} onChange={f('order_date')} />
