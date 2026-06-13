@@ -431,7 +431,7 @@ export default function Statistics() {
                 </ResponsiveContainer>
               </Card>
               <Card>
-                <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 16, color: '#0d1b2a' }}>Cost vs Revenue</h3>
+                <ChartTitle icon={BarChart3} color="#1D9E75">Cost vs Revenue</ChartTitle>
                 {(() => {
                   const totalExp = t.expChart.reduce((s, e) => s + e.value, 0)
                   const gross = t.revenue - totalExp
