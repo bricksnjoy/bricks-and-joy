@@ -2,9 +2,37 @@ import React, { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Spinner, Badge } from '../components/UI'
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, AreaChart, Area } from 'recharts'
-import { TrendingUp, TrendingDown, Package, ShoppingCart, Users, Star, AlertTriangle } from 'lucide-react'
+import { TrendingUp, TrendingDown, Package, ShoppingCart, Users, AlertTriangle, BarChart3, PieChart as PieIcon, LineChart as LineIcon, Activity, Trophy, Medal, Award, Flame, ArrowUpRight, ArrowDownRight, ArrowRight, CheckCircle, Minus, Coins } from 'lucide-react'
 
 const COLORS = ['#FFA500','#0d1b2a','#1D9E75','#378ADD','#f57f17','#7F77DD','#c62828','#29b6f6']
+
+// ─── Chart / section title ──────────────────────────────────────────────────────
+function ChartTitle({ icon: Icon, color = '#0d1b2a', gap = 16, children }) {
+  return (
+    <h3 style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: 14, fontWeight: 700, color: '#0d1b2a', margin: `0 0 ${gap}px`, letterSpacing: '-0.2px' }}>
+      {Icon && (
+        <span style={{ display: 'inline-flex', background: color + '14', borderRadius: 8, padding: 6 }}>
+          <Icon size={15} color={color} />
+        </span>
+      )}
+      {children}
+    </h3>
+  )
+}
+
+// ─── Rank indicator (top-3 medals, then number) ─────────────────────────────────
+function RankIcon({ i }) {
+  const medals = [
+    { icon: Trophy, color: '#FFA500' },
+    { icon: Medal, color: '#9CA3AF' },
+    { icon: Award, color: '#CD7F32' },
+  ]
+  if (i < 3) {
+    const M = medals[i].icon
+    return <M size={15} color={medals[i].color} style={{ flexShrink: 0 }} />
+  }
+  return <span style={{ color: '#bbb', fontWeight: 600, fontSize: 12 }}>#{i + 1}</span>
+}
 
 export default function Statistics() {
   const [data, setData] = useState(null)
@@ -132,24 +160,32 @@ export default function Statistics() {
   const t = data
   const tt = { background: '#fff', border: '1px solid #eee', borderRadius: 8, fontSize: 12 }
 
-  const tabs = [['overview','Overview'],['products','Products'],['forecast','Forecast'],['customers','Customers'],['costs','Cost Analysis']]
+  const tabs = [['overview','Overview',BarChart3],['products','Products',Package],['forecast','Forecast',LineIcon],['customers','Customers',Users],['costs','Cost Analysis',Coins]]
 
   return (
-    <div>
+    <div style={{ fontFamily: "'Poppins', sans-serif" }}>
       <style>{`
-        .stat-tabs { display: flex; gap: 0; background: #f0f0f0; border-radius: 10px; padding: 4px; margin-bottom: 20px; flex-wrap: wrap; }
-        .stat-tab { padding: 8px 18px; border-radius: 7px; border: none; cursor: pointer; font-size: 13px; font-weight: 500; font-family: inherit; transition: all 0.15s; }
+        .stat-tabs { display: flex; gap: 0; background: #f0f0f0; border-radius: 10px; padding: 4px; margin-bottom: 22px; flex-wrap: wrap; }
+        .stat-tab { display: inline-flex; align-items: center; gap: 7px; padding: 8px 16px; border-radius: 7px; border: none; cursor: pointer; font-size: 13px; font-weight: 500; font-family: inherit; transition: all 0.15s; }
+        .stat-tab:hover { color: #0d1b2a; }
         .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 24px; }
         .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+        .kpi-card { background: #fff; border-radius: 14px; padding: 16px 18px; border: 1px solid #eee; position: relative; overflow: hidden; display: flex; justify-content: space-between; align-items: flex-start; transition: box-shadow 0.2s, transform 0.2s; }
+        .kpi-card::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--accent); }
+        .kpi-card:hover { box-shadow: 0 8px 24px rgba(0,0,0,0.08); transform: translateY(-2px); }
+        .stat-row { transition: background 0.12s; }
+        .stat-row:hover { background: #fafafa; }
+        @keyframes statFadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
         @media (max-width: 768px) { .kpi-grid { grid-template-columns: repeat(2,1fr)!important; } .chart-grid { grid-template-columns: 1fr!important; } }
       `}</style>
 
       <PageHeader title="Statistics & Analytics" subtitle="Performance, forecasting and business insights" />
 
       <div className="stat-tabs">
-        {tabs.map(([id, label]) => (
+        {tabs.map(([id, label, Icon]) => (
           <button key={id} className="stat-tab" onClick={() => setActiveTab(id)}
-            style={{ background: activeTab === id ? '#fff' : 'transparent', color: activeTab === id ? '#0d1b2a' : '#888', boxShadow: activeTab === id ? '0 1px 4px rgba(0,0,0,0.1)' : 'none', fontWeight: activeTab === id ? 700 : 500 }}>
+            style={{ background: activeTab === id ? '#fff' : 'transparent', color: activeTab === id ? '#0d1b2a' : '#888', boxShadow: activeTab === id ? '0 1px 4px rgba(0,0,0,0.1)' : 'none', fontWeight: activeTab === id ? 600 : 500 }}>
+            <Icon size={14} color={activeTab === id ? '#FFA500' : '#aaa'} />
             {label}
           </button>
         ))}
@@ -169,20 +205,20 @@ export default function Statistics() {
               { label: 'Cancellation rate', val: `${t.returnRate.toFixed(1)}%`, color: t.returnRate > 10 ? '#c62828' : '#1D9E75', icon: TrendingDown },
               { label: 'Low stock items', val: t.lowStockCount, color: t.lowStockCount > 0 ? '#f57f17' : '#1D9E75', icon: AlertTriangle },
             ].map((m, i) => (
-              <div key={i} style={{ background: '#fff', borderRadius: 12, padding: '16px 18px', border: '1px solid #eee', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div key={i} className="kpi-card" style={{ '--accent': m.color, animation: 'statFadeUp 0.3s ease both', animationDelay: `${i * 0.04}s` }}>
                 <div>
-                  <div style={{ fontSize: 11, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 5 }}>{m.label}</div>
-                  <div style={{ fontSize: 20, fontWeight: 800, color: m.color, letterSpacing: '-0.5px' }}>{m.val}</div>
+                  <div style={{ fontSize: 11, color: '#bbb', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 5, fontWeight: 600 }}>{m.label}</div>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: m.color, letterSpacing: '-0.5px' }}>{m.val}</div>
                   {m.sub && <div style={{ fontSize: 11, color: '#aaa', marginTop: 3 }}>{m.sub}</div>}
                 </div>
-                <div style={{ background: '#f8f7f4', borderRadius: 8, padding: 8 }}><m.icon size={16} color={m.color} /></div>
+                <div style={{ background: m.color + '14', borderRadius: 9, padding: 8 }}><m.icon size={16} color={m.color} /></div>
               </div>
             ))}
           </div>
 
           {t.revenueChart.length > 0 && (
             <Card style={{ marginBottom: 20 }}>
-              <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 16, color: '#0d1b2a' }}>Revenue over time</h3>
+              <ChartTitle icon={Activity} color="#FFA500">Revenue over time</ChartTitle>
               <ResponsiveContainer width="100%" height={220}>
                 <AreaChart data={t.revenueChart}>
                   <defs><linearGradient id="revGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#FFA500" stopOpacity={0.2}/><stop offset="95%" stopColor="#FFA500" stopOpacity={0}/></linearGradient></defs>
@@ -199,7 +235,7 @@ export default function Statistics() {
           <div className="chart-grid">
             {t.channelChart.length > 0 && (
               <Card>
-                <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 16, color: '#0d1b2a' }}>Sales by channel</h3>
+                <ChartTitle icon={BarChart3} color="#0d1b2a">Sales by channel</ChartTitle>
                 <ResponsiveContainer width="100%" height={200}>
                   <BarChart data={t.channelChart}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
@@ -212,7 +248,7 @@ export default function Statistics() {
               </Card>
             )}
             <Card>
-              <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 16, color: '#0d1b2a' }}>Order status</h3>
+              <ChartTitle icon={PieIcon} color="#378ADD">Order status</ChartTitle>
               <ResponsiveContainer width="100%" height={200}>
                 <PieChart>
                   <Pie data={Object.entries(t.statusCount).map(([name, value]) => ({ name: name.charAt(0).toUpperCase() + name.slice(1), value }))} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={75}>
@@ -235,7 +271,7 @@ export default function Statistics() {
         <>
           {t.productChart.length > 0 && (
             <Card style={{ marginBottom: 20 }}>
-              <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 16, color: '#0d1b2a' }}>Product revenue ranking</h3>
+              <ChartTitle icon={BarChart3} color="#FFA500">Product revenue ranking</ChartTitle>
               <ResponsiveContainer width="100%" height={Math.max(200, t.productChart.length * 40)}>
                 <BarChart data={t.productChart} layout="vertical">
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" horizontal={false} />
@@ -249,7 +285,7 @@ export default function Statistics() {
           )}
 
           <Card>
-            <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 16, color: '#0d1b2a' }}>Product performance table</h3>
+            <ChartTitle icon={Package} color="#0d1b2a">Product performance table</ChartTitle>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
@@ -259,12 +295,12 @@ export default function Statistics() {
                 </thead>
                 <tbody>
                   {t.productChart.map((p, i) => (
-                    <tr key={p.name} style={{ borderBottom: '1px solid #f5f5f5' }}>
+                    <tr key={p.name} className="stat-row" style={{ borderBottom: '1px solid #f5f5f5' }}>
                       <td style={{ padding: '10px 12px', fontWeight: 600 }}>
-                        {i === 0 && <span style={{ marginRight: 6 }}>🏆</span>}
-                        {i === 1 && <span style={{ marginRight: 6 }}>🥈</span>}
-                        {i === 2 && <span style={{ marginRight: 6 }}>🥉</span>}
-                        {p.name}
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+                          <RankIcon i={i} />
+                          {p.name}
+                        </span>
                       </td>
                       <td style={{ padding: '10px 12px', fontWeight: 700, color: '#1D9E75' }}>MVR {p.revenue.toFixed(2)}</td>
                       <td style={{ padding: '10px 12px' }}>{p.units}</td>
@@ -282,13 +318,14 @@ export default function Statistics() {
       {/* ── FORECAST ── */}
       {activeTab === 'forecast' && (
         <>
-          <div style={{ background: '#E1F5EE', border: '1px solid #cde', borderRadius: 12, padding: '14px 18px', marginBottom: 20, fontSize: 13, color: '#0F6E56' }}>
-            📈 <strong>How forecasting works:</strong> We use linear regression on your monthly revenue trend to project the next 3 months. The more data you have, the more accurate the forecast.
+          <div style={{ background: '#E1F5EE', border: '1px solid #c8eed8', borderRadius: 12, padding: '14px 18px', marginBottom: 20, fontSize: 13, color: '#0F6E56', display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+            <div style={{ background: 'rgba(15,110,86,0.12)', borderRadius: 8, padding: 6, display: 'flex', flexShrink: 0 }}><LineIcon size={15} color="#0F6E56" /></div>
+            <span><strong style={{ fontWeight: 600 }}>How forecasting works:</strong> We use linear regression on your monthly revenue trend to project the next 3 months. The more data you have, the more accurate the forecast.</span>
           </div>
 
           {t.forecastData.length > 0 && (
             <Card style={{ marginBottom: 20 }}>
-              <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 4, color: '#0d1b2a' }}>Revenue forecast — next 3 months</h3>
+              <ChartTitle icon={LineIcon} color="#378ADD" gap={4}>Revenue forecast — next 3 months</ChartTitle>
               <p style={{ fontSize: 12, color: '#999', marginBottom: 16, marginTop: 0 }}>Solid line = actual · Dashed = forecast</p>
               <ResponsiveContainer width="100%" height={260}>
                 <LineChart data={t.forecastData}>
@@ -306,7 +343,7 @@ export default function Statistics() {
 
           {t.hotProducts.length > 0 && (
             <Card>
-              <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 4, color: '#0d1b2a' }}>🔥 Trending products</h3>
+              <ChartTitle icon={Flame} color="#E24B4A" gap={4}>Trending products</ChartTitle>
               <p style={{ fontSize: 12, color: '#999', marginBottom: 16, marginTop: 0 }}>Based on recent vs previous sales velocity</p>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
@@ -320,16 +357,20 @@ export default function Statistics() {
                     const isHot = trendNum > 20
                     const isCold = trendNum < -20
                     return (
-                      <tr key={p.name} style={{ borderBottom: '1px solid #f5f5f5' }}>
+                      <tr key={p.name} className="stat-row" style={{ borderBottom: '1px solid #f5f5f5' }}>
                         <td style={{ padding: '10px 12px', fontWeight: 600 }}>{p.name}</td>
                         <td style={{ padding: '10px 12px' }}>{p.recent} units</td>
                         <td style={{ padding: '10px 12px' }}>
-                          <span style={{ color: isHot ? '#1D9E75' : isCold ? '#c62828' : '#f57f17', fontWeight: 700 }}>
-                            {isHot ? '↑' : isCold ? '↓' : '→'} {trendNum > 0 ? '+' : ''}{trendNum}%
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: isHot ? '#1D9E75' : isCold ? '#E24B4A' : '#f57f17', fontWeight: 600 }}>
+                            {isHot ? <ArrowUpRight size={14} /> : isCold ? <ArrowDownRight size={14} /> : <ArrowRight size={14} />}
+                            {trendNum > 0 ? '+' : ''}{trendNum}%
                           </span>
                         </td>
                         <td style={{ padding: '10px 12px', fontSize: 12, color: '#555' }}>
-                          {isHot ? '✅ Stock up — high demand' : isCold ? '⚠️ Slow moving — consider promotion' : '📊 Stable demand'}
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                            {isHot ? <CheckCircle size={14} color="#1D9E75" /> : isCold ? <AlertTriangle size={14} color="#f57f17" /> : <Minus size={14} color="#aaa" />}
+                            {isHot ? 'Stock up — high demand' : isCold ? 'Slow moving — consider promotion' : 'Stable demand'}
+                          </span>
                         </td>
                       </tr>
                     )
@@ -347,7 +388,7 @@ export default function Statistics() {
       {activeTab === 'customers' && (
         <>
           <Card style={{ marginBottom: 20 }}>
-            <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 16, color: '#0d1b2a' }}>Top customers by revenue</h3>
+            <ChartTitle icon={Trophy} color="#FFA500">Top customers by revenue</ChartTitle>
             {t.topCustomers.length === 0 ? <p style={{ color: '#aaa', fontSize: 13 }}>No customer order data yet.</p>
               : (
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
@@ -356,9 +397,9 @@ export default function Statistics() {
                   ))}</tr></thead>
                   <tbody>
                     {t.topCustomers.map(([name, stats], i) => (
-                      <tr key={name} style={{ borderBottom: '1px solid #f5f5f5' }}>
+                      <tr key={name} className="stat-row" style={{ borderBottom: '1px solid #f5f5f5' }}>
                         <td style={{ padding: '10px 12px', color: '#aaa' }}>
-                          {i === 0 ? '🏆' : i === 1 ? '🥈' : i === 2 ? '🥉' : `#${i + 1}`}
+                          {i < 3 ? <RankIcon i={i} /> : `#${i + 1}`}
                         </td>
                         <td style={{ padding: '10px 12px', fontWeight: 600 }}>{name}</td>
                         <td style={{ padding: '10px 12px' }}>{stats.orders}</td>
@@ -379,7 +420,7 @@ export default function Statistics() {
           {t.expChart.length > 0 ? (
             <>
               <Card>
-                <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 16, color: '#0d1b2a' }}>Cost breakdown</h3>
+                <ChartTitle icon={PieIcon} color="#E24B4A">Cost breakdown</ChartTitle>
                 <ResponsiveContainer width="100%" height={260}>
                   <PieChart>
                     <Pie data={t.expChart} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={90} label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={false} fontSize={10}>

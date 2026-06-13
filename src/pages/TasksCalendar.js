@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { PageHeader, Card, Button, Input, Select, Modal, Spinner, useToast, Toasts } from '../components/UI'
-import { Plus, Trash2, CheckCircle, Circle, ChevronLeft, ChevronRight, Calendar, ClipboardList } from 'lucide-react'
+import { PageHeader, Card, Button, Modal, Spinner, useToast, Toasts } from '../components/UI'
+import { Plus, Trash2, CheckCircle, Circle, ChevronLeft, ChevronRight, Calendar, ClipboardList, Square, Bike, User, Pin, CalendarDays, History } from 'lucide-react'
 
 const PRIORITIES = ['Low', 'Medium', 'High']
 const PRIORITY_COLORS = { Low: '#1D9E75', Medium: '#f57f17', High: '#c62828' }
@@ -59,7 +59,7 @@ export default function TasksCalendar() {
       saveHistory([completed, ...taskHistory])
     }
     saveTasks(tasks.filter(t => t.id !== id))
-    toast.success('Task completed! ✅')
+    toast.success('Task completed!')
   }
 
   function deleteTask(id) {
@@ -136,6 +136,8 @@ export default function TasksCalendar() {
         .cal-header-cell { background: #f8f7f4; padding: 10px 8px; text-align: center; font-size: 11px; font-weight: 700; color: #aaa; text-transform: uppercase; letter-spacing: 0.5px; }
         .task-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin: 1px; }
         .tab-btn { padding: 8px 20px; border-radius: 8px; border: none; cursor: pointer; font-size: 13px; font-weight: 600; font-family: inherit; display: flex; align-items: center; gap: 6px; transition: all 0.15s; }
+        .cal-nav-btn:hover { background: #f5f5f5; }
+        .event-label { display: flex; align-items: center; gap: 3px; }
         @media (max-width: 768px) { .cal-cell { min-height: 60px; padding: 4px; } .cal-cell .event-label { display: none; } }
       `}</style>
 
@@ -153,14 +155,14 @@ export default function TasksCalendar() {
         ].map((m, i) => (
           <div key={i} style={{ background: '#fff', borderRadius: 14, padding: '16px 20px', border: '1px solid #eee' }}>
             <div style={{ fontSize: 11, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>{m.label}</div>
-            <div style={{ fontSize: 28, fontWeight: 800, color: m.color }}>{m.value}</div>
+            <div style={{ fontSize: 28, fontWeight: 700, color: m.color, letterSpacing: '-0.5px' }}>{m.value}</div>
           </div>
         ))}
       </div>
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
-        {[['calendar', 'Calendar', Calendar], ['tasks', 'Task List', ClipboardList], ['history', 'History', CheckCircle]].map(([id, label, Icon]) => (
+        {[['calendar', 'Calendar', CalendarDays], ['tasks', 'Task List', ClipboardList], ['history', 'History', History]].map(([id, label, Icon]) => (
           <button key={id} className="tab-btn" onClick={() => setActiveTab(id)}
             style={{ background: activeTab === id ? '#FFA500' : '#fff', color: activeTab === id ? '#fff' : '#555', border: activeTab === id ? 'none' : '1px solid #eee' }}>
             <Icon size={14} /> {label}
@@ -176,11 +178,11 @@ export default function TasksCalendar() {
             <Card style={{ padding: 0, overflow: 'hidden' }}>
               {/* Month nav */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', borderBottom: '1px solid #f0f0f0' }}>
-                <button onClick={prevMonth} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 6, borderRadius: 8, display: 'flex' }}><ChevronLeft size={18} /></button>
-                <div style={{ fontWeight: 800, fontSize: 18, color: '#0d1b2a' }}>
+                <button onClick={prevMonth} className="cal-nav-btn" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 6, borderRadius: 8, display: 'flex', color: '#0d1b2a', transition: 'background 0.15s' }}><ChevronLeft size={18} /></button>
+                <div style={{ fontWeight: 700, fontSize: 18, color: '#0d1b2a', letterSpacing: '-0.3px' }}>
                   {calDate.toLocaleDateString('en', { month: 'long', year: 'numeric' })}
                 </div>
-                <button onClick={nextMonth} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 6, borderRadius: 8, display: 'flex' }}><ChevronRight size={18} /></button>
+                <button onClick={nextMonth} className="cal-nav-btn" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 6, borderRadius: 8, display: 'flex', color: '#0d1b2a', transition: 'background 0.15s' }}><ChevronRight size={18} /></button>
               </div>
 
               {/* Day headers */}
@@ -203,17 +205,17 @@ export default function TasksCalendar() {
                   return (
                     <div key={day} className={`cal-cell${isToday ? ' today' : ''}${isSelected ? ' selected' : ''}`}
                       onClick={() => setSelectedDay(isSelected ? null : day)}>
-                      <div style={{ fontSize: 13, fontWeight: isToday ? 800 : 500, color: isToday ? '#FFA500' : '#0d1b2a', marginBottom: 4 }}>{day}</div>
+                      <div style={{ fontSize: 13, fontWeight: isToday ? 700 : 500, color: isToday ? '#FFA500' : '#0d1b2a', marginBottom: 4 }}>{day}</div>
                       {/* Task dots */}
                       {dt.map(t => (
-                        <div key={t.id} className="event-label" style={{ fontSize: 10, background: PRIORITY_COLORS[t.priority] + '22', color: PRIORITY_COLORS[t.priority], borderRadius: 4, padding: '1px 4px', marginBottom: 2, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          ☐ {t.title}
+                        <div key={t.id} className="event-label" style={{ fontSize: 10, background: PRIORITY_COLORS[t.priority] + '22', color: PRIORITY_COLORS[t.priority], borderRadius: 4, padding: '1px 4px', marginBottom: 2, fontWeight: 600, overflow: 'hidden' }}>
+                          <Square size={9} style={{ flexShrink: 0 }} /> <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</span>
                         </div>
                       ))}
                       {/* Delivery dots */}
                       {dd.map(o => (
-                        <div key={o.id} className="event-label" style={{ fontSize: 10, background: '#EEF4FF', color: '#378ADD', borderRadius: 4, padding: '1px 4px', marginBottom: 2, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          🚴 {o.delivery_person}
+                        <div key={o.id} className="event-label" style={{ fontSize: 10, background: '#EEF4FF', color: '#378ADD', borderRadius: 4, padding: '1px 4px', marginBottom: 2, fontWeight: 600, overflow: 'hidden' }}>
+                          <Bike size={9} style={{ flexShrink: 0 }} /> <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.delivery_person}</span>
                         </div>
                       ))}
                       {/* Mobile dots only */}
@@ -243,10 +245,7 @@ export default function TasksCalendar() {
                     <div style={{ fontWeight: 700, fontSize: 14, color: '#0d1b2a' }}>
                       {new Date(selectedDateStr).toLocaleDateString('en', { weekday: 'long', month: 'long', day: 'numeric' })}
                     </div>
-                    <button onClick={() => openAdd(selectedDateStr)}
-                      style={{ background: '#FFA500', color: '#fff', border: 'none', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', fontSize: 12, fontWeight: 600, fontFamily: 'inherit' }}>
-                      + Task
-                    </button>
+                    <Button size="sm" onClick={() => openAdd(selectedDateStr)}><Plus size={13} /> Task</Button>
                   </div>
 
                   {selectedEvents.tasks.length === 0 && selectedEvents.deliveries.length === 0 && (
@@ -278,9 +277,9 @@ export default function TasksCalendar() {
                       {selectedEvents.deliveries.map(o => (
                         <div key={o.id} style={{ padding: '10px 12px', background: '#EEF4FF', borderRadius: 10, marginBottom: 8 }}>
                           <div style={{ fontWeight: 600, fontSize: 13, color: '#0d1b2a' }}>{o.product_name}</div>
-                          <div style={{ fontSize: 12, color: '#555', marginTop: 2 }}>👤 {o.customer_name || 'Walk-in'}</div>
-                          <div style={{ fontSize: 12, color: '#378ADD', marginTop: 2 }}>🚴 {o.delivery_person}</div>
-                          <div style={{ fontSize: 11, color: '#aaa', marginTop: 2, fontFamily: 'monospace' }}>{o.invoice_number || '—'}</div>
+                          <div style={{ fontSize: 12, color: '#555', marginTop: 4, display: 'flex', alignItems: 'center', gap: 5 }}><User size={12} /> {o.customer_name || 'Walk-in'}</div>
+                          <div style={{ fontSize: 12, color: '#378ADD', marginTop: 3, display: 'flex', alignItems: 'center', gap: 5 }}><Bike size={12} /> {o.delivery_person}</div>
+                          <div style={{ fontSize: 11, color: '#aaa', marginTop: 3, fontFamily: 'monospace' }}>{o.invoice_number || '—'}</div>
                         </div>
                       ))}
                     </>
@@ -316,7 +315,7 @@ export default function TasksCalendar() {
                   return Object.entries(grouped).map(([date, dayTasks]) => (
                     <div key={date} style={{ marginBottom: 20 }}>
                       <div style={{ fontSize: 11, fontWeight: 700, color: date === today ? '#FFA500' : '#aaa', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-                        {date === today && '📌 '}{new Date(date + 'T00:00:00').toLocaleDateString('en', { weekday: 'long', month: 'long', day: 'numeric' })}
+                        {date === today && <Pin size={11} />}{new Date(date + 'T00:00:00').toLocaleDateString('en', { weekday: 'long', month: 'long', day: 'numeric' })}
                         {date < today && <span style={{ color: '#c62828', fontSize: 10 }}>OVERDUE</span>}
                       </div>
                       {dayTasks.map(t => (
@@ -341,15 +340,15 @@ export default function TasksCalendar() {
             {/* Upcoming deliveries */}
             <div>
               <Card>
-                <h3 style={{ fontSize: 14, fontWeight: 700, color: '#0d1b2a', marginBottom: 14 }}>🚴 Active deliveries</h3>
+                <h3 style={{ fontSize: 14, fontWeight: 700, color: '#0d1b2a', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 7 }}><Bike size={16} color="#378ADD" /> Active deliveries</h3>
                 {upcomingDeliveries.length === 0 ? (
                   <p style={{ color: '#aaa', fontSize: 13 }}>No deliveries assigned.</p>
                 ) : upcomingDeliveries.slice(0, 10).map(o => (
                   <div key={o.id} style={{ padding: '10px 12px', background: '#f8f7f4', borderRadius: 10, marginBottom: 8 }}>
                     <div style={{ fontWeight: 600, fontSize: 13 }}>{o.product_name}</div>
-                    <div style={{ fontSize: 12, color: '#555', marginTop: 2 }}>👤 {o.customer_name || 'Walk-in'}</div>
-                    <div style={{ fontSize: 12, color: '#378ADD', marginTop: 2 }}>🚴 {o.delivery_person}</div>
-                    <div style={{ fontSize: 11, color: '#aaa', marginTop: 2 }}>{o.order_date}</div>
+                    <div style={{ fontSize: 12, color: '#555', marginTop: 4, display: 'flex', alignItems: 'center', gap: 5 }}><User size={12} /> {o.customer_name || 'Walk-in'}</div>
+                    <div style={{ fontSize: 12, color: '#378ADD', marginTop: 3, display: 'flex', alignItems: 'center', gap: 5 }}><Bike size={12} /> {o.delivery_person}</div>
+                    <div style={{ fontSize: 11, color: '#aaa', marginTop: 3 }}>{o.order_date}</div>
                   </div>
                 ))}
               </Card>
@@ -377,9 +376,9 @@ export default function TasksCalendar() {
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 600, fontSize: 14, color: '#0d1b2a', textDecoration: 'line-through', opacity: 0.7 }}>{t.title}</div>
                   {t.notes && <div style={{ fontSize: 12, color: '#888', marginTop: 3 }}>{t.notes}</div>}
-                  <div style={{ display: 'flex', gap: 12, marginTop: 4, fontSize: 11, color: '#aaa' }}>
-                    <span>📅 Due: {t.date}</span>
-                    <span>✅ Done: {t.completed_at ? new Date(t.completed_at).toLocaleDateString('en', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</span>
+                  <div style={{ display: 'flex', gap: 12, marginTop: 6, fontSize: 11, color: '#aaa', alignItems: 'center' }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Calendar size={11} /> Due: {t.date}</span>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><CheckCircle size={11} color="#1D9E75" /> Done: {t.completed_at ? new Date(t.completed_at).toLocaleDateString('en', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</span>
                     <span style={{ color: PRIORITY_COLORS[t.priority], fontWeight: 600 }}>{t.priority}</span>
                   </div>
                 </div>
@@ -392,7 +391,7 @@ export default function TasksCalendar() {
 
       {/* Add task modal */}
       {modal && (
-        <Modal title="Add task" onClose={() => setModal(false)} width={460}>
+        <Modal title="Add task" subtitle="Schedule a task with a date and priority" onClose={() => setModal(false)} width={520}>
           <div style={{ marginBottom: 14 }}>
             <label style={{ fontSize: 12, color: '#666', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.4px', display: 'block', marginBottom: 5 }}>Task title *</label>
             <input value={form.title} onChange={f('title')} placeholder="e.g. Follow up with supplier, Restock LEGOs…"
