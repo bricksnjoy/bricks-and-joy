@@ -190,6 +190,7 @@ export default function Inventory() {
 
   // Print barcode label
   function printBarcode() {
+    const logoUrl = window.location.origin + '/logo.png'
     const w = window.open('', '_blank', 'width=400,height=300')
     const isQR = barcodeType === 'qr'
     let imgSrc = ''
@@ -226,7 +227,7 @@ export default function Inventory() {
       <body>
         <div class="label">
           <div class="label-header">
-            <div class="header-dot">B</div>
+            <img src="${logoUrl}" alt="" style="height:28px;width:28px;object-fit:contain;flex-shrink:0" onerror="this.style.display='none'" />
             <div>
               <div class="header-name">Brick's &amp; Joy</div>
               <div class="header-tag">Product Label</div>
@@ -251,6 +252,7 @@ export default function Inventory() {
 
   // Print all barcodes
   async function printAllBarcodes() {
+    const logoUrl = window.location.origin + '/logo.png'
     const w = window.open('', '_blank')
     const labelGroups = await Promise.all(products.filter(p => p.barcode && !p.discontinued).map(async p => {
       try {
@@ -286,7 +288,7 @@ export default function Inventory() {
       @media print { body { background: none; padding: 8px; } .page-header { display: none; } .grid { grid-template-columns: repeat(3, 1fr); gap: 8px; } }
     </style></head><body>
     <div class="page-header">
-      <div class="brand-dot">B</div>
+      <img src="${logoUrl}" alt="" style="height:38px;width:38px;object-fit:contain;flex-shrink:0" onerror="this.style.display='none'" />
       <div>
         <div class="brand-title">Brick's &amp; Joy — Product Labels</div>
         <div class="brand-sub">Printed ${new Date().toLocaleDateString()} · ${allLabels.length} labels</div>
@@ -296,7 +298,7 @@ export default function Inventory() {
       ${allLabels.map(l => `
         <div class="label">
           <div class="label-top">
-            <div class="label-top-dot"></div>
+            <img src="${logoUrl}" alt="" style="height:14px;width:14px;object-fit:contain;flex-shrink:0" onerror="this.style.display='none'" />
             <div class="label-top-text">Brick's &amp; Joy</div>
           </div>
           <div class="label-body">
