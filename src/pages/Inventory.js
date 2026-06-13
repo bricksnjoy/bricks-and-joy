@@ -207,42 +207,63 @@ export default function Inventory() {
       <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800&display=swap" rel="stylesheet">
       <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Poppins', Arial, sans-serif; background: #f8f7f4; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
-        .label { background: #fff; border-radius: 14px; overflow: hidden; width: 280px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
-        .label-header { background: #0d1b2a; padding: 10px 14px; display: flex; align-items: center; gap: 8px; }
-        .header-dot { width: 22px; height: 22px; border-radius: 6px; background: #FFA500; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 900; color: #fff; flex-shrink: 0; }
-        .header-name { font-size: 10px; font-weight: 800; color: #fff; letter-spacing: 0.5px; }
-        .header-tag { font-size: 8px; color: rgba(255,255,255,0.35); letter-spacing: 1px; text-transform: uppercase; }
-        .label-body { padding: 16px; text-align: center; }
-        img { max-width: 100%; display: block; margin: 0 auto; }
-        .product-name { font-size: 14px; font-weight: 800; color: #0d1b2a; margin: 10px 0 3px; letter-spacing: -0.3px; }
-        .product-brand { font-size: 11px; color: #aaa; margin-bottom: 6px; }
-        .price-tag { display: inline-block; background: #FFA500; color: #fff; font-size: 16px; font-weight: 900; padding: 4px 16px; border-radius: 99px; margin: 6px 0; letter-spacing: -0.3px; }
-        .sizes { font-size: 10px; color: #888; margin-top: 4px; }
-        .barcode-num { font-size: 9px; color: #ccc; font-family: monospace; margin-top: 8px; letter-spacing: 1px; }
-        .label-footer { padding: 8px 14px; border-top: 1px solid #f0f0f0; display: flex; justify-content: center; }
-        .footer-text { font-size: 9px; color: #ddd; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; }
-        @media print { body { background: none; min-height: auto; } .label { box-shadow: none; border: 1px solid #eee; } }
+        body { font-family: 'Poppins', Arial, sans-serif; background: #f0f0f0; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+        .label { background: #fff; border-radius: 16px; overflow: hidden; width: 300px; box-shadow: 0 6px 24px rgba(0,0,0,0.12); }
+
+        /* Top row: logo left, brand name right */
+        .label-top { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px 8px; border-bottom: 1px solid #f5f5f5; }
+        .logo-wrap { display: flex; align-items: center; gap: 7px; }
+        .logo-wrap img { height: 32px; width: 32px; object-fit: contain; }
+        .brand-name { font-size: 11px; font-weight: 800; color: #0d1b2a; letter-spacing: -0.2px; }
+        .brand-sub { font-size: 8px; color: #bbb; text-transform: uppercase; letter-spacing: 0.8px; margin-top: 1px; }
+        .top-right { text-align: right; }
+        .top-tag { font-size: 8px; color: #FFA500; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
+
+        /* Barcode strip */
+        .barcode-strip { background: #fff; padding: 14px 16px 8px; text-align: center; }
+        .barcode-strip img { max-width: 100%; display: block; margin: 0 auto; }
+
+        /* Product info */
+        .product-info { padding: 10px 16px 14px; }
+        .product-name { font-size: 15px; font-weight: 800; color: #0d1b2a; letter-spacing: -0.3px; margin-bottom: 2px; }
+        .product-brand { font-size: 11px; color: #aaa; margin-bottom: 8px; }
+        .product-footer { display: flex; justify-content: space-between; align-items: center; }
+        .price-tag { background: #0d1b2a; color: #FFA500; font-size: 15px; font-weight: 900; padding: 5px 14px; border-radius: 8px; letter-spacing: -0.3px; }
+        .code-block { text-align: right; }
+        .code-num { font-size: 9px; color: #ccc; font-family: monospace; letter-spacing: 0.5px; }
+        .sizes-text { font-size: 10px; color: #aaa; margin-top: 6px; }
+
+        @media print { body { background: none; min-height: auto; } .label { box-shadow: none; border: 1px solid #ddd; border-radius: 0; } }
       </style></head>
       <body>
         <div class="label">
-          <div class="label-header">
-            <img src="${logoUrl}" alt="" style="height:28px;width:28px;object-fit:contain;flex-shrink:0" onerror="this.style.display='none'" />
-            <div>
-              <div class="header-name">Brick's &amp; Joy</div>
-              <div class="header-tag">Product Label</div>
+          <div class="label-top">
+            <div class="logo-wrap">
+              <img src="${logoUrl}" alt="" onerror="this.style.display='none'" />
+              <div>
+                <div class="brand-name">Brick's &amp; Joy</div>
+                <div class="brand-sub">Toy Store</div>
+              </div>
+            </div>
+            <div class="top-right">
+              <div class="top-tag">Product Label</div>
             </div>
           </div>
-          <div class="label-body">
+
+          <div class="barcode-strip">
             <img src="${imgSrc}" alt="barcode" />
+          </div>
+
+          <div class="product-info">
             <div class="product-name">${barcodeModal.name}</div>
             ${barcodeModal.brand ? `<div class="product-brand">${barcodeModal.brand}</div>` : ''}
-            <div class="price-tag">MVR ${Number(barcodeModal.sell_price).toFixed(2)}</div>
-            ${barcodeModal.sizes ? `<div class="sizes">Sizes: ${barcodeModal.sizes}</div>` : ''}
-            <div class="barcode-num">${barcodeModal.barcode}</div>
-          </div>
-          <div class="label-footer">
-            <div class="footer-text">bricksandjoy.mv</div>
+            <div class="product-footer">
+              <div class="price-tag">MVR ${Number(barcodeModal.sell_price).toFixed(2)}</div>
+              <div class="code-block">
+                <div class="code-num">${barcodeModal.barcode}</div>
+                ${barcodeModal.sizes ? `<div class="sizes-text">${barcodeModal.sizes}</div>` : ''}
+              </div>
+            </div>
           </div>
         </div>
         <script>window.onload = () => { window.print(); window.onafterprint = () => window.close(); }</script>
@@ -277,14 +298,15 @@ export default function Inventory() {
       .brand-sub { font-size: 10px; color: rgba(255,255,255,0.35); text-transform: uppercase; letter-spacing: 1px; }
       .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
       .label { background: #fff; border: 1px solid #eee; border-radius: 10px; overflow: hidden; break-inside: avoid; }
-      .label-top { background: #0d1b2a; padding: 5px 8px; display: flex; align-items: center; gap: 5px; }
-      .label-top-dot { width: 14px; height: 14px; border-radius: 4px; background: #FFA500; flex-shrink: 0; }
-      .label-top-text { font-size: 7px; color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 0.8px; font-weight: 700; }
-      .label-body { padding: 8px; text-align: center; }
-      img { max-width: 100%; height: 44px; display: block; margin: 0 auto; }
-      .l-name { font-size: 10px; font-weight: 800; color: #0d1b2a; margin: 6px 0 2px; }
-      .l-price { display: inline-block; background: #FFA500; color: #fff; font-size: 10px; font-weight: 800; padding: 2px 10px; border-radius: 99px; }
-      .l-code { font-size: 7px; color: #ccc; font-family: monospace; margin-top: 5px; }
+      .label-top { display: flex; justify-content: space-between; align-items: center; padding: 5px 8px; border-bottom: 1px solid #f0f0f0; }
+      .label-top-logo { height: 18px; width: 18px; object-fit: contain; }
+      .label-top-text { font-size: 7px; color: #FFA500; text-transform: uppercase; letter-spacing: 0.8px; font-weight: 800; }
+      .label-body { padding: 6px 8px 8px; text-align: center; }
+      .label-body img { max-width: 100%; height: 40px; display: block; margin: 0 auto; }
+      .l-name { font-size: 9px; font-weight: 800; color: #0d1b2a; margin: 5px 0 4px; }
+      .l-bottom { display: flex; justify-content: space-between; align-items: center; }
+      .l-price { background: #0d1b2a; color: #FFA500; font-size: 9px; font-weight: 800; padding: 2px 7px; border-radius: 5px; }
+      .l-code { font-size: 6px; color: #ccc; font-family: monospace; text-align: right; }
       @media print { body { background: none; padding: 8px; } .page-header { display: none; } .grid { grid-template-columns: repeat(3, 1fr); gap: 8px; } }
     </style></head><body>
     <div class="page-header">
@@ -298,14 +320,16 @@ export default function Inventory() {
       ${allLabels.map(l => `
         <div class="label">
           <div class="label-top">
-            <img src="${logoUrl}" alt="" style="height:14px;width:14px;object-fit:contain;flex-shrink:0" onerror="this.style.display='none'" />
+            <img class="label-top-logo" src="${logoUrl}" alt="" onerror="this.style.display='none'" />
             <div class="label-top-text">Brick's &amp; Joy</div>
           </div>
           <div class="label-body">
             <img src="data:image/svg+xml;base64,${btoa(l.svg)}" alt="barcode" />
             <div class="l-name">${l.name}</div>
-            <div class="l-price">MVR ${Number(l.price).toFixed(2)}</div>
-            <div class="l-code">${l.barcode}</div>
+            <div class="l-bottom">
+              <div class="l-price">MVR ${Number(l.price).toFixed(2)}</div>
+              <div class="l-code">${l.barcode}</div>
+            </div>
           </div>
         </div>`).join('')}
     </div>
