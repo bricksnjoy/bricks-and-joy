@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { X, AlertTriangle, CheckCircle, Info } from 'lucide-react'
+import { X, AlertTriangle, CheckCircle, Info, Inbox } from 'lucide-react'
 
 // ─── Page header ──────────────────────────────────────────────────────────────
 export function PageHeader({ title, subtitle, action }) {
@@ -158,9 +158,14 @@ export function StockBadge({ qty, threshold = 10 }) {
 // ─── Table ────────────────────────────────────────────────────────────────────
 export function Table({ columns, data, emptyMessage = 'No data yet.' }) {
   if (!data.length) return (
-    <div style={{ textAlign: 'center', padding: '48px 0', color: '#ccc', fontSize: 14 }}>
-      <div style={{ fontSize: 32, marginBottom: 8 }}>📭</div>
-      {emptyMessage}
+    <div style={{ textAlign: 'center', padding: '56px 0', color: '#c4c4c4', fontSize: 14 }}>
+      <div style={{
+        width: 56, height: 56, borderRadius: 16, background: '#f8f7f4',
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: 14,
+      }}>
+        <Inbox size={26} color="#cfcfcf" />
+      </div>
+      <div style={{ fontWeight: 500 }}>{emptyMessage}</div>
     </div>
   )
   return (
@@ -194,29 +199,32 @@ export function Table({ columns, data, emptyMessage = 'No data yet.' }) {
 }
 
 // ─── Modal ────────────────────────────────────────────────────────────────────
-export function Modal({ title, children, onClose, width = 520, noBackdropClose = false }) {
+export function Modal({ title, subtitle, children, onClose, width = 640, noBackdropClose = false }) {
   return (
     <div style={{
-      position: 'fixed', inset: 0, background: 'rgba(13,27,42,0.5)',
+      position: 'fixed', inset: 0, background: 'rgba(13,27,42,0.55)', backdropFilter: 'blur(3px)',
       display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20,
       animation: 'backdropIn 0.2s ease both',
     }} onClick={e => !noBackdropClose && e.target === e.currentTarget && onClose()}>
       <div className="modal-enter" style={{
-        background: '#fff', borderRadius: 18, width: '100%', maxWidth: width,
-        maxHeight: '90vh', overflow: 'auto', boxShadow: '0 24px 64px rgba(13,27,42,0.18)',
+        background: '#fff', borderRadius: 20, width: '100%', maxWidth: width,
+        maxHeight: '92vh', overflow: 'auto', boxShadow: '0 30px 80px rgba(13,27,42,0.28)',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 22px', borderBottom: '1px solid #f0f0f0' }}>
-          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#0d1b2a', letterSpacing: '-0.2px' }}>{title}</h2>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '22px 28px', borderBottom: '1px solid #f0f0f0' }}>
+          <div>
+            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: '#0d1b2a', letterSpacing: '-0.3px' }}>{title}</h2>
+            {subtitle && <p style={{ margin: '3px 0 0', fontSize: 12.5, color: '#aaa', fontWeight: 400 }}>{subtitle}</p>}
+          </div>
           <button onClick={onClose} style={{
-            background: 'none', border: 'none', cursor: 'pointer', color: '#bbb', padding: 6,
-            borderRadius: 8, transition: 'all 0.15s', display: 'flex', alignItems: 'center',
+            background: 'none', border: 'none', cursor: 'pointer', color: '#bbb', padding: 7,
+            borderRadius: 9, transition: 'all 0.15s', display: 'flex', alignItems: 'center',
           }}
           onMouseEnter={e => { e.currentTarget.style.background = '#f5f5f5'; e.currentTarget.style.color = '#333' }}
           onMouseLeave={e => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = '#bbb' }}>
-            <X size={17} />
+            <X size={18} />
           </button>
         </div>
-        <div style={{ padding: '20px 22px' }}>{children}</div>
+        <div style={{ padding: '26px 28px' }}>{children}</div>
       </div>
     </div>
   )

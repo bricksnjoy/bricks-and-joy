@@ -212,12 +212,12 @@ export default function Inventory() {
 
         /* Top row: logo left, brand name right */
         .label-top { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px 8px; border-bottom: 1px solid #f5f5f5; }
-        .logo-wrap { display: flex; align-items: center; gap: 7px; }
-        .logo-wrap img { height: 32px; width: 32px; object-fit: contain; }
-        .brand-name { font-size: 11px; font-weight: 800; color: #0d1b2a; letter-spacing: -0.2px; }
+        .logo-wrap { display: flex; align-items: center; gap: 9px; }
+        .logo-wrap img { height: 48px; width: 48px; object-fit: contain; }
+        .brand-name { font-size: 12px; font-weight: 600; color: #0d1b2a; letter-spacing: -0.2px; }
         .brand-sub { font-size: 8px; color: #bbb; text-transform: uppercase; letter-spacing: 0.8px; margin-top: 1px; }
         .top-right { text-align: right; }
-        .top-tag { font-size: 8px; color: #FFA500; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
+        .top-tag { font-size: 8px; color: #FFA500; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; }
 
         /* Barcode strip */
         .barcode-strip { background: #fff; padding: 14px 16px 8px; text-align: center; }
@@ -225,10 +225,10 @@ export default function Inventory() {
 
         /* Product info */
         .product-info { padding: 10px 16px 14px; }
-        .product-name { font-size: 15px; font-weight: 800; color: #0d1b2a; letter-spacing: -0.3px; margin-bottom: 2px; }
+        .product-name { font-size: 15px; font-weight: 600; color: #0d1b2a; letter-spacing: -0.3px; margin-bottom: 2px; }
         .product-brand { font-size: 11px; color: #aaa; margin-bottom: 8px; }
         .product-footer { display: flex; justify-content: space-between; align-items: center; }
-        .price-tag { background: #0d1b2a; color: #FFA500; font-size: 15px; font-weight: 900; padding: 5px 14px; border-radius: 8px; letter-spacing: -0.3px; }
+        .price-tag { background: #0d1b2a; color: #FFA500; font-size: 15px; font-weight: 700; padding: 5px 14px; border-radius: 8px; letter-spacing: -0.3px; }
         .code-block { text-align: right; }
         .code-num { font-size: 9px; color: #ccc; font-family: monospace; letter-spacing: 0.5px; }
         .sizes-text { font-size: 10px; color: #aaa; margin-top: 6px; }
@@ -294,18 +294,18 @@ export default function Inventory() {
       body { font-family: 'Poppins', Arial, sans-serif; background: #f8f7f4; padding: 16px; }
       .page-header { background: #0d1b2a; border-radius: 12px; padding: 14px 20px; display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
       .brand-dot { width: 32px; height: 32px; border-radius: 8px; background: #FFA500; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 900; color: #fff; flex-shrink: 0; }
-      .brand-title { font-size: 16px; font-weight: 900; color: #fff; }
+      .brand-title { font-size: 16px; font-weight: 700; color: #fff; }
       .brand-sub { font-size: 10px; color: rgba(255,255,255,0.35); text-transform: uppercase; letter-spacing: 1px; }
       .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
       .label { background: #fff; border: 1px solid #eee; border-radius: 10px; overflow: hidden; break-inside: avoid; }
       .label-top { display: flex; justify-content: space-between; align-items: center; padding: 5px 8px; border-bottom: 1px solid #f0f0f0; }
-      .label-top-logo { height: 18px; width: 18px; object-fit: contain; }
-      .label-top-text { font-size: 7px; color: #FFA500; text-transform: uppercase; letter-spacing: 0.8px; font-weight: 800; }
+      .label-top-logo { height: 26px; width: 26px; object-fit: contain; }
+      .label-top-text { font-size: 7px; color: #FFA500; text-transform: uppercase; letter-spacing: 0.8px; font-weight: 600; }
       .label-body { padding: 6px 8px 8px; text-align: center; }
       .label-body img { max-width: 100%; height: 40px; display: block; margin: 0 auto; }
-      .l-name { font-size: 9px; font-weight: 800; color: #0d1b2a; margin: 5px 0 4px; }
+      .l-name { font-size: 9px; font-weight: 600; color: #0d1b2a; margin: 5px 0 4px; }
       .l-bottom { display: flex; justify-content: space-between; align-items: center; }
-      .l-price { background: #0d1b2a; color: #FFA500; font-size: 9px; font-weight: 800; padding: 2px 7px; border-radius: 5px; }
+      .l-price { background: #0d1b2a; color: #FFA500; font-size: 9px; font-weight: 600; padding: 2px 7px; border-radius: 5px; }
       .l-code { font-size: 6px; color: #ccc; font-family: monospace; text-align: right; }
       @media print { body { background: none; padding: 8px; } .page-header { display: none; } .grid { grid-template-columns: repeat(3, 1fr); gap: 8px; } }
     </style></head><body>
