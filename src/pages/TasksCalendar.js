@@ -78,6 +78,8 @@ export default function TasksCalendar() {
     saveHistory([])
     toast.success('History cleared')
   }
+
+  function openAdd(date) {
     setForm({ ...TASK_EMPTY, date: date || new Date().toISOString().split('T')[0] })
     setModal(true)
   }
