@@ -34,14 +34,15 @@ export default function Dashboard() {
 
     // Today & this week
     const todayStr = new Date().toISOString().split('T')[0]
-    const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7)
-    const prevWeekAgo = new Date(); prevWeekAgo.setDate(prevWeekAgo.getDate() - 14)
+    const thisMonthStr = new Date().toISOString().slice(0, 7)
+    const lastMonthDate = new Date(); lastMonthDate.setMonth(lastMonthDate.getMonth() - 1)
+    const lastMonthStr = lastMonthDate.toISOString().slice(0, 7)
     const todaySales = delivered.filter(o => o.order_date === todayStr).reduce((s, o) => s + Number(o.total_price || 0), 0)
-    const thisWeekSales = delivered.filter(o => new Date(o.order_date) >= weekAgo).reduce((s, o) => s + Number(o.total_price || 0), 0)
-    const lastWeekSales = delivered.filter(o => new Date(o.order_date) >= prevWeekAgo && new Date(o.order_date) < weekAgo).reduce((s, o) => s + Number(o.total_price || 0), 0)
-    const weekChange = lastWeekSales > 0 ? ((thisWeekSales - lastWeekSales) / lastWeekSales * 100).toFixed(0) : null
+    const thisMonthSales = delivered.filter(o => o.order_date?.startsWith(thisMonthStr)).reduce((s, o) => s + Number(o.total_price || 0), 0)
+    const lastMonthSales = delivered.filter(o => o.order_date?.startsWith(lastMonthStr)).reduce((s, o) => s + Number(o.total_price || 0), 0)
+    const monthChange = lastMonthSales > 0 ? ((thisMonthSales - lastMonthSales) / lastMonthSales * 100).toFixed(0) : null
 
-    setStats({ products: prods.length, totalStock: prods.reduce((s, p) => s + (p.stock_qty || 0), 0), customers: custs.length, activeOrders: ords.filter(o => o.status === 'pending' || o.status === 'transit').length, deliveredOrders: delivered.length, revenue, netProfit, pendingOrders: ords.filter(o => o.status === 'pending').length, todaySales, thisWeekSales, lastWeekSales, weekChange })
+    setStats({ products: prods.length, totalStock: prods.reduce((s, p) => s + (p.stock_qty || 0), 0), customers: custs.length, activeOrders: ords.filter(o => o.status === 'pending' || o.status === 'transit').length, deliveredOrders: delivered.length, revenue, netProfit, pendingOrders: ords.filter(o => o.status === 'pending').length, todaySales, thisMonthSales, lastMonthSales, monthChange })
     setLowStock(prods.filter(p => p.stock_qty <= (p.low_stock_threshold || 10)).slice(0, 5))
     setRecentOrders(ords.slice(0, 6))
     setRecentCustomers(custs.slice(0, 4))
@@ -113,11 +114,11 @@ export default function Dashboard() {
         </div>
         <div style={{ background: '#fff', borderRadius: 14, padding: '18px 22px', border: '1px solid #eee', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
-            <div style={{ fontSize: 11, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 6 }}>This week</div>
-            <div style={{ fontSize: 26, fontWeight: 800, color: '#0d1b2a' }}>MVR {stats.thisWeekSales.toFixed(2)}</div>
-            {stats.weekChange !== null && (
-              <div style={{ fontSize: 12, marginTop: 4, color: Number(stats.weekChange) >= 0 ? '#1D9E75' : '#c62828', fontWeight: 600 }}>
-                {Number(stats.weekChange) >= 0 ? '▲' : '▼'} {Math.abs(stats.weekChange)}% vs last week
+            <div style={{ fontSize: 11, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 6 }}>This month</div>
+            <div style={{ fontSize: 26, fontWeight: 800, color: '#0d1b2a' }}>MVR {(stats.thisMonthSales || 0).toFixed(2)}</div>
+            {stats.monthChange !== null && (
+              <div style={{ fontSize: 12, marginTop: 4, color: Number(stats.monthChange) >= 0 ? '#1D9E75' : '#c62828', fontWeight: 600 }}>
+                {Number(stats.monthChange) >= 0 ? '▲' : '▼'} {Math.abs(stats.monthChange)}% vs last month
               </div>
             )}
           </div>

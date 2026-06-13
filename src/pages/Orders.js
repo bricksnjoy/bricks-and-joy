@@ -7,7 +7,7 @@ import BarcodeScanner from '../components/BarcodeScanner'
 const CHANNELS = ['Retail store','Online','Wholesale','Pop-up / Market','Instagram','Phone']
 const STATUSES = [{ value: 'pending', label: 'Pending' },{ value: 'transit', label: 'Dispatched' },{ value: 'delivered', label: 'Delivered' },{ value: 'cancelled', label: 'Cancelled' }]
 const PAY_METHODS = ['Cash','BML Transfer','Bank Transfer','Card','Other']
-const EMPTY_FORM = { customer_id:'', customer_name:'', channel:'Retail store', status:'pending', order_date: new Date().toISOString().split('T')[0], notes:'', payment_status:'unpaid', payment_method:'', transfer_reference:'', invoice_number:'', delivery_person:'', discount:0 }
+const EMPTY_FORM = { customer_id:'', customer_name:'', channel:'Retail store', status:'pending', order_date: new Date().toISOString().split('T')[0], notes:'', payment_status:'unpaid', payment_method:'', transfer_reference:'', invoice_number:'', delivery_person:'', discount_value:0, discount_type:'amount' }
 const EMPTY_ITEM = { product_id:'', product_name:'', qty:1, unit_price:0 }
 
 export default function Orders() {
@@ -69,7 +69,8 @@ export default function Orders() {
       transfer_reference: order.transfer_reference || '',
       invoice_number: order.invoice_number || '',
       delivery_person: order.delivery_person || '',
-      discount: order.discount || 0,
+      discount_value: order.discount || 0,
+      discount_type: 'amount',
     })
     setCartItems([{ product_id: order.product_id || '', product_name: order.product_name || '', qty: order.qty || 1, unit_price: order.unit_price || 0 }])
     setEditOrder(order)
@@ -105,8 +106,31 @@ export default function Orders() {
   function removeCartItem(idx) { if (cartItems.length > 1) setCartItems(p => p.filter((_, i) => i !== idx)) }
 
   const cartSubtotal = cartItems.reduce((s, item) => s + (parseFloat(item.qty || 0) * parseFloat(item.unit_price || 0)), 0)
-  const discountAmount = parseFloat(form.discount || 0)
+  const discountVal = parseFloat(form.discount_value || 0)
+  const discountAmount = form.discount_type === 'percent' ? (cartSubtotal * discountVal / 100) : discountVal
   const cartTotal = Math.max(0, cartSubtotal - discountAmount)
+
+  function buildPayload(item, itemDiscount) {
+    return {
+      customer_id: form.customer_id || null,
+      customer_name: form.customer_name || '',
+      channel: form.channel,
+      status: form.status,
+      order_date: form.order_date,
+      notes: form.notes || '',
+      payment_status: form.payment_status,
+      payment_method: form.payment_method || '',
+      transfer_reference: form.transfer_reference || '',
+      invoice_number: form.invoice_number || '',
+      delivery_person: form.delivery_person || '',
+      product_id: item.product_id,
+      product_name: item.product_name,
+      qty: parseInt(item.qty),
+      unit_price: parseFloat(item.unit_price),
+      total_price: Math.max(0, parseFloat(item.unit_price) * parseInt(item.qty) - itemDiscount),
+      discount: itemDiscount,
+    }
+  }
 
   async function save() {
     const validItems = cartItems.filter(i => i.product_id && i.qty)
@@ -114,52 +138,32 @@ export default function Orders() {
     setSaving(true)
 
     if (editOrder) {
-      // Edit: simple update of first item only (single-item orders)
       const item = validItems[0]
-      const payload = {
-        ...form,
-        product_id: item.product_id,
-        product_name: item.product_name,
-        qty: parseInt(item.qty),
-        unit_price: parseFloat(item.unit_price),
-        total_price: cartTotal,
-        discount: discountAmount,
-      }
+      const payload = buildPayload(item, discountAmount)
       const { error } = await supabase.from('orders').update(payload).eq('id', editOrder.id)
       setSaving(false)
-      if (error) { toast.error('Failed to update order'); return }
+      if (error) { console.error(error); toast.error('Failed to update: ' + error.message); return }
       toast.success('Order updated!')
       setModal(false); load(); return
     }
 
     // New order — insert one row per cart item
-    const errors = []
     for (const item of validItems) {
       const prod = products.find(p => p.id === item.product_id)
-      const qty = parseInt(item.qty)
-      const itemTotal = parseFloat(item.unit_price) * qty
-      // Apply discount proportionally if multiple items
-      const itemDiscount = validItems.length === 1 ? discountAmount : (itemTotal / cartSubtotal) * discountAmount
-      const { error } = await supabase.from('orders').insert({
-        ...form,
-        product_id: item.product_id,
-        product_name: item.product_name,
-        qty,
-        unit_price: parseFloat(item.unit_price),
-        total_price: Math.max(0, itemTotal - itemDiscount),
-        discount: itemDiscount,
-      })
-      if (error) { errors.push(error); continue }
+      const itemTotal = parseFloat(item.unit_price) * parseInt(item.qty)
+      const itemDiscount = validItems.length === 1 ? discountAmount : (cartSubtotal > 0 ? (itemTotal / cartSubtotal) * discountAmount : 0)
+      const payload = buildPayload(item, itemDiscount)
+      const { error } = await supabase.from('orders').insert(payload)
+      if (error) { console.error(error); setSaving(false); toast.error('Failed to save: ' + error.message); return }
       if (prod) {
-        const newStock = prod.stock_qty - qty
+        const newStock = prod.stock_qty - parseInt(item.qty)
         await supabase.from('products').update({ stock_qty: newStock }).eq('id', item.product_id)
         if (newStock <= 0) toast.error(`⚠️ ${prod.name} OUT OF STOCK!`)
         else if (newStock <= (prod.low_stock_threshold || 10)) toast.info(`⚠️ Low stock: ${prod.name} — ${newStock} left`)
       }
     }
     setSaving(false)
-    if (errors.length > 0) { toast.error('Some items failed to save'); return }
-    toast.success(`Order added! ${validItems.length > 1 ? `${validItems.length} items` : ''}`)
+    toast.success(`Order added!${validItems.length > 1 ? ` (${validItems.length} items)` : ''}`)
     setModal(false); load()
   }
 
@@ -505,15 +509,22 @@ export default function Orders() {
 
           {/* Discount */}
           <div style={{ marginBottom: 14 }}>
-            <label style={{ fontSize: 12, color: '#666', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.4px', display: 'block', marginBottom: 5 }}>Discount (MVR)</label>
-            <input type="number" min="0" step="0.01" value={form.discount} onChange={f('discount')} placeholder="0.00"
-              style={{ width: 160, padding: '9px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', outline: 'none' }} />
+            <label style={{ fontSize: 12, color: '#666', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.4px', display: 'block', marginBottom: 6 }}>Discount</label>
+            <div style={{ display: 'flex', border: '1px solid #ddd', borderRadius: 8, overflow: 'hidden', width: 260 }}>
+              <button onClick={() => setForm(p => ({ ...p, discount_type: 'amount' }))}
+                style={{ padding: '9px 16px', border: 'none', borderRight: '1px solid #ddd', cursor: 'pointer', fontWeight: 700, fontSize: 13, fontFamily: 'inherit', background: form.discount_type === 'amount' ? '#FFA500' : '#f8f8f8', color: form.discount_type === 'amount' ? '#fff' : '#666' }}>MVR</button>
+              <button onClick={() => setForm(p => ({ ...p, discount_type: 'percent' }))}
+                style={{ padding: '9px 16px', border: 'none', borderRight: '1px solid #ddd', cursor: 'pointer', fontWeight: 700, fontSize: 13, fontFamily: 'inherit', background: form.discount_type === 'percent' ? '#FFA500' : '#f8f8f8', color: form.discount_type === 'percent' ? '#fff' : '#666' }}>%</button>
+              <input type="number" min="0" step="0.01" value={form.discount_value} onChange={e => setForm(p => ({ ...p, discount_value: e.target.value }))} placeholder="0"
+                style={{ flex: 1, padding: '9px 12px', border: 'none', fontSize: 14, fontFamily: 'inherit', outline: 'none' }} />
+            </div>
+            {discountAmount > 0 && <div style={{ fontSize: 12, color: '#1D9E75', marginTop: 4, fontWeight: 600 }}>Saving MVR {discountAmount.toFixed(2)}</div>}
           </div>
 
           {/* Order total summary */}
           <div style={{ background: '#f8f7f4', borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 13, display: 'flex', gap: 20, flexWrap: 'wrap' }}>
             <span>Subtotal: <strong>MVR {cartSubtotal.toFixed(2)}</strong></span>
-            {discountAmount > 0 && <span style={{ color: '#1D9E75' }}>Discount: <strong>-MVR {discountAmount.toFixed(2)}</strong></span>}
+            {discountAmount > 0 && <span style={{ color: '#1D9E75' }}>Discount: <strong>-MVR {discountAmount.toFixed(2)}{form.discount_type === 'percent' ? ` (${form.discount_value}%)` : ''}</strong></span>}
             <span style={{ fontWeight: 800, color: '#0d1b2a' }}>Total: <strong>MVR {cartTotal.toFixed(2)}</strong></span>
             <span style={{ fontSize: 11, color: '#aaa' }}>Invoice: {form.invoice_number}</span>
           </div>
