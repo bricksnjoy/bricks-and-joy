@@ -150,8 +150,11 @@ export default function Orders() {
     // New order — insert one row per cart item
     for (const item of validItems) {
       const prod = products.find(p => p.id === item.product_id)
-      const itemTotal = parseFloat(item.unit_price) * parseInt(item.qty)
-      const itemDiscount = validItems.length === 1 ? discountAmount : (cartSubtotal > 0 ? (itemTotal / cartSubtotal) * discountAmount : 0)
+      const itemSubtotal = parseFloat(item.unit_price) * parseInt(item.qty)
+      // Each item gets the full discount applied individually
+      const itemDiscount = form.discount_type === 'percent'
+        ? itemSubtotal * (parseFloat(form.discount_value || 0) / 100)
+        : parseFloat(form.discount_value || 0) / validItems.length
       const payload = buildPayload(item, itemDiscount)
       const { error } = await supabase.from('orders').insert(payload)
       if (error) { console.error(error); setSaving(false); toast.error('Failed to save: ' + error.message); return }
@@ -262,10 +265,10 @@ export default function Orders() {
     { key: 'product_name', label: 'Product' },
     { key: 'qty', label: 'Qty' },
     { key: 'total_price', label: 'Total', render: r => (
-      <span style={{ fontWeight: 600 }}>
-        MVR {Number(r.total_price || 0).toFixed(2)}
-        {r.discount > 0 && <span style={{ fontSize: 10, color: '#1D9E75', marginLeft: 4 }}>-{Number(r.discount).toFixed(0)}</span>}
-      </span>
+      <div>
+        <span style={{ fontWeight: 600 }}>MVR {Number(r.total_price || 0).toFixed(2)}</span>
+        {r.discount > 0 && <div style={{ fontSize: 10, color: '#1D9E75', fontWeight: 600 }}>-MVR {Number(r.discount).toFixed(2)} disc.</div>}
+      </div>
     )},
     { key: 'payment', label: 'Payment', render: r => (
       <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
