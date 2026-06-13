@@ -179,12 +179,12 @@ export function Table({ columns, data, emptyMessage = 'No data yet.' }) {
 }
 
 // ─── Modal ────────────────────────────────────────────────────────────────────
-export function Modal({ title, children, onClose, width = 520 }) {
+export function Modal({ title, children, onClose, width = 520, noBackdropClose = false }) {
   return (
     <div style={{
       position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)',
       display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20
-    }} onClick={e => e.target === e.currentTarget && onClose()}>
+    }} onClick={e => !noBackdropClose && e.target === e.currentTarget && onClose()}>
       <div style={{
         background: '#fff', borderRadius: 16, width: '100%', maxWidth: width,
         maxHeight: '90vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.15)'

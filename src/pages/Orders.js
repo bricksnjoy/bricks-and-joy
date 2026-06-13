@@ -445,7 +445,7 @@ export default function Orders() {
 
       {/* ── NEW / EDIT ORDER MODAL ── */}
       {modal && (
-        <Modal title={editOrder ? `Edit order — ${editOrder.invoice_number || ''}` : 'New order'} onClose={() => { setModal(false); setScanning(null) }} width={600}>
+        <Modal title={editOrder ? `Edit order — ${editOrder.invoice_number || ''}` : 'New order'} onClose={() => { setModal(false); setScanning(null) }} width={600} noBackdropClose>
           {/* Customer */}
           <div style={{ marginBottom: 14 }}>
             <label style={{ fontSize: 12, color: '#666', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.4px', display: 'block', marginBottom: 5 }}>Customer</label>

@@ -31,7 +31,6 @@ async function sendEmailJS(to, subject, message, replyTo = BNJ_EMAIL) {
   })
   if (!res.ok) throw new Error(await res.text())
 }
-
 export default function EmailCenter() {
   const [orders, setOrders] = useState([])
   const [products, setProducts] = useState([])
@@ -74,10 +73,6 @@ export default function EmailCenter() {
     setSending(true)
     try {
       await sendEmailJS(to, subject, body)
-      // Also send copy to BNJ if recipient is different
-      if (to !== BNJ_EMAIL) {
-        await sendEmailJS(BNJ_EMAIL, `[COPY] ${subject}`, `Copy of email sent to: ${to}\n\n${body}`)
-      }
       toast.success(`✅ Email sent to ${to}!`)
       setComposeModal(null)
       setComposeForm({ to: '', subject: '', body: '' })
