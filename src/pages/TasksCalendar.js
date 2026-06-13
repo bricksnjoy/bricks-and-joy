@@ -137,6 +137,8 @@ export default function TasksCalendar() {
         .task-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin: 1px; }
         .tab-btn { padding: 8px 20px; border-radius: 8px; border: none; cursor: pointer; font-size: 13px; font-weight: 600; font-family: inherit; display: flex; align-items: center; gap: 6px; transition: all 0.15s; }
         .cal-nav-btn:hover { background: #f5f5f5; }
+        .summary-card { transition: box-shadow 0.15s, transform 0.15s; }
+        .summary-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.06); transform: translateY(-1px); }
         .event-label { display: flex; align-items: center; gap: 3px; }
         @media (max-width: 768px) { .cal-cell { min-height: 60px; padding: 4px; } .cal-cell .event-label { display: none; } }
       `}</style>
@@ -153,7 +155,7 @@ export default function TasksCalendar() {
           { label: 'Completed total', value: taskHistory.length, color: '#1D9E75' },
           { label: 'Active deliveries', value: upcomingDeliveries.length, color: '#378ADD' },
         ].map((m, i) => (
-          <div key={i} style={{ background: '#fff', borderRadius: 14, padding: '16px 20px', border: '1px solid #eee' }}>
+          <div key={i} className="summary-card" style={{ background: '#fff', borderRadius: 14, padding: '16px 20px', border: '1px solid #eee' }}>
             <div style={{ fontSize: 11, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>{m.label}</div>
             <div style={{ fontSize: 28, fontWeight: 700, color: m.color, letterSpacing: '-0.5px' }}>{m.value}</div>
           </div>
