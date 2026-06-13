@@ -179,7 +179,7 @@ export default function Customers() {
 
       {/* Customer detail view */}
       {viewModal && viewStats && (
-        <Modal title={viewModal.name} onClose={() => setViewModal(null)} width={720}>
+        <Modal title={viewModal.name} onClose={() => setViewModal(null)} width={860}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 20 }}>
             {[
               { label: 'Total orders', value: viewStats.totalOrders, color: '#0d1b2a' },
@@ -210,7 +210,7 @@ export default function Customers() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
                   <tr style={{ background: '#fafafa' }}>
-                    {['Invoice', 'Product', 'Qty', 'Total', 'Date', 'Status', 'Payment', 'Slip', ''].map(h => (
+                    {['Invoice', 'Product', 'Qty', 'Total', 'Date', 'Status', 'Payment', 'Delivery', 'Slip', ''].map(h => (
                       <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontSize: 11, color: '#999', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.4px', borderBottom: '1px solid #eee' }}>{h}</th>
                     ))}
                   </tr>
@@ -228,6 +228,12 @@ export default function Customers() {
                         <Badge color={(o.payment_status || 'unpaid') === 'paid' ? 'green' : (o.payment_status || 'unpaid') === 'partial' ? 'amber' : 'red'}>
                           {o.payment_status || 'unpaid'}
                         </Badge>
+                      </td>
+                      <td style={{ padding: '9px 12px' }}>
+                        {o.delivery_person
+                          ? <span style={{ fontSize: 12, background: '#EEF4FF', color: '#378ADD', padding: '2px 8px', borderRadius: 99, fontWeight: 600 }}>🚴 {o.delivery_person}</span>
+                          : <span style={{ color: '#ddd' }}>—</span>
+                        }
                       </td>
                       <td style={{ padding: '9px 12px' }}>
                         {o.transfer_slip_url
