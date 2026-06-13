@@ -300,12 +300,19 @@ export default function Inventory() {
     { key: 'sell_price', label: 'Price', render: r => `MVR ${Number(r.sell_price).toFixed(2)}` },
     { key: 'margin', label: 'Margin', render: r => { const m = r.sell_price > 0 ? Math.round((r.sell_price - r.cost_price) / r.sell_price * 100) : 0; return <span style={{ color: m >= 40 ? '#2e7d32' : m >= 20 ? '#f57f17' : '#c62828', fontWeight: 600 }}>{m}%</span> }},
     { key: 'status', label: 'Stock', render: r => <StockBadge qty={r.stock_qty} threshold={r.low_stock_threshold} /> },
-    { key: 'discontinued', label: 'Status', render: r => (
-      <button onClick={() => toggleDiscontinued(r)} title={r.discontinued ? 'Mark as active' : 'Mark as discontinued'}
-        style={{ padding: '3px 10px', borderRadius: 99, border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 700, fontFamily: 'inherit',
-          background: r.discontinued ? '#f5f5f5' : '#E1F5EE', color: r.discontinued ? '#999' : '#1D9E75' }}>
-        {r.discontinued ? '⛔ Discontinued' : '✅ Active'}
-      </button>
+    { key: 'discontinued', label: 'Active', render: r => (
+      <div onClick={() => toggleDiscontinued(r)} title={r.discontinued ? 'Click to mark active' : 'Click to discontinue'}
+        style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', userSelect: 'none' }}>
+        <div style={{
+          width: 36, height: 20, borderRadius: 99, position: 'relative', transition: 'background 0.2s',
+          background: r.discontinued ? '#ddd' : '#1D9E75',
+        }}>
+          <div style={{
+            position: 'absolute', top: 2, left: r.discontinued ? 2 : 18, width: 16, height: 16,
+            borderRadius: '50%', background: '#fff', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)'
+          }} />
+        </div>
+      </div>
     )},
     { key: 'actions', label: '', render: r => (
       <div style={{ display: 'flex', gap: 4 }}>
@@ -341,11 +348,18 @@ export default function Inventory() {
             <option value="all">All categories</option>
             {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
-          <button onClick={() => setShowDiscontinued(!showDiscontinued)}
-            style={{ padding: '9px 14px', borderRadius: 8, border: '1px solid #ddd', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
-              background: showDiscontinued ? '#f5f5f5' : '#E1F5EE', color: showDiscontinued ? '#999' : '#1D9E75' }}>
-            {showDiscontinued ? '⛔ Discontinued' : '✅ Active'} ({showDiscontinued ? products.filter(p=>p.discontinued).length : products.filter(p=>!p.discontinued).length})
-          </button>
+          <div style={{ display: 'flex', gap: 0, border: '1px solid #ddd', borderRadius: 8, overflow: 'hidden' }}>
+            <button onClick={() => setShowDiscontinued(false)}
+              style={{ padding: '8px 16px', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, fontFamily: 'inherit',
+                background: !showDiscontinued ? '#1D9E75' : '#fff', color: !showDiscontinued ? '#fff' : '#888' }}>
+              ✅ Active ({products.filter(p=>!p.discontinued).length})
+            </button>
+            <button onClick={() => setShowDiscontinued(true)}
+              style={{ padding: '8px 16px', border: 'none', borderLeft: '1px solid #ddd', cursor: 'pointer', fontSize: 12, fontWeight: 700, fontFamily: 'inherit',
+                background: showDiscontinued ? '#888' : '#fff', color: showDiscontinued ? '#fff' : '#888' }}>
+              ⛔ Discontinued ({products.filter(p=>p.discontinued).length})
+            </button>
+          </div>
         </div>
         {loading ? <Spinner /> : <Table columns={columns} data={filtered} emptyMessage={showDiscontinued ? 'No discontinued products.' : 'No products yet.'} />}
       </Card>
