@@ -202,23 +202,47 @@ export default function Inventory() {
     }
     
     w.document.write(`
-      <html><head><title>Barcode — ${barcodeModal.name}</title>
+      <html><head><title>Label — ${barcodeModal.name}</title>
+      <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800&display=swap" rel="stylesheet">
       <style>
-        body { font-family: 'Poppins', Arial, sans-serif; margin: 0; padding: 20px; text-align: center; }
-        .label { border: 1px solid #eee; border-radius: 8px; padding: 16px; display: inline-block; min-width: 220px; }
-        img { max-width: 220px; display: block; margin: 0 auto; }
-        h3 { font-size: 14px; margin: 8px 0 4px; font-weight: 700; }
-        p { font-size: 12px; color: #666; margin: 2px 0; }
-        @media print { body { padding: 0; } .label { border: none; } }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Poppins', Arial, sans-serif; background: #f8f7f4; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+        .label { background: #fff; border-radius: 14px; overflow: hidden; width: 280px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
+        .label-header { background: #0d1b2a; padding: 10px 14px; display: flex; align-items: center; gap: 8px; }
+        .header-dot { width: 22px; height: 22px; border-radius: 6px; background: #FFA500; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 900; color: #fff; flex-shrink: 0; }
+        .header-name { font-size: 10px; font-weight: 800; color: #fff; letter-spacing: 0.5px; }
+        .header-tag { font-size: 8px; color: rgba(255,255,255,0.35); letter-spacing: 1px; text-transform: uppercase; }
+        .label-body { padding: 16px; text-align: center; }
+        img { max-width: 100%; display: block; margin: 0 auto; }
+        .product-name { font-size: 14px; font-weight: 800; color: #0d1b2a; margin: 10px 0 3px; letter-spacing: -0.3px; }
+        .product-brand { font-size: 11px; color: #aaa; margin-bottom: 6px; }
+        .price-tag { display: inline-block; background: #FFA500; color: #fff; font-size: 16px; font-weight: 900; padding: 4px 16px; border-radius: 99px; margin: 6px 0; letter-spacing: -0.3px; }
+        .sizes { font-size: 10px; color: #888; margin-top: 4px; }
+        .barcode-num { font-size: 9px; color: #ccc; font-family: monospace; margin-top: 8px; letter-spacing: 1px; }
+        .label-footer { padding: 8px 14px; border-top: 1px solid #f0f0f0; display: flex; justify-content: center; }
+        .footer-text { font-size: 9px; color: #ddd; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; }
+        @media print { body { background: none; min-height: auto; } .label { box-shadow: none; border: 1px solid #eee; } }
       </style></head>
       <body>
         <div class="label">
-          <img src="${imgSrc}" alt="barcode" />
-          <h3>${barcodeModal.name}</h3>
-          ${barcodeModal.brand ? `<p>${barcodeModal.brand}</p>` : ''}
-          <p>MVR ${Number(barcodeModal.sell_price).toFixed(2)}</p>
-          ${barcodeModal.sizes ? `<p>Sizes: ${barcodeModal.sizes}</p>` : ''}
-          <p style="font-size:10px;color:#aaa;font-family:monospace">${barcodeModal.barcode}</p>
+          <div class="label-header">
+            <div class="header-dot">B</div>
+            <div>
+              <div class="header-name">Brick's &amp; Joy</div>
+              <div class="header-tag">Product Label</div>
+            </div>
+          </div>
+          <div class="label-body">
+            <img src="${imgSrc}" alt="barcode" />
+            <div class="product-name">${barcodeModal.name}</div>
+            ${barcodeModal.brand ? `<div class="product-brand">${barcodeModal.brand}</div>` : ''}
+            <div class="price-tag">MVR ${Number(barcodeModal.sell_price).toFixed(2)}</div>
+            ${barcodeModal.sizes ? `<div class="sizes">Sizes: ${barcodeModal.sizes}</div>` : ''}
+            <div class="barcode-num">${barcodeModal.barcode}</div>
+          </div>
+          <div class="label-footer">
+            <div class="footer-text">bricksandjoy.mv</div>
+          </div>
         </div>
         <script>window.onload = () => { window.print(); window.onafterprint = () => window.close(); }</script>
       </body></html>`)
@@ -240,23 +264,47 @@ export default function Inventory() {
       } catch { return [] }
     }))
     const allLabels = labelGroups.flat()
-    w.document.write(`<html><head><title>All Barcodes — Brick's & Joy</title>
+    w.document.write(`<html><head><title>All Labels — Brick's &amp; Joy</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800&display=swap" rel="stylesheet">
     <style>
-      body { font-family: Arial, sans-serif; margin: 0; padding: 10px; }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body { font-family: 'Poppins', Arial, sans-serif; background: #f8f7f4; padding: 16px; }
+      .page-header { background: #0d1b2a; border-radius: 12px; padding: 14px 20px; display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+      .brand-dot { width: 32px; height: 32px; border-radius: 8px; background: #FFA500; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 900; color: #fff; flex-shrink: 0; }
+      .brand-title { font-size: 16px; font-weight: 900; color: #fff; }
+      .brand-sub { font-size: 10px; color: rgba(255,255,255,0.35); text-transform: uppercase; letter-spacing: 1px; }
       .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-      .label { border: 1px solid #ddd; border-radius: 6px; padding: 10px; text-align: center; break-inside: avoid; }
-      img { max-width: 100%; height: 50px; }
-      h4 { font-size: 11px; margin: 4px 0 2px; font-weight: 700; }
-      p { font-size: 10px; color: #666; margin: 1px 0; }
-      @media print { .grid { grid-template-columns: repeat(3, 1fr); } }
+      .label { background: #fff; border: 1px solid #eee; border-radius: 10px; overflow: hidden; break-inside: avoid; }
+      .label-top { background: #0d1b2a; padding: 5px 8px; display: flex; align-items: center; gap: 5px; }
+      .label-top-dot { width: 14px; height: 14px; border-radius: 4px; background: #FFA500; flex-shrink: 0; }
+      .label-top-text { font-size: 7px; color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 0.8px; font-weight: 700; }
+      .label-body { padding: 8px; text-align: center; }
+      img { max-width: 100%; height: 44px; display: block; margin: 0 auto; }
+      .l-name { font-size: 10px; font-weight: 800; color: #0d1b2a; margin: 6px 0 2px; }
+      .l-price { display: inline-block; background: #FFA500; color: #fff; font-size: 10px; font-weight: 800; padding: 2px 10px; border-radius: 99px; }
+      .l-code { font-size: 7px; color: #ccc; font-family: monospace; margin-top: 5px; }
+      @media print { body { background: none; padding: 8px; } .page-header { display: none; } .grid { grid-template-columns: repeat(3, 1fr); gap: 8px; } }
     </style></head><body>
+    <div class="page-header">
+      <div class="brand-dot">B</div>
+      <div>
+        <div class="brand-title">Brick's &amp; Joy — Product Labels</div>
+        <div class="brand-sub">Printed ${new Date().toLocaleDateString()} · ${allLabels.length} labels</div>
+      </div>
+    </div>
     <div class="grid">
       ${allLabels.map(l => `
         <div class="label">
-          <img src="data:image/svg+xml;base64,${btoa(l.svg)}" alt="barcode" />
-          <h4>${l.name}</h4>
-          <p>MVR ${Number(l.price).toFixed(2)}</p>
-          <p style="font-size:9px;font-family:monospace">${l.barcode}</p>
+          <div class="label-top">
+            <div class="label-top-dot"></div>
+            <div class="label-top-text">Brick's &amp; Joy</div>
+          </div>
+          <div class="label-body">
+            <img src="data:image/svg+xml;base64,${btoa(l.svg)}" alt="barcode" />
+            <div class="l-name">${l.name}</div>
+            <div class="l-price">MVR ${Number(l.price).toFixed(2)}</div>
+            <div class="l-code">${l.barcode}</div>
+          </div>
         </div>`).join('')}
     </div>
     <script>window.onload = () => window.print()</script>

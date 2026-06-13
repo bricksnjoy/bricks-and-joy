@@ -197,41 +197,112 @@ export default function Accounting() {
   function printIncomeStatement() {
     const w = window.open('', '_blank')
     w.document.write(`
-      <html><head><title>Income Statement - ${companyName}</title>
+      <html><head><title>Income Statement — ${companyName}</title>
+      <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800&display=swap" rel="stylesheet">
       <style>
-        body { font-family: 'Poppins', Arial, sans-serif; max-width: 600px; margin: 40px auto; color: #111; font-size: 13px; }
-        h1 { font-size: 20px; margin: 0; } h2 { font-size: 14px; color: #555; margin: 4px 0 0; font-weight: 400; }
-        .period { font-size: 12px; color: #999; margin-bottom: 24px; }
-        table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
-        td { padding: 7px 0; border-bottom: 1px solid #f0f0f0; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Poppins', Arial, sans-serif; background: #f8f7f4; display: flex; justify-content: center; padding: 32px 16px; color: #0d1b2a; }
+        .doc { background: #fff; max-width: 620px; width: 100%; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.08); }
+        .doc-header { background: #0d1b2a; padding: 28px 32px; display: flex; justify-content: space-between; align-items: flex-end; }
+        .brand { display: flex; align-items: center; gap: 12px; }
+        .brand-circle { width: 48px; height: 48px; border-radius: 12px; background: #FFA500; display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: 900; color: #fff; }
+        .brand-name { font-size: 22px; font-weight: 900; color: #fff; letter-spacing: -0.5px; }
+        .brand-tag { font-size: 10px; color: rgba(255,255,255,0.4); text-transform: uppercase; letter-spacing: 1.5px; margin-top: 2px; }
+        .doc-meta { text-align: right; }
+        .doc-type { font-size: 13px; font-weight: 700; color: #FFA500; text-transform: uppercase; letter-spacing: 1px; }
+        .doc-period { font-size: 11px; color: rgba(255,255,255,0.4); margin-top: 4px; }
+        .doc-generated { font-size: 10px; color: rgba(255,255,255,0.25); margin-top: 2px; }
+        .doc-body { padding: 28px 32px; }
+        .kpi-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 28px; }
+        .kpi { background: #f8f7f4; border-radius: 10px; padding: 14px 16px; }
+        .kpi-label { font-size: 10px; color: #aaa; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; font-weight: 600; }
+        .kpi-value { font-size: 18px; font-weight: 800; letter-spacing: -0.5px; }
+        .section-head { display: flex; align-items: center; gap: 8px; margin: 20px 0 8px; }
+        .section-dot { width: 10px; height: 10px; border-radius: 3px; background: #FFA500; flex-shrink: 0; }
+        .section-label { font-size: 10px; font-weight: 800; color: #0d1b2a; text-transform: uppercase; letter-spacing: 1.2px; }
+        table { width: 100%; border-collapse: collapse; }
+        .row-indent td:first-child { padding-left: 20px; color: #666; font-size: 12px; }
+        td { padding: 8px 4px; border-bottom: 1px solid #f5f5f5; font-size: 13px; }
         td:last-child { text-align: right; font-weight: 600; }
-        .section { font-weight: 700; color: #333; padding-top: 16px; border-bottom: 2px solid #333 !important; }
-        .indent td:first-child { padding-left: 20px; color: #555; }
-        .total td { font-weight: 800; font-size: 15px; border-top: 2px solid #111; border-bottom: none; padding-top: 12px; }
-        .subtotal td { font-weight: 700; border-top: 1px solid #333; }
-        .red { color: #c62828; } .green { color: #1D9E75; }
-        @media print { body { margin: 20px; } }
-      </style></head><body>
-      <h1>${companyName}</h1>
-      <h2>Income Statement</h2>
-      <div class="period">${periodLabel} · Generated ${new Date().toLocaleDateString()}</div>
-      <table>
-        <tr class="section"><td>REVENUE</td><td></td></tr>
-        <tr class="indent"><td>Sales Revenue</td><td>MVR ${revenue.toFixed(2)}</td></tr>
-        <tr class="subtotal"><td>Total Revenue</td><td>MVR ${revenue.toFixed(2)}</td></tr>
-        <tr class="section"><td>COST OF GOODS SOLD</td><td></td></tr>
-        <tr class="indent"><td>Cost of Goods Sold</td><td class="red">(MVR ${cogs.toFixed(2)})</td></tr>
-        <tr class="subtotal"><td>GROSS PROFIT <span style="font-weight:400;font-size:11px">(${grossMargin}% margin)</span></td><td class="${grossProfit >= 0 ? 'green' : 'red'}">MVR ${grossProfit.toFixed(2)}</td></tr>
-        <tr class="section"><td>OPERATING EXPENSES</td><td></td></tr>
-        ${Object.entries(expByCat).map(([cat, amt]) => `<tr class="indent"><td>${cat}</td><td class="red">(MVR ${amt.toFixed(2)})</td></tr>`).join('')}
-        ${Object.keys(expByCat).length === 0 ? '<tr class="indent"><td>No expenses</td><td>—</td></tr>' : ''}
-        <tr class="subtotal"><td>Total Operating Expenses</td><td class="red">(MVR ${totalOpEx.toFixed(2)})</td></tr>
-        <tr class="total"><td>NET INCOME <span style="font-weight:400;font-size:11px">(${netMargin}% margin)</span></td><td class="${netIncome >= 0 ? 'green' : 'red'}">MVR ${netIncome.toFixed(2)}</td></tr>
-      </table>
-      <div style="font-size:11px;color:#aaa;margin-top:20px;border-top:1px solid #eee;padding-top:10px">
-        Rate: 1 USD = ${MVR_RATE} MVR · Revenue recognized on delivered orders only
-      </div>
-      <script>window.onload = () => window.print()</script>
+        .row-total { background: #f8f7f4; border-radius: 8px; }
+        .row-total td { font-weight: 800; font-size: 14px; border: none; padding: 10px 10px; }
+        .row-total td:first-child { border-radius: 8px 0 0 8px; padding-left: 14px; }
+        .row-total td:last-child { border-radius: 0 8px 8px 0; padding-right: 14px; }
+        .net-block { margin-top: 24px; background: #0d1b2a; border-radius: 12px; padding: 18px 20px; display: flex; justify-content: space-between; align-items: center; }
+        .net-label { font-size: 11px; color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+        .net-margin { font-size: 12px; color: rgba(255,255,255,0.3); margin-top: 4px; }
+        .net-value { font-size: 26px; font-weight: 900; letter-spacing: -1px; }
+        .red { color: #E24B4A; } .green { color: #1D9E75; }
+        .doc-footer { padding: 16px 32px; border-top: 1px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center; }
+        .footer-brand { font-size: 12px; font-weight: 800; color: #0d1b2a; }
+        .footer-note { font-size: 10px; color: #ccc; }
+        @media print { body { background: none; padding: 0; } .doc { box-shadow: none; border-radius: 0; } }
+      </style></head>
+      <body>
+        <div class="doc">
+          <div class="doc-header">
+            <div class="brand">
+              <div class="brand-circle">B</div>
+              <div>
+                <div class="brand-name">Brick's &amp; Joy</div>
+                <div class="brand-tag">Toy Company · Maldives</div>
+              </div>
+            </div>
+            <div class="doc-meta">
+              <div class="doc-type">Income Statement</div>
+              <div class="doc-period">${periodLabel}</div>
+              <div class="doc-generated">Generated ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</div>
+            </div>
+          </div>
+          <div class="doc-body">
+            <div class="kpi-row">
+              <div class="kpi">
+                <div class="kpi-label">Revenue</div>
+                <div class="kpi-value" style="color:#1D9E75">MVR ${revenue.toFixed(2)}</div>
+              </div>
+              <div class="kpi">
+                <div class="kpi-label">Gross Profit</div>
+                <div class="kpi-value" style="color:${grossProfit >= 0 ? '#1D9E75' : '#E24B4A'}">MVR ${grossProfit.toFixed(2)}</div>
+              </div>
+              <div class="kpi">
+                <div class="kpi-label">Gross Margin</div>
+                <div class="kpi-value" style="color:#FFA500">${grossMargin}%</div>
+              </div>
+            </div>
+
+            <div class="section-head"><div class="section-dot" style="background:#1D9E75"></div><div class="section-label">Revenue</div></div>
+            <table>
+              <tr class="row-indent"><td>Sales Revenue</td><td>MVR ${revenue.toFixed(2)}</td></tr>
+              <tr class="row-total"><td>Total Revenue</td><td>MVR ${revenue.toFixed(2)}</td></tr>
+            </table>
+
+            <div class="section-head"><div class="section-dot" style="background:#E24B4A"></div><div class="section-label">Cost of Goods Sold</div></div>
+            <table>
+              <tr class="row-indent"><td>Cost of Goods Sold</td><td class="red">(MVR ${cogs.toFixed(2)})</td></tr>
+              <tr class="row-total"><td>Gross Profit <span style="font-size:11px;font-weight:400;color:#aaa">${grossMargin}% margin</span></td><td class="${grossProfit >= 0 ? 'green' : 'red'}">MVR ${grossProfit.toFixed(2)}</td></tr>
+            </table>
+
+            <div class="section-head"><div class="section-dot" style="background:#FFA500"></div><div class="section-label">Operating Expenses</div></div>
+            <table>
+              ${Object.entries(expByCat).map(([cat, amt]) => `<tr class="row-indent"><td>${cat}</td><td class="red">(MVR ${amt.toFixed(2)})</td></tr>`).join('')}
+              ${Object.keys(expByCat).length === 0 ? '<tr class="row-indent"><td style="color:#ccc">No expenses recorded</td><td>—</td></tr>' : ''}
+              <tr class="row-total"><td>Total Operating Expenses</td><td class="red">(MVR ${totalOpEx.toFixed(2)})</td></tr>
+            </table>
+
+            <div class="net-block">
+              <div>
+                <div class="net-label">Net Income</div>
+                <div class="net-margin">${netMargin}% net margin</div>
+              </div>
+              <div class="net-value ${netIncome >= 0 ? 'green' : 'red'}">MVR ${netIncome.toFixed(2)}</div>
+            </div>
+          </div>
+          <div class="doc-footer">
+            <div class="footer-brand">Brick's &amp; Joy</div>
+            <div class="footer-note">Rate: 1 USD = ${MVR_RATE} MVR &nbsp;·&nbsp; Revenue recognized on delivered orders only</div>
+          </div>
+        </div>
+        <script>window.onload = () => window.print()</script>
       </body></html>`)
     w.document.close()
   }
