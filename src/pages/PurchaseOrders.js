@@ -1,7 +1,24 @@
 import React, { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Button, Input, Select, Table, Modal, Spinner, FormRow, useToast, Toasts, Badge } from '../components/UI'
-import { Plus, Trash2, Package, Truck, X } from 'lucide-react'
+import { Plus, Trash2, Package, Truck, X, Info, AlertTriangle } from 'lucide-react'
+
+const AVATAR_COLORS = ['#7F77DD', '#1D9E75', '#FFA500', '#378ADD', '#E24B4A', '#0F6E56']
+function avatarColor(name = '') {
+  let h = 0
+  for (let i = 0; i < name.length; i++) h = name.charCodeAt(i) + ((h << 5) - h)
+  return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length]
+}
+function Avatar({ name, size = 30 }) {
+  const color = avatarColor(name)
+  return (
+    <div style={{
+      width: size, height: size, borderRadius: size > 24 ? 8 : 6, background: color + '18', color,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      fontSize: size > 24 ? 13 : 11, fontWeight: 600, flexShrink: 0,
+    }}>{(name || '?').charAt(0).toUpperCase()}</div>
+  )
+}
 
 const STATUSES = [
   { value: 'pending', label: 'Pending' },
@@ -157,7 +174,9 @@ export default function PurchaseOrders() {
   const lowStockProducts = products.filter(p => p.stock_qty <= (p.low_stock_threshold || 10))
 
   const columns = [
-    { key: 'supplier_name', label: 'Supplier', render: r => <span style={{ fontWeight: 500 }}>{r.supplier_name || '—'}</span> },
+    { key: 'supplier_name', label: 'Supplier', render: r => r.supplier_name
+      ? <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}><Avatar name={r.supplier_name} /><span style={{ fontWeight: 500, color: '#0d1b2a' }}>{r.supplier_name}</span></div>
+      : <span style={{ color: '#aaa' }}>—</span> },
     { key: 'product_name', label: 'Product' },
     { key: 'qty', label: 'Qty', render: r => <strong>{r.qty}</strong> },
     { key: 'unit_cost', label: 'Unit cost', render: r => `MVR ${Number(r.unit_cost).toFixed(2)}` },
@@ -189,7 +208,9 @@ export default function PurchaseOrders() {
       {/* Low stock suggestion banner */}
       {lowStockProducts.length > 0 && (
         <div style={{ background: '#FFF8E1', border: '1px solid #FAEEDA', borderRadius: 12, padding: '14px 18px', marginBottom: 20, display: 'flex', gap: 14, alignItems: 'center' }}>
-          <Package size={20} color="#f57f17" />
+          <div style={{ background: '#FBE6BE', borderRadius: 10, padding: 9, flexShrink: 0, display: 'flex' }}>
+            <AlertTriangle size={18} color="#f57f17" />
+          </div>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 13, fontWeight: 600, color: '#854F0B', marginBottom: 4 }}>
               {lowStockProducts.length} {lowStockProducts.length === 1 ? 'product needs' : 'products need'} restocking
@@ -199,7 +220,7 @@ export default function PurchaseOrders() {
               {lowStockProducts.length > 5 && ` and ${lowStockProducts.length - 5} more...`}
             </div>
           </div>
-          <Button onClick={openBatchAdd} style={{ background: '#f57f17' }}>Create batch order</Button>
+          <Button onClick={openBatchAdd}>Create batch order</Button>
         </div>
       )}
 
@@ -207,8 +228,9 @@ export default function PurchaseOrders() {
       {suppliers.length > 0 && (
         <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
           {suppliers.map(s => (
-            <div key={s.id} style={{ background: '#fff', border: '1px solid #eee', borderRadius: 8, padding: '6px 14px', fontSize: 12, color: '#555' }}>
-              {s.name} {s.phone && <span style={{ color: '#aaa' }}>· {s.phone}</span>}
+            <div key={s.id} style={{ background: '#fff', border: '1px solid #eee', borderRadius: 99, padding: '5px 14px 5px 7px', fontSize: 12, color: '#555', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Avatar name={s.name} size={22} />
+              <span style={{ fontWeight: 500, color: '#0d1b2a' }}>{s.name}</span> {s.phone && <span style={{ color: '#aaa' }}>· {s.phone}</span>}
             </div>
           ))}
         </div>
@@ -227,7 +249,7 @@ export default function PurchaseOrders() {
 
       {/* Batch order modal */}
       {batchModal && (
-        <Modal title="Create batch purchase order" onClose={() => setBatchModal(false)} width={780}>
+        <Modal title="Create batch purchase order" subtitle="Order multiple products from a supplier in one go" onClose={() => setBatchModal(false)} width={780}>
           <FormRow>
             <Select label="Supplier" value={batchForm.supplier_id} onChange={handleSupplierChange}
               options={[{ value: '', label: '— Select or type below —' }, ...suppliers.map(s => ({ value: s.id, label: s.name }))]} />
@@ -288,7 +310,7 @@ export default function PurchaseOrders() {
                 <tfoot>
                   <tr style={{ background: '#fafafa', borderTop: '2px solid #eee' }}>
                     <td colSpan={4} style={{ padding: '10px', fontWeight: 700, color: '#0d1b2a' }}>Batch total</td>
-                    <td style={{ padding: '10px', textAlign: 'right', fontWeight: 800, color: '#FFA500' }}>MVR {batchTotal.toFixed(2)}</td>
+                    <td style={{ padding: '10px', textAlign: 'right', fontWeight: 700, color: '#FFA500' }}>MVR {batchTotal.toFixed(2)}</td>
                     <td></td>
                   </tr>
                 </tfoot>
@@ -296,8 +318,9 @@ export default function PurchaseOrders() {
             </div>
           </div>
 
-          <div style={{ background: '#f8f7f4', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 12, color: '#888' }}>
-            💡 When you mark items as <strong>Received</strong>, stock will be automatically added to inventory.
+          <div style={{ background: '#f8f7f4', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 12, color: '#888', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Info size={15} color="#aaa" style={{ flexShrink: 0 }} />
+            <span>When you mark items as <strong style={{ color: '#555', fontWeight: 600 }}>Received</strong>, stock will be automatically added to inventory.</span>
           </div>
 
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
@@ -309,7 +332,7 @@ export default function PurchaseOrders() {
 
       {/* Supplier modal */}
       {supplierModal && (
-        <Modal title="Add supplier" onClose={() => setSupplierModal(false)}>
+        <Modal title="Add supplier" subtitle="Save a vendor to reuse on future orders" onClose={() => setSupplierModal(false)}>
           <FormRow>
             <Input label="Supplier name *" value={supplierForm.name} onChange={sf('name')} placeholder="e.g. LEGO, Mattel" style={{ gridColumn: 'span 2' }} />
           </FormRow>

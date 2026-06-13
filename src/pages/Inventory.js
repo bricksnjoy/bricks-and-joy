@@ -190,6 +190,7 @@ export default function Inventory() {
 
   // Print barcode label
   function printBarcode() {
+    const logoUrl = window.location.origin + '/logo.png'
     const w = window.open('', '_blank', 'width=400,height=300')
     const isQR = barcodeType === 'qr'
     let imgSrc = ''
@@ -202,23 +203,68 @@ export default function Inventory() {
     }
     
     w.document.write(`
-      <html><head><title>Barcode — ${barcodeModal.name}</title>
+      <html><head><title>Label — ${barcodeModal.name}</title>
+      <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800&display=swap" rel="stylesheet">
       <style>
-        body { font-family: 'Poppins', Arial, sans-serif; margin: 0; padding: 20px; text-align: center; }
-        .label { border: 1px solid #eee; border-radius: 8px; padding: 16px; display: inline-block; min-width: 220px; }
-        img { max-width: 220px; display: block; margin: 0 auto; }
-        h3 { font-size: 14px; margin: 8px 0 4px; font-weight: 700; }
-        p { font-size: 12px; color: #666; margin: 2px 0; }
-        @media print { body { padding: 0; } .label { border: none; } }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Poppins', Arial, sans-serif; background: #f0f0f0; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+        .label { background: #fff; border-radius: 16px; overflow: hidden; width: 300px; box-shadow: 0 6px 24px rgba(0,0,0,0.12); }
+
+        /* Top row: logo left, brand name right */
+        .label-top { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px 8px; border-bottom: 1px solid #f5f5f5; }
+        .logo-wrap { display: flex; align-items: center; gap: 9px; }
+        .logo-wrap img { height: 48px; width: 48px; object-fit: contain; }
+        .brand-name { font-size: 12px; font-weight: 600; color: #0d1b2a; letter-spacing: -0.2px; }
+        .brand-sub { font-size: 8px; color: #bbb; text-transform: uppercase; letter-spacing: 0.8px; margin-top: 1px; }
+        .top-right { text-align: right; }
+        .top-tag { font-size: 8px; color: #FFA500; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; }
+
+        /* Barcode strip */
+        .barcode-strip { background: #fff; padding: 14px 16px 8px; text-align: center; }
+        .barcode-strip img { max-width: 100%; display: block; margin: 0 auto; }
+
+        /* Product info */
+        .product-info { padding: 10px 16px 14px; }
+        .product-name { font-size: 15px; font-weight: 600; color: #0d1b2a; letter-spacing: -0.3px; margin-bottom: 2px; }
+        .product-brand { font-size: 11px; color: #aaa; margin-bottom: 8px; }
+        .product-footer { display: flex; justify-content: space-between; align-items: center; }
+        .price-tag { background: #0d1b2a; color: #FFA500; font-size: 15px; font-weight: 700; padding: 5px 14px; border-radius: 8px; letter-spacing: -0.3px; }
+        .code-block { text-align: right; }
+        .code-num { font-size: 9px; color: #ccc; font-family: monospace; letter-spacing: 0.5px; }
+        .sizes-text { font-size: 10px; color: #aaa; margin-top: 6px; }
+
+        @media print { body { background: none; min-height: auto; } .label { box-shadow: none; border: 1px solid #ddd; border-radius: 0; } }
       </style></head>
       <body>
         <div class="label">
-          <img src="${imgSrc}" alt="barcode" />
-          <h3>${barcodeModal.name}</h3>
-          ${barcodeModal.brand ? `<p>${barcodeModal.brand}</p>` : ''}
-          <p>MVR ${Number(barcodeModal.sell_price).toFixed(2)}</p>
-          ${barcodeModal.sizes ? `<p>Sizes: ${barcodeModal.sizes}</p>` : ''}
-          <p style="font-size:10px;color:#aaa;font-family:monospace">${barcodeModal.barcode}</p>
+          <div class="label-top">
+            <div class="logo-wrap">
+              <img src="${logoUrl}" alt="" onerror="this.style.display='none'" />
+              <div>
+                <div class="brand-name">Brick's &amp; Joy</div>
+                <div class="brand-sub">Toy Store</div>
+              </div>
+            </div>
+            <div class="top-right">
+              <div class="top-tag">Product Label</div>
+            </div>
+          </div>
+
+          <div class="barcode-strip">
+            <img src="${imgSrc}" alt="barcode" />
+          </div>
+
+          <div class="product-info">
+            <div class="product-name">${barcodeModal.name}</div>
+            ${barcodeModal.brand ? `<div class="product-brand">${barcodeModal.brand}</div>` : ''}
+            <div class="product-footer">
+              <div class="price-tag">MVR ${Number(barcodeModal.sell_price).toFixed(2)}</div>
+              <div class="code-block">
+                <div class="code-num">${barcodeModal.barcode}</div>
+                ${barcodeModal.sizes ? `<div class="sizes-text">${barcodeModal.sizes}</div>` : ''}
+              </div>
+            </div>
+          </div>
         </div>
         <script>window.onload = () => { window.print(); window.onafterprint = () => window.close(); }</script>
       </body></html>`)
@@ -227,6 +273,7 @@ export default function Inventory() {
 
   // Print all barcodes
   async function printAllBarcodes() {
+    const logoUrl = window.location.origin + '/logo.png'
     const w = window.open('', '_blank')
     const labelGroups = await Promise.all(products.filter(p => p.barcode && !p.discontinued).map(async p => {
       try {
@@ -240,23 +287,50 @@ export default function Inventory() {
       } catch { return [] }
     }))
     const allLabels = labelGroups.flat()
-    w.document.write(`<html><head><title>All Barcodes — Brick's & Joy</title>
+    w.document.write(`<html><head><title>All Labels — Brick's &amp; Joy</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800&display=swap" rel="stylesheet">
     <style>
-      body { font-family: Arial, sans-serif; margin: 0; padding: 10px; }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body { font-family: 'Poppins', Arial, sans-serif; background: #f8f7f4; padding: 16px; }
+      .page-header { background: #0d1b2a; border-radius: 12px; padding: 14px 20px; display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+      .brand-dot { width: 32px; height: 32px; border-radius: 8px; background: #FFA500; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 900; color: #fff; flex-shrink: 0; }
+      .brand-title { font-size: 16px; font-weight: 700; color: #fff; }
+      .brand-sub { font-size: 10px; color: rgba(255,255,255,0.35); text-transform: uppercase; letter-spacing: 1px; }
       .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-      .label { border: 1px solid #ddd; border-radius: 6px; padding: 10px; text-align: center; break-inside: avoid; }
-      img { max-width: 100%; height: 50px; }
-      h4 { font-size: 11px; margin: 4px 0 2px; font-weight: 700; }
-      p { font-size: 10px; color: #666; margin: 1px 0; }
-      @media print { .grid { grid-template-columns: repeat(3, 1fr); } }
+      .label { background: #fff; border: 1px solid #eee; border-radius: 10px; overflow: hidden; break-inside: avoid; }
+      .label-top { display: flex; justify-content: space-between; align-items: center; padding: 5px 8px; border-bottom: 1px solid #f0f0f0; }
+      .label-top-logo { height: 26px; width: 26px; object-fit: contain; }
+      .label-top-text { font-size: 7px; color: #FFA500; text-transform: uppercase; letter-spacing: 0.8px; font-weight: 600; }
+      .label-body { padding: 6px 8px 8px; text-align: center; }
+      .label-body img { max-width: 100%; height: 40px; display: block; margin: 0 auto; }
+      .l-name { font-size: 9px; font-weight: 600; color: #0d1b2a; margin: 5px 0 4px; }
+      .l-bottom { display: flex; justify-content: space-between; align-items: center; }
+      .l-price { background: #0d1b2a; color: #FFA500; font-size: 9px; font-weight: 600; padding: 2px 7px; border-radius: 5px; }
+      .l-code { font-size: 6px; color: #ccc; font-family: monospace; text-align: right; }
+      @media print { body { background: none; padding: 8px; } .page-header { display: none; } .grid { grid-template-columns: repeat(3, 1fr); gap: 8px; } }
     </style></head><body>
+    <div class="page-header">
+      <img src="${logoUrl}" alt="" style="height:38px;width:38px;object-fit:contain;flex-shrink:0" onerror="this.style.display='none'" />
+      <div>
+        <div class="brand-title">Brick's &amp; Joy — Product Labels</div>
+        <div class="brand-sub">Printed ${new Date().toLocaleDateString()} · ${allLabels.length} labels</div>
+      </div>
+    </div>
     <div class="grid">
       ${allLabels.map(l => `
         <div class="label">
-          <img src="data:image/svg+xml;base64,${btoa(l.svg)}" alt="barcode" />
-          <h4>${l.name}</h4>
-          <p>MVR ${Number(l.price).toFixed(2)}</p>
-          <p style="font-size:9px;font-family:monospace">${l.barcode}</p>
+          <div class="label-top">
+            <img class="label-top-logo" src="${logoUrl}" alt="" onerror="this.style.display='none'" />
+            <div class="label-top-text">Brick's &amp; Joy</div>
+          </div>
+          <div class="label-body">
+            <img src="data:image/svg+xml;base64,${btoa(l.svg)}" alt="barcode" />
+            <div class="l-name">${l.name}</div>
+            <div class="l-bottom">
+              <div class="l-price">MVR ${Number(l.price).toFixed(2)}</div>
+              <div class="l-code">${l.barcode}</div>
+            </div>
+          </div>
         </div>`).join('')}
     </div>
     <script>window.onload = () => window.print()</script>
@@ -317,7 +391,7 @@ export default function Inventory() {
     { key: 'actions', label: '', render: r => (
       <div style={{ display: 'flex', gap: 4 }}>
         <Button variant="ghost" size="sm" onClick={() => openView(r)} title="View"><Eye size={13} /></Button>
-        <Button variant="ghost" size="sm" onClick={() => openBarcode(r)} title="Barcode" style={{ color: '#FFA500' }}>▦</Button>
+        <Button variant="ghost" size="sm" onClick={() => openBarcode(r)} title="Barcode" style={{ color: '#FFA500' }}><Barcode size={13} /></Button>
         <Button variant="ghost" size="sm" onClick={() => openEdit(r)}><Edit2 size={13} /></Button>
         <Button variant="danger" size="sm" onClick={() => del(r.id)}><Trash2 size={13} /></Button>
       </div>
@@ -333,7 +407,7 @@ export default function Inventory() {
               <Camera size={15} /> Scan
             </Button>
             <Button variant="ghost" onClick={printAllBarcodes} title="Print all barcodes">
-              🖨️ Print all barcodes
+              <Printer size={15} /> Print all
             </Button>
             <Button onClick={openAdd}><Plus size={15} /> Add product</Button>
           </div>
@@ -350,14 +424,14 @@ export default function Inventory() {
           </select>
           <div style={{ display: 'flex', gap: 0, border: '1px solid #ddd', borderRadius: 8, overflow: 'hidden' }}>
             <button onClick={() => setShowDiscontinued(false)}
-              style={{ padding: '8px 16px', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, fontFamily: 'inherit',
-                background: !showDiscontinued ? '#1D9E75' : '#fff', color: !showDiscontinued ? '#fff' : '#888' }}>
-              ✅ Active ({products.filter(p=>!p.discontinued).length})
+              style={{ padding: '7px 14px', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', transition: 'all 0.15s',
+                background: !showDiscontinued ? '#1D9E75' : '#fff', color: !showDiscontinued ? '#fff' : '#999' }}>
+              Active ({products.filter(p=>!p.discontinued).length})
             </button>
             <button onClick={() => setShowDiscontinued(true)}
-              style={{ padding: '8px 16px', border: 'none', borderLeft: '1px solid #ddd', cursor: 'pointer', fontSize: 12, fontWeight: 700, fontFamily: 'inherit',
-                background: showDiscontinued ? '#888' : '#fff', color: showDiscontinued ? '#fff' : '#888' }}>
-              ⛔ Discontinued ({products.filter(p=>p.discontinued).length})
+              style={{ padding: '7px 14px', border: 'none', borderLeft: '1px solid #ddd', cursor: 'pointer', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', transition: 'all 0.15s',
+                background: showDiscontinued ? '#666' : '#fff', color: showDiscontinued ? '#fff' : '#999' }}>
+              Discontinued ({products.filter(p=>p.discontinued).length})
             </button>
           </div>
         </div>
@@ -391,11 +465,15 @@ export default function Inventory() {
 
           {/* Action buttons */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <button onClick={downloadBarcode} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '11px', background: '#FFA500', color: '#fff', border: 'none', borderRadius: 10, cursor: 'pointer', fontSize: 13, fontWeight: 700, fontFamily: 'inherit' }}>
-              ⬇️ Download PNG
+            <button onClick={downloadBarcode} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '11px', background: '#FFA500', color: '#fff', border: 'none', borderRadius: 10, cursor: 'pointer', fontSize: 13, fontWeight: 700, fontFamily: 'inherit', transition: 'all 0.15s' }}
+              onMouseEnter={e => { e.currentTarget.style.background='#e6940a'; e.currentTarget.style.transform='translateY(-1px)' }}
+              onMouseLeave={e => { e.currentTarget.style.background='#FFA500'; e.currentTarget.style.transform='translateY(0)' }}>
+              <Download size={15} /> Download
             </button>
-            <button onClick={printBarcode} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '11px', background: '#0d1b2a', color: '#fff', border: 'none', borderRadius: 10, cursor: 'pointer', fontSize: 13, fontWeight: 700, fontFamily: 'inherit' }}>
-              🖨️ Print label
+            <button onClick={printBarcode} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '11px', background: '#0d1b2a', color: '#fff', border: 'none', borderRadius: 10, cursor: 'pointer', fontSize: 13, fontWeight: 700, fontFamily: 'inherit', transition: 'all 0.15s' }}
+              onMouseEnter={e => { e.currentTarget.style.background='#1a2f44'; e.currentTarget.style.transform='translateY(-1px)' }}
+              onMouseLeave={e => { e.currentTarget.style.background='#0d1b2a'; e.currentTarget.style.transform='translateY(0)' }}>
+              <Printer size={15} /> Print label
             </button>
           </div>
           <div style={{ fontSize: 11, color: '#aaa', textAlign: 'center', marginTop: 10 }}>

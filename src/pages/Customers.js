@@ -55,65 +55,92 @@ export default function Customers() {
     const w = window.open('', '_blank', 'width=480,height=640')
     const payStatus = o.payment_status || 'unpaid'
     const payColor = payStatus === 'paid' ? '#1D9E75' : payStatus === 'partial' ? '#f57f17' : '#c62828'
+    const logoUrl = window.location.origin + '/logo.png'
     w.document.write(`
       <html><head><title>Receipt — ${o.invoice_number || 'Order'}</title>
+      <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800&display=swap" rel="stylesheet">
       <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Arial', sans-serif; padding: 30px; color: #0d1b2a; }
-        .header { text-align: center; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 2px solid #0d1b2a; }
-        .logo { font-size: 22px; font-weight: 900; color: #0d1b2a; }
-        .sub { font-size: 11px; color: #999; letter-spacing: 1.5px; text-transform: uppercase; margin-top: 4px; }
-        .invoice-num { font-size: 13px; color: #FFA500; font-weight: 700; margin-top: 8px; }
-        .section { margin-bottom: 18px; }
-        .label { font-size: 10px; color: #aaa; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px; }
-        .value { font-size: 13px; font-weight: 600; }
-        .row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
-        .total-row { display: flex; justify-content: space-between; padding: 12px 0; font-size: 16px; font-weight: 800; border-top: 2px solid #0d1b2a; margin-top: 6px; }
-        .badge { display: inline-block; padding: 3px 10px; border-radius: 99px; font-size: 11px; font-weight: 700; background: ${payColor}22; color: ${payColor}; }
-        .footer { text-align: center; margin-top: 28px; font-size: 11px; color: #aaa; }
-        @media print { body { padding: 16px; } }
+        body { font-family: 'Poppins', Arial, sans-serif; color: #0d1b2a; padding: 36px; max-width: 560px; margin: 0 auto; }
+        .doc-header { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 20px; border-bottom: 3px solid #FFA500; margin-bottom: 24px; }
+        .brand { display: flex; align-items: center; gap: 12px; }
+        .brand img { width: 54px; height: 54px; object-fit: contain; }
+        .brand-name { font-size: 18px; font-weight: 800; color: #0d1b2a; letter-spacing: -0.3px; line-height: 1.2; }
+        .brand-tag { font-size: 10px; color: #aaa; text-transform: uppercase; letter-spacing: 1.2px; margin-top: 2px; }
+        .doc-type { text-align: right; }
+        .doc-type-label { font-size: 11px; font-weight: 700; color: #FFA500; text-transform: uppercase; letter-spacing: 1.5px; }
+        .doc-inv { font-size: 20px; font-weight: 900; color: #0d1b2a; letter-spacing: -0.5px; margin-top: 4px; }
+        .doc-date { font-size: 12px; color: #aaa; margin-top: 3px; }
+        .info-row { display: flex; gap: 32px; margin-bottom: 22px; padding-bottom: 18px; border-bottom: 1px solid #f0f0f0; }
+        .info-block .lbl { font-size: 10px; color: #bbb; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; font-weight: 600; }
+        .info-block .val { font-size: 14px; font-weight: 700; color: #0d1b2a; }
+        .info-block .sub { font-size: 11px; color: #aaa; margin-top: 2px; }
+        .items-head { display: flex; justify-content: space-between; font-size: 10px; color: #bbb; text-transform: uppercase; letter-spacing: 0.6px; font-weight: 700; padding: 0 0 8px; border-bottom: 1px solid #eee; margin-bottom: 4px; }
+        .item-row { display: flex; justify-content: space-between; align-items: center; padding: 11px 0; border-bottom: 1px solid #f5f5f5; }
+        .item-name { font-size: 14px; font-weight: 600; color: #0d1b2a; }
+        .item-qty { font-size: 12px; color: #aaa; margin-top: 2px; }
+        .item-total { font-size: 14px; font-weight: 700; color: #0d1b2a; }
+        .total-block { display: flex; justify-content: space-between; align-items: center; margin-top: 16px; padding: 16px 20px; background: #0d1b2a; border-radius: 10px; }
+        .total-label { font-size: 11px; color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 1px; }
+        .total-amount { font-size: 24px; font-weight: 900; color: #FFA500; letter-spacing: -0.8px; }
+        .pay-section { margin-top: 18px; display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; padding-top: 14px; border-top: 1px solid #f0f0f0; }
+        .badge { display: inline-flex; padding: 4px 14px; border-radius: 99px; font-size: 11px; font-weight: 700; background: ${payColor}15; color: ${payColor}; border: 1px solid ${payColor}40; }
+        .pay-detail .lbl { font-size: 10px; color: #bbb; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 3px; }
+        .pay-detail .val { font-size: 13px; font-weight: 600; color: #333; }
+        .notes { margin-top: 14px; background: #fffbf0; border-left: 3px solid #FFA500; padding: 10px 14px; border-radius: 0 8px 8px 0; }
+        .notes .lbl { font-size: 10px; color: #aaa; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+        .notes .val { font-size: 12px; color: #555; line-height: 1.6; }
+        .doc-footer { margin-top: 36px; padding-top: 14px; border-top: 1px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center; }
+        .footer-msg { font-size: 11px; color: #ccc; font-style: italic; }
+        .footer-brand { font-size: 11px; font-weight: 700; color: #0d1b2a; }
+        @media print { body { padding: 20px; } }
       </style></head>
       <body>
-        <div class="header">
-          <div class="logo">Brick's &amp; Joy</div>
-          <div class="sub">Toy Company · Receipt</div>
-          <div class="invoice-num">${o.invoice_number || 'No invoice number'}</div>
+        <div class="doc-header">
+          <div class="brand">
+            <img src="${logoUrl}" alt="Brick's & Joy" onerror="this.style.display='none'" />
+            <div>
+              <div class="brand-name">Brick's &amp; Joy</div>
+              <div class="brand-tag">Official Receipt</div>
+            </div>
+          </div>
+          <div class="doc-type">
+            <div class="doc-type-label">Receipt</div>
+            <div class="doc-inv">${o.invoice_number || '—'}</div>
+            <div class="doc-date">${o.order_date || '—'}</div>
+          </div>
         </div>
-        <div class="section" style="display:flex; gap:30px;">
+        <div class="info-row">
+          <div class="info-block">
+            <div class="lbl">Customer</div>
+            <div class="val">${customer.name}</div>
+            ${customer.phone ? `<div class="sub">${customer.phone}</div>` : ''}
+          </div>
+          ${o.channel ? `<div class="info-block"><div class="lbl">Channel</div><div class="val">${o.channel}</div></div>` : ''}
+        </div>
+        <div class="items-head"><span>Item</span><span>Amount</span></div>
+        <div class="item-row">
           <div>
-            <div class="label">Customer</div>
-            <div class="value">${customer.name}</div>
-            ${customer.phone ? `<div style="font-size:12px;color:#888">${customer.phone}</div>` : ''}
+            <div class="item-name">${o.product_name}</div>
+            <div class="item-qty">${o.qty} unit${o.qty !== 1 ? 's' : ''} × MVR ${Number(o.unit_price || 0).toFixed(2)}</div>
           </div>
-          <div>
-            <div class="label">Date</div>
-            <div class="value">${o.order_date || '—'}</div>
-          </div>
+          <div class="item-total">MVR ${Number(o.total_price || 0).toFixed(2)}</div>
         </div>
-        <div class="section">
-          <div class="row" style="font-weight:700;color:#aaa;font-size:11px;text-transform:uppercase;letter-spacing:0.5px">
-            <span>Item</span><span>Qty × Price</span><span>Total</span>
-          </div>
-          <div class="row">
-            <span>${o.product_name}</span>
-            <span>${o.qty} × MVR ${Number(o.unit_price || 0).toFixed(2)}</span>
-            <span style="font-weight:700">MVR ${Number(o.total_price || 0).toFixed(2)}</span>
-          </div>
-          <div class="total-row">
-            <span>Total</span>
-            <span>MVR ${Number(o.total_price || 0).toFixed(2)}</span>
-          </div>
+        ${o.discount > 0 ? `<div class="item-row" style="color:#1D9E75"><span style="font-size:12px">Discount</span><span style="font-weight:700">-MVR ${Number(o.discount).toFixed(2)}</span></div>` : ''}
+        <div class="total-block">
+          <div class="total-label">Total Amount</div>
+          <div class="total-amount">MVR ${Number(o.total_price || 0).toFixed(2)}</div>
         </div>
-        <div class="section" style="display:flex; gap:20px; align-items:center;">
-          <div>
-            <div class="label">Payment status</div>
-            <span class="badge">${payStatus.toUpperCase()}</span>
-          </div>
-          ${o.payment_method ? `<div><div class="label">Method</div><div class="value">${o.payment_method}</div></div>` : ''}
-          ${o.transfer_reference ? `<div><div class="label">Reference</div><div class="value" style="font-family:monospace">${o.transfer_reference}</div></div>` : ''}
+        <div class="pay-section">
+          <span class="badge">${payStatus.toUpperCase()}</span>
+          ${o.payment_method ? `<div class="pay-detail"><div class="lbl">Method</div><div class="val">${o.payment_method}</div></div>` : ''}
+          ${o.transfer_reference ? `<div class="pay-detail"><div class="lbl">Reference</div><div class="val" style="font-family:monospace">${o.transfer_reference}</div></div>` : ''}
         </div>
-        ${o.notes ? `<div class="section"><div class="label">Notes</div><div style="font-size:13px;color:#555">${o.notes}</div></div>` : ''}
-        <div class="footer">Thank you for shopping at Brick's &amp; Joy! 🧸</div>
+        ${o.notes ? `<div class="notes"><div class="lbl">Notes</div><div class="val">${o.notes}</div></div>` : ''}
+        <div class="doc-footer">
+          <div class="footer-msg">This is a computer generated receipt.</div>
+          <div class="footer-brand">Brick's &amp; Joy</div>
+        </div>
         <script>window.onload = () => { window.print(); window.onafterprint = () => window.close(); }</script>
       </body></html>`)
     w.document.close()

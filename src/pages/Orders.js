@@ -259,15 +259,37 @@ export default function Orders() {
   const lowStockCount = products.filter(p => p.stock_qty > 0 && p.stock_qty <= (p.low_stock_threshold || 10)).length
   const outOfStockCount = products.filter(p => p.stock_qty <= 0).length
 
+  const AVATAR_COLORS = ['#7F77DD','#1D9E75','#FFA500','#378ADD','#E24B4A','#0F6E56']
+  const statusColors = { pending: '#FFA500', transit: '#378ADD', delivered: '#1D9E75', cancelled: '#E24B4A' }
+
   const columns = [
-    { key: 'invoice_number', label: 'Invoice', render: r => <span style={{ fontSize: 11, color: '#aaa', fontFamily: 'monospace' }}>{r.invoice_number || '—'}</span> },
-    { key: 'customer_name', label: 'Customer', render: r => <span style={{ fontWeight: 500 }}>{r.customer_name || 'Walk-in'}</span> },
-    { key: 'product_name', label: 'Product' },
-    { key: 'qty', label: 'Qty' },
+    { key: 'invoice_number', label: 'Invoice', render: r => (
+      <span style={{ fontSize: 11, color: '#999', fontFamily: 'monospace', background: '#f5f5f5', padding: '3px 7px', borderRadius: 6 }}>
+        {r.invoice_number || '—'}
+      </span>
+    )},
+    { key: 'customer_name', label: 'Customer', render: r => {
+      const name = r.customer_name || 'Walk-in'
+      const ci = name.charCodeAt(0) % AVATAR_COLORS.length
+      return (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ width: 30, height: 30, borderRadius: 8, background: AVATAR_COLORS[ci] + '18', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, color: AVATAR_COLORS[ci], flexShrink: 0 }}>
+            {name[0].toUpperCase()}
+          </div>
+          <span style={{ fontWeight: 600, color: '#0d1b2a', fontSize: 13 }}>{name}</span>
+        </div>
+      )
+    }},
+    { key: 'product_name', label: 'Product', render: r => (
+      <div>
+        <div style={{ fontWeight: 500, color: '#333', fontSize: 13 }}>{r.product_name}</div>
+        <div style={{ fontSize: 11, color: '#bbb' }}>× {r.qty} unit{r.qty !== 1 ? 's' : ''}</div>
+      </div>
+    )},
     { key: 'total_price', label: 'Total', render: r => (
       <div>
-        <span style={{ fontWeight: 600 }}>MVR {Number(r.total_price || 0).toFixed(2)}</span>
-        {r.discount > 0 && <div style={{ fontSize: 10, color: '#1D9E75', fontWeight: 600 }}>-MVR {Number(r.discount).toFixed(2)} disc.</div>}
+        <div style={{ fontWeight: 700, color: '#0d1b2a', fontSize: 13 }}>MVR {Number(r.total_price || 0).toFixed(2)}</div>
+        {r.discount > 0 && <div style={{ fontSize: 10, color: '#1D9E75', fontWeight: 600 }}>-MVR {Number(r.discount).toFixed(2)} off</div>}
       </div>
     )},
     { key: 'payment', label: 'Payment', render: r => (
@@ -275,24 +297,36 @@ export default function Orders() {
         <Badge color={(r.payment_status || 'unpaid') === 'paid' ? 'green' : (r.payment_status || 'unpaid') === 'partial' ? 'amber' : 'red'}>
           {r.payment_status || 'unpaid'}
         </Badge>
-        {r.transfer_slip_url && <span title="Slip attached" style={{ fontSize: 14 }}>📎</span>}
+        {r.transfer_slip_url && (
+          <span title="Slip attached" style={{ width: 18, height: 18, borderRadius: 4, background: '#e3f2fd', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Upload size={10} color="#378ADD" />
+          </span>
+        )}
       </div>
     )},
-    { key: 'delivery_person', label: 'Delivery', render: r => r.delivery_person ? <span style={{ fontSize: 12, background: '#EEF4FF', color: '#378ADD', padding: '2px 8px', borderRadius: 99, fontWeight: 600 }}>🚴 {r.delivery_person}</span> : <span style={{ color: '#ddd' }}>—</span> },
-    { key: 'order_date', label: 'Date', render: r => <span style={{ color: '#888', fontSize: 12 }}>{r.order_date}</span> },
+    { key: 'delivery_person', label: 'Delivery', render: r => r.delivery_person
+      ? <span style={{ fontSize: 11, background: '#EEF4FF', color: '#378ADD', padding: '3px 9px', borderRadius: 99, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <Package size={10} /> {r.delivery_person}
+        </span>
+      : <span style={{ color: '#ddd', fontSize: 12 }}>—</span>
+    },
+    { key: 'order_date', label: 'Date', render: r => <span style={{ color: '#aaa', fontSize: 12, fontWeight: 500 }}>{r.order_date}</span> },
     { key: 'status', label: 'Status', render: r => (
-      <select value={r.status} onChange={e => updateStatus(r.id, e.target.value)}
-        style={{ border: 'none', background: 'transparent', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>
-        {STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-      </select>
+      <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
+        <select value={r.status} onChange={e => updateStatus(r.id, e.target.value)}
+          style={{ appearance: 'none', WebkitAppearance: 'none', border: 'none', fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', fontWeight: 700, paddingRight: 16, paddingLeft: 8, paddingTop: 4, paddingBottom: 4, borderRadius: 99, background: (statusColors[r.status] || '#ccc') + '18', color: statusColors[r.status] || '#888', outline: 'none' }}>
+          {STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+        </select>
+        <span style={{ position: 'absolute', right: 4, pointerEvents: 'none', fontSize: 8, color: statusColors[r.status] || '#888' }}>▼</span>
+      </div>
     )},
     { key: 'actions', label: '', render: r => (
-      <div style={{ display: 'flex', gap: 4 }}>
-        <Button variant="ghost" size="sm" onClick={() => setViewModal(r)} title="View"><Eye size={13} /></Button>
-        <Button variant="ghost" size="sm" onClick={() => openEdit(r)} title="Edit"><Edit2 size={13} /></Button>
-        <Button variant="ghost" size="sm" onClick={() => { setPayModal(r); setPayForm({ payment_method: r.payment_method || 'Cash', transfer_reference: r.transfer_reference || '', transfer_slip_url: r.transfer_slip_url || '', payment_status: r.payment_status || 'paid' }) }} title="Payment"><CreditCard size={13} /></Button>
-        {r.status !== 'cancelled' && <Button variant="ghost" size="sm" onClick={() => { setReturnModal(r); setReturnForm({ reason: '', refund_amount: r.total_price || 0 }) }} title="Return" style={{ color: '#f57f17' }}><RotateCcw size={13} /></Button>}
-        <Button variant="danger" size="sm" onClick={() => del(r.id)}><Trash2 size={13} /></Button>
+      <div style={{ display: 'flex', gap: 3 }}>
+        <button className="icon-btn primary" onClick={() => setViewModal(r)} title="View"><Eye size={13} /></button>
+        <button className="icon-btn" onClick={() => openEdit(r)} title="Edit"><Edit2 size={13} /></button>
+        <button className="icon-btn primary" onClick={() => { setPayModal(r); setPayForm({ payment_method: r.payment_method || 'Cash', transfer_reference: r.transfer_reference || '', transfer_slip_url: r.transfer_slip_url || '', payment_status: r.payment_status || 'paid' }) }} title="Record payment"><CreditCard size={13} /></button>
+        {r.status !== 'cancelled' && <button className="icon-btn warning" onClick={() => { setReturnModal(r); setReturnForm({ reason: '', refund_amount: r.total_price || 0 }) }} title="Process return"><RotateCcw size={13} /></button>}
+        <button className="icon-btn danger" onClick={() => del(r.id)} title="Delete"><Trash2 size={13} /></button>
       </div>
     )},
   ]
@@ -313,18 +347,45 @@ export default function Orders() {
       )}
 
       <Card>
-        <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-          <div style={{ display: 'flex', gap: 6 }}>
-            {['all','pending','transit','delivered','cancelled'].map(s => (
-              <button key={s} onClick={() => setFilter(s)} style={{ padding: '5px 12px', borderRadius: 99, border: '1px solid #ddd', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', fontWeight: filter === s ? 600 : 400, background: filter === s ? '#0d1b2a' : '#fff', color: filter === s ? '#fff' : '#666' }}>
-                {s.charAt(0).toUpperCase() + s.slice(1)} <span style={{ opacity: 0.6 }}>{s === 'all' ? orders.length : orders.filter(o => o.status === s).length}</span>
+        <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+          {/* Status filters */}
+          <div style={{ display: 'flex', background: '#f5f5f5', borderRadius: 10, padding: 3, gap: 2 }}>
+            {[
+              { key: 'all', label: 'All', count: orders.length },
+              { key: 'pending', label: 'Pending', count: orders.filter(o => o.status === 'pending').length },
+              { key: 'transit', label: 'Transit', count: orders.filter(o => o.status === 'transit').length },
+              { key: 'delivered', label: 'Delivered', count: orders.filter(o => o.status === 'delivered').length },
+              { key: 'cancelled', label: 'Cancelled', count: orders.filter(o => o.status === 'cancelled').length },
+            ].map(s => (
+              <button key={s.key} onClick={() => setFilter(s.key)} style={{
+                padding: '6px 13px', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                fontSize: 12, fontWeight: filter === s.key ? 700 : 500,
+                background: filter === s.key ? '#fff' : 'transparent',
+                color: filter === s.key ? '#0d1b2a' : '#999',
+                boxShadow: filter === s.key ? '0 1px 4px rgba(0,0,0,0.08)' : 'none',
+                transition: 'all 0.15s', display: 'flex', alignItems: 'center', gap: 5,
+              }}>
+                {s.label}
+                <span style={{ fontSize: 10, fontWeight: 700, background: filter === s.key ? '#f0f0f0' : 'transparent', borderRadius: 99, padding: filter === s.key ? '1px 5px' : '0', color: filter === s.key ? '#555' : '#bbb' }}>{s.count}</span>
               </button>
             ))}
           </div>
-          <div style={{ display: 'flex', gap: 6, marginLeft: 8 }}>
-            {['all','unpaid','paid','partial'].map(s => (
-              <button key={s} onClick={() => setPayFilter(s)} style={{ padding: '5px 12px', borderRadius: 99, border: '1px solid #ddd', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', fontWeight: payFilter === s ? 600 : 400, background: payFilter === s ? '#c62828' : '#fff', color: payFilter === s ? '#fff' : '#666' }}>
-                {s.charAt(0).toUpperCase() + s.slice(1)}
+          {/* Payment filters */}
+          <div style={{ display: 'flex', background: '#f5f5f5', borderRadius: 10, padding: 3, gap: 2 }}>
+            {[
+              { key: 'all', label: 'All' },
+              { key: 'unpaid', label: 'Unpaid', color: '#E24B4A' },
+              { key: 'paid', label: 'Paid', color: '#1D9E75' },
+              { key: 'partial', label: 'Partial', color: '#FFA500' },
+            ].map(s => (
+              <button key={s.key} onClick={() => setPayFilter(s.key)} style={{
+                padding: '6px 13px', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                fontSize: 12, fontWeight: payFilter === s.key ? 700 : 500,
+                background: payFilter === s.key ? (s.color || '#0d1b2a') : 'transparent',
+                color: payFilter === s.key ? '#fff' : '#999',
+                transition: 'all 0.15s',
+              }}>
+                {s.label}
               </button>
             ))}
           </div>

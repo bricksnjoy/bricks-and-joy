@@ -1,10 +1,27 @@
 import React, { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Button, Input, Select, Table, Modal, Spinner, FormRow, useToast, Toasts, Badge } from '../components/UI'
-import { Plus, Trash2, Edit2, Eye, Package, ShoppingCart } from 'lucide-react'
+import { Plus, Trash2, Edit2, Eye, Package, ShoppingCart, User, Mail, Phone, MapPin, CalendarDays, Search, Building2, TrendingUp } from 'lucide-react'
 
 const EMPTY = { name: '', contact_name: '', email: '', phone: '', address: '', payment_terms: 'Net 30', currency: 'MVR', notes: '' }
 const PAYMENT_TERMS = ['Net 7', 'Net 15', 'Net 30', 'Net 60', 'Due on receipt', 'Prepaid']
+
+const AVATAR_COLORS = ['#7F77DD', '#1D9E75', '#FFA500', '#378ADD', '#E24B4A', '#0F6E56']
+function avatarColor(name = '') {
+  let h = 0
+  for (let i = 0; i < name.length; i++) h = name.charCodeAt(i) + ((h << 5) - h)
+  return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length]
+}
+function Avatar({ name }) {
+  const color = avatarColor(name)
+  return (
+    <div style={{
+      width: 30, height: 30, borderRadius: 8, background: color + '18', color,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      fontSize: 13, fontWeight: 600, flexShrink: 0,
+    }}>{(name || '?').charAt(0).toUpperCase()}</div>
+  )
+}
 
 export default function Vendors() {
   const [vendors, setVendors] = useState([])
@@ -84,9 +101,12 @@ export default function Vendors() {
 
   const columns = [
     { key: 'name', label: 'Vendor', render: r => (
-      <div>
-        <div style={{ fontWeight: 600, color: '#0d1b2a' }}>{r.name}</div>
-        <div style={{ fontSize: 11, color: '#aaa' }}>{r.contact_name || r.email || '—'}</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <Avatar name={r.name} />
+        <div>
+          <div style={{ fontWeight: 600, color: '#0d1b2a' }}>{r.name}</div>
+          <div style={{ fontSize: 11, color: '#aaa' }}>{r.contact_name || r.email || '—'}</div>
+        </div>
       </div>
     )},
     { key: 'payment_terms', label: 'Terms', render: r => <Badge color="blue">{r.payment_terms || '—'}</Badge> },
@@ -113,28 +133,34 @@ export default function Vendors() {
       {/* Summary */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 24 }}>
         {[
-          { label: 'Total vendors', value: vendors.length, color: '#0d1b2a' },
-          { label: 'Total purchased', value: `MVR ${totalSpentAll.toFixed(2)}`, color: '#1D9E75' },
-          { label: 'Pending orders', value: totalPendingAll, color: totalPendingAll > 0 ? '#f57f17' : '#1D9E75' },
+          { label: 'Total vendors', value: vendors.length, color: '#0d1b2a', icon: Building2 },
+          { label: 'Total purchased', value: `MVR ${totalSpentAll.toFixed(2)}`, color: '#1D9E75', icon: TrendingUp },
+          { label: 'Pending orders', value: totalPendingAll, color: totalPendingAll > 0 ? '#f57f17' : '#1D9E75', icon: ShoppingCart },
         ].map((m, i) => (
-          <div key={i} style={{ background: '#fff', borderRadius: 14, padding: '18px 20px', border: '1px solid #eee' }}>
-            <div style={{ fontSize: 11, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 6 }}>{m.label}</div>
-            <div style={{ fontSize: 26, fontWeight: 800, color: m.color }}>{m.value}</div>
+          <div key={i} style={{ background: '#fff', borderRadius: 14, padding: '18px 20px', border: '1px solid #eee', display: 'flex', alignItems: 'flex-start', gap: 14, boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
+            <div style={{ background: '#f8f7f4', borderRadius: 10, padding: 10, flexShrink: 0 }}>
+              <m.icon size={18} color="#FFA500" />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: '#bbb', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 6, fontWeight: 600 }}>{m.label}</div>
+              <div style={{ fontSize: 26, fontWeight: 700, color: m.color, letterSpacing: '-0.5px', lineHeight: 1 }}>{m.value}</div>
+            </div>
           </div>
         ))}
       </div>
 
       <Card>
-        <div style={{ marginBottom: 16 }}>
+        <div style={{ marginBottom: 16, position: 'relative', width: 280 }}>
+          <Search size={15} color="#bbb" style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search vendors…"
-            style={{ padding: '9px 14px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', width: 260, outline: 'none' }} />
+            style={{ padding: '9px 14px 9px 34px', border: '1px solid #e0e0e0', borderRadius: 9, fontSize: 13, fontFamily: 'inherit', width: '100%', outline: 'none', boxSizing: 'border-box' }} />
         </div>
         {loading ? <Spinner /> : <Table columns={columns} data={filtered} emptyMessage="No vendors yet. Add your first supplier." />}
       </Card>
 
       {/* Vendor detail view */}
       {viewModal && viewStats && (
-        <Modal title={viewModal.name} onClose={() => setViewModal(null)} width={700}>
+        <Modal title={viewModal.name} subtitle={viewModal.contact_name || viewModal.email || 'Vendor details'} onClose={() => setViewModal(null)} width={700}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 20 }}>
             {[
               { label: 'Products supplied', value: viewStats.productCount, color: '#0d1b2a' },
@@ -144,24 +170,24 @@ export default function Vendors() {
             ].map((m, i) => (
               <div key={i} style={{ background: '#f8f7f4', borderRadius: 10, padding: '12px 14px' }}>
                 <div style={{ fontSize: 11, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: 4 }}>{m.label}</div>
-                <div style={{ fontSize: 16, fontWeight: 800, color: m.color }}>{m.value}</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: m.color }}>{m.value}</div>
               </div>
             ))}
           </div>
 
-          <div style={{ display: 'flex', gap: 16, marginBottom: 16, flexWrap: 'wrap', fontSize: 13 }}>
-            {viewModal.contact_name && <div>👤 {viewModal.contact_name}</div>}
-            {viewModal.email && <div>📧 {viewModal.email}</div>}
-            {viewModal.phone && <div>📞 {viewModal.phone}</div>}
-            {viewModal.address && <div>📍 {viewModal.address}</div>}
-            {viewModal.payment_terms && <div>🗓 {viewModal.payment_terms}</div>}
+          <div style={{ display: 'flex', gap: 18, marginBottom: 16, flexWrap: 'wrap', fontSize: 13, color: '#555' }}>
+            {viewModal.contact_name && <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><User size={14} color="#aaa" /> {viewModal.contact_name}</div>}
+            {viewModal.email && <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Mail size={14} color="#aaa" /> {viewModal.email}</div>}
+            {viewModal.phone && <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Phone size={14} color="#aaa" /> {viewModal.phone}</div>}
+            {viewModal.address && <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><MapPin size={14} color="#aaa" /> {viewModal.address}</div>}
+            {viewModal.payment_terms && <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><CalendarDays size={14} color="#aaa" /> {viewModal.payment_terms}</div>}
           </div>
           {viewModal.notes && <div style={{ background: '#f8f7f4', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: '#555' }}>{viewModal.notes}</div>}
 
           {viewStats.products.length > 0 && (
             <>
-              <h3 style={{ fontSize: 13, fontWeight: 700, color: '#0d1b2a', marginBottom: 10 }}>
-                <Package size={13} style={{ marginRight: 6, verticalAlign: 'middle' }} />Products from this vendor
+              <h3 style={{ fontSize: 12, fontWeight: 600, color: '#0d1b2a', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 7, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                <Package size={14} color="#FFA500" />Products from this vendor
               </h3>
               <div style={{ border: '1px solid #eee', borderRadius: 10, overflow: 'hidden', marginBottom: 16 }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
@@ -188,8 +214,8 @@ export default function Vendors() {
 
           {viewStats.purchaseOrders.length > 0 && (
             <>
-              <h3 style={{ fontSize: 13, fontWeight: 700, color: '#0d1b2a', marginBottom: 10 }}>
-                <ShoppingCart size={13} style={{ marginRight: 6, verticalAlign: 'middle' }} />Purchase order history
+              <h3 style={{ fontSize: 12, fontWeight: 600, color: '#0d1b2a', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 7, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                <ShoppingCart size={14} color="#FFA500" />Purchase order history
               </h3>
               <div style={{ border: '1px solid #eee', borderRadius: 10, overflow: 'hidden' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>

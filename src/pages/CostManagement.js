@@ -1,24 +1,36 @@
 import React, { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Button, Input, Select, Table, Modal, Spinner, FormRow, useToast, Toasts, Badge } from '../components/UI'
-import { Plus, Trash2, Edit2 } from 'lucide-react'
+import { Plus, Trash2, Edit2, Gift, FlaskConical, Megaphone, Instagram, Users, Package, Truck, User, Store, Lightbulb, Undo2, FileText, ArrowLeftRight, Tag, PieChart, Filter } from 'lucide-react'
 
 const MVR_RATE = 15.4
 
 const COST_CATEGORIES = [
-  { value: 'Giveaway', label: '🎁 Giveaway' },
-  { value: 'Sample Testing', label: '🧪 Sample Testing' },
-  { value: 'Marketing Ads', label: '📣 Marketing Ads' },
-  { value: 'Instagram Ads', label: '📸 Instagram Ads' },
-  { value: 'Facebook Ads', label: '👥 Facebook Ads' },
-  { value: 'Packaging', label: '📦 Packaging' },
-  { value: 'Shipping', label: '🚚 Shipping' },
-  { value: 'Staff / Salary', label: '👤 Staff / Salary' },
-  { value: 'Rent / Warehouse', label: '🏪 Rent / Warehouse' },
-  { value: 'Utilities', label: '💡 Utilities' },
-  { value: 'Returns / Refunds', label: '↩️ Returns / Refunds' },
-  { value: 'Other', label: '📝 Other' },
+  { value: 'Giveaway', label: 'Giveaway', icon: Gift },
+  { value: 'Sample Testing', label: 'Sample Testing', icon: FlaskConical },
+  { value: 'Marketing Ads', label: 'Marketing Ads', icon: Megaphone },
+  { value: 'Instagram Ads', label: 'Instagram Ads', icon: Instagram },
+  { value: 'Facebook Ads', label: 'Facebook Ads', icon: Users },
+  { value: 'Packaging', label: 'Packaging', icon: Package },
+  { value: 'Shipping', label: 'Shipping', icon: Truck },
+  { value: 'Staff / Salary', label: 'Staff / Salary', icon: User },
+  { value: 'Rent / Warehouse', label: 'Rent / Warehouse', icon: Store },
+  { value: 'Utilities', label: 'Utilities', icon: Lightbulb },
+  { value: 'Returns / Refunds', label: 'Returns / Refunds', icon: Undo2 },
+  { value: 'Other', label: 'Other', icon: FileText },
 ]
+
+// Inline category label with its Lucide icon
+function CatLabel({ value, size = 13, color = 'currentColor' }) {
+  const cat = COST_CATEGORIES.find(c => c.value === value)
+  const Icon = cat?.icon || Tag
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+      <Icon size={size} color={color} style={{ flexShrink: 0 }} />
+      {cat?.label || value}
+    </span>
+  )
+}
 
 const CAT_COLORS = {
   'Giveaway': 'purple', 'Sample Testing': 'blue', 'Marketing Ads': 'amber',
@@ -99,8 +111,8 @@ export default function CostManagement() {
   const columns = [
     { key: 'expense_date', label: 'Date', render: r => <span style={{ color: '#888', fontSize: 12 }}>{r.expense_date}</span> },
     { key: 'description', label: 'Description', render: r => <span style={{ fontWeight: 500 }}>{r.description}</span> },
-    { key: 'category', label: 'Category', render: r => <Badge color={CAT_COLORS[r.category] || 'gray'}>{COST_CATEGORIES.find(c => c.value === r.category)?.label || r.category}</Badge> },
-    { key: 'amount', label: 'Amount (MVR)', render: r => <span style={{ fontWeight: 700, color: '#c62828' }}>MVR {Number(r.amount).toFixed(2)}</span> },
+    { key: 'category', label: 'Category', render: r => <Badge color={CAT_COLORS[r.category] || 'gray'}><CatLabel value={r.category} size={11} /></Badge> },
+    { key: 'amount', label: 'Amount (MVR)', render: r => <span style={{ fontWeight: 600, color: '#E24B4A' }}>MVR {Number(r.amount).toFixed(2)}</span> },
     { key: 'amount_usd', label: 'Approx USD', render: r => <span style={{ color: '#aaa', fontSize: 12 }}>≈ ${(Number(r.amount) / MVR_RATE).toFixed(2)}</span> },
     { key: 'actions', label: '', render: r => (
       <div style={{ display: 'flex', gap: 6 }}>
@@ -125,17 +137,17 @@ export default function CostManagement() {
       <div className="cm-grid">
         <div style={{ background: '#fff', borderRadius: 14, padding: '18px 20px', border: '1px solid #eee' }}>
           <div style={{ fontSize: 11, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 6 }}>Total costs</div>
-          <div style={{ fontSize: 26, fontWeight: 800, color: '#c62828' }}>MVR {total.toFixed(2)}</div>
+          <div style={{ fontSize: 26, fontWeight: 700, color: '#E24B4A' }}>MVR {total.toFixed(2)}</div>
           <div style={{ fontSize: 11, color: '#aaa', marginTop: 3 }}>{filtered.length} entries · ≈ ${(total / MVR_RATE).toFixed(2)}</div>
         </div>
         <div style={{ background: '#fff', borderRadius: 14, padding: '18px 20px', border: '1px solid #eee' }}>
           <div style={{ fontSize: 11, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 6 }}>This month</div>
-          <div style={{ fontSize: 26, fontWeight: 800, color: '#f57f17' }}>MVR {thisMonthTotal.toFixed(2)}</div>
+          <div style={{ fontSize: 26, fontWeight: 700, color: '#FFA500' }}>MVR {thisMonthTotal.toFixed(2)}</div>
           <div style={{ fontSize: 11, color: '#aaa', marginTop: 3 }}>{new Date().toLocaleDateString('en', { month: 'long', year: 'numeric' })}</div>
         </div>
         <div style={{ background: '#fff', borderRadius: 14, padding: '18px 20px', border: '1px solid #eee' }}>
           <div style={{ fontSize: 11, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 6 }}>Top category</div>
-          <div style={{ fontSize: 18, fontWeight: 800, color: '#0d1b2a' }}>{topCat ? COST_CATEGORIES.find(c => c.value === topCat[0])?.label || topCat[0] : '—'}</div>
+          <div style={{ fontSize: 18, fontWeight: 700, color: '#0d1b2a' }}>{topCat ? <CatLabel value={topCat[0]} size={16} color="#FFA500" /> : '—'}</div>
           <div style={{ fontSize: 11, color: '#aaa', marginTop: 3 }}>{topCat ? `MVR ${topCat[1].toFixed(2)}` : 'No data yet'}</div>
         </div>
       </div>
@@ -143,20 +155,20 @@ export default function CostManagement() {
       <div className="cm-split">
         <Card>
           {/* Filters */}
-          <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+            <Filter size={15} color="#bbb" style={{ flexShrink: 0 }} />
             <select value={filterCat} onChange={e => setFilterCat(e.target.value)}
-              style={{ padding: '7px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', background: '#fff', cursor: 'pointer' }}>
+              style={{ padding: '7px 12px', border: '1px solid #e0e0e0', borderRadius: 9, fontSize: 13, fontFamily: 'inherit', color: '#0d1b2a', background: '#fff', cursor: 'pointer', outline: 'none' }}>
               <option value="all">All categories</option>
               {COST_CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
             </select>
             <select value={filterMonth} onChange={e => setFilterMonth(e.target.value)}
-              style={{ padding: '7px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', background: '#fff', cursor: 'pointer' }}>
+              style={{ padding: '7px 12px', border: '1px solid #e0e0e0', borderRadius: 9, fontSize: 13, fontFamily: 'inherit', color: '#0d1b2a', background: '#fff', cursor: 'pointer', outline: 'none' }}>
               <option value="all">All months</option>
               {months.map(m => <option key={m} value={m}>{new Date(m + '-01').toLocaleDateString('en', { month: 'long', year: 'numeric' })}</option>)}
             </select>
             {(filterCat !== 'all' || filterMonth !== 'all') && (
-              <button onClick={() => { setFilterCat('all'); setFilterMonth('all') }}
-                style={{ padding: '7px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 12, background: '#fff', cursor: 'pointer', color: '#999' }}>Clear</button>
+              <Button variant="ghost" size="sm" onClick={() => { setFilterCat('all'); setFilterMonth('all') }}>Clear</Button>
             )}
           </div>
           {loading ? <Spinner /> : <Table columns={columns} data={filtered} emptyMessage="No costs yet. Add your first cost above." />}
@@ -164,19 +176,18 @@ export default function CostManagement() {
 
         {/* Category breakdown */}
         <Card>
-          <h3 style={{ fontSize: 14, fontWeight: 700, color: '#0d1b2a', marginBottom: 16 }}>By category</h3>
+          <h3 style={{ fontSize: 14, fontWeight: 600, color: '#0d1b2a', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 7 }}><PieChart size={15} color="#FFA500" /> By category</h3>
           {Object.keys(byCat).length === 0 ? <p style={{ color: '#aaa', fontSize: 13 }}>No data yet.</p>
             : Object.entries(byCat).sort((a, b) => b[1] - a[1]).map(([cat, amt]) => {
               const pct = total > 0 ? (amt / total * 100).toFixed(0) : 0
-              const catObj = COST_CATEGORIES.find(c => c.value === cat)
               return (
                 <div key={cat} style={{ marginBottom: 14 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 5 }}>
-                    <span style={{ fontWeight: 500 }}>{catObj?.label || cat}</span>
-                    <span style={{ color: '#c62828', fontWeight: 700 }}>MVR {amt.toFixed(2)}</span>
+                    <span style={{ fontWeight: 500, color: '#0d1b2a' }}><CatLabel value={cat} size={13} color="#888" /></span>
+                    <span style={{ color: '#E24B4A', fontWeight: 600 }}>MVR {amt.toFixed(2)}</span>
                   </div>
                   <div style={{ height: 6, background: '#f0f0f0', borderRadius: 3, overflow: 'hidden' }}>
-                    <div style={{ width: `${pct}%`, height: '100%', background: '#FFA500', borderRadius: 3 }} />
+                    <div style={{ width: `${pct}%`, height: '100%', background: '#FFA500', borderRadius: 3, transition: 'width 0.4s ease' }} />
                   </div>
                   <div style={{ fontSize: 11, color: '#aaa', marginTop: 3 }}>{pct}% · ≈ ${(amt / MVR_RATE).toFixed(2)}</div>
                 </div>
@@ -187,7 +198,7 @@ export default function CostManagement() {
       </div>
 
       {modal && (
-        <Modal title={editItem ? 'Edit cost' : 'Add cost'} onClose={() => setModal(false)}>
+        <Modal title={editItem ? 'Edit cost' : 'Add cost'} subtitle={editItem ? 'Update this expense entry' : 'Log a new business expense'} onClose={() => setModal(false)}>
           <FormRow>
             <Input label="Description *" value={form.description} onChange={f('description')} placeholder="e.g. Instagram giveaway for June" style={{ gridColumn: 'span 2' }} />
           </FormRow>
@@ -211,9 +222,9 @@ export default function CostManagement() {
 
           {parseFloat(form.amount) > 0 && (
             <div style={{ background: '#f8f7f4', borderRadius: 10, padding: '12px 16px', marginBottom: 16, display: 'flex', justifyContent: 'space-around' }}>
-              <div style={{ textAlign: 'center' }}><div style={{ fontSize: 11, color: '#aaa' }}>MVR</div><div style={{ fontSize: 18, fontWeight: 800, color: '#1D9E75' }}>MVR {previewMVR}</div></div>
-              <div style={{ fontSize: 18, color: '#ddd', alignSelf: 'center' }}>⇄</div>
-              <div style={{ textAlign: 'center' }}><div style={{ fontSize: 11, color: '#aaa' }}>USD</div><div style={{ fontSize: 18, fontWeight: 800, color: '#1565c0' }}>${previewUSD}</div></div>
+              <div style={{ textAlign: 'center' }}><div style={{ fontSize: 11, color: '#aaa' }}>MVR</div><div style={{ fontSize: 18, fontWeight: 700, color: '#1D9E75' }}>MVR {previewMVR}</div></div>
+              <ArrowLeftRight size={18} color="#ddd" style={{ alignSelf: 'center' }} />
+              <div style={{ textAlign: 'center' }}><div style={{ fontSize: 11, color: '#aaa' }}>USD</div><div style={{ fontSize: 18, fontWeight: 700, color: '#378ADD' }}>${previewUSD}</div></div>
             </div>
           )}
 
@@ -223,8 +234,8 @@ export default function CostManagement() {
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               {['Giveaway', 'Sample Testing', 'Marketing Ads', 'Instagram Ads', 'Packaging', 'Shipping'].map(cat => (
                 <button key={cat} onClick={() => setForm(p => ({ ...p, category: cat }))}
-                  style={{ padding: '5px 12px', borderRadius: 99, border: '1px solid #ddd', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', background: form.category === cat ? '#FFA500' : '#fff', color: form.category === cat ? '#fff' : '#555', fontWeight: form.category === cat ? 600 : 400 }}>
-                  {COST_CATEGORIES.find(c => c.value === cat)?.label}
+                  style={{ padding: '5px 12px', borderRadius: 99, border: '1px solid #ddd', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', background: form.category === cat ? '#FFA500' : '#fff', color: form.category === cat ? '#fff' : '#555', fontWeight: form.category === cat ? 600 : 500, transition: 'all 0.15s' }}>
+                  <CatLabel value={cat} size={12} />
                 </button>
               ))}
             </div>

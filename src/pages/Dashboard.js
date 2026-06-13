@@ -1,7 +1,13 @@
 import React, { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { StockBadge, StatusBadge, Spinner } from '../components/UI'
-import { Package, ShoppingCart, Users, TrendingUp, TrendingDown, AlertTriangle, CheckCircle, DollarSign } from 'lucide-react'
+import {
+  Package, ShoppingCart, Users, TrendingUp, TrendingDown,
+  AlertTriangle, CheckCircle, DollarSign, Zap, Calendar,
+  ArrowUpRight, ArrowDownRight, Activity
+} from 'lucide-react'
+
+const AVATAR_COLORS = ['#7F77DD','#1D9E75','#FFA500','#378ADD','#E24B4A','#0F6E56']
 
 export default function Dashboard() {
   const [stats, setStats] = useState(null)
@@ -32,7 +38,6 @@ export default function Dashboard() {
     const totalExp = (expenses.data || []).reduce((s, e) => s + Number(e.amount), 0)
     const netProfit = revenue - cogs - totalExp
 
-    // Today & this week
     const todayStr = new Date().toISOString().split('T')[0]
     const thisMonthStr = new Date().toISOString().slice(0, 7)
     const lastMonthDate = new Date(); lastMonthDate.setMonth(lastMonthDate.getMonth() - 1)
@@ -51,104 +56,167 @@ export default function Dashboard() {
 
   if (loading) return <Spinner />
 
+  const hour = new Date().getHours()
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
   const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
 
   const metrics = [
-    { label: 'Revenue', value: `MVR ${(stats.revenue).toFixed(2)}`, icon: DollarSign, color: '#1D9E75', bg: '#E1F5EE' },
-    { label: 'Net profit', value: `${stats.netProfit >= 0 ? 'MVR ' : '-MVR '}${Math.abs(stats.netProfit).toFixed(2)}`, icon: stats.netProfit >= 0 ? TrendingUp : TrendingDown, color: stats.netProfit >= 0 ? '#1D9E75' : '#E24B4A', bg: stats.netProfit >= 0 ? '#E1F5EE' : '#FCEBEB' },
-    { label: 'Active orders', value: stats.activeOrders, icon: ShoppingCart, color: '#FFA500', bg: '#FFF8E7' },
-    { label: 'Products', value: stats.products, icon: Package, color: '#378ADD', bg: '#E6F1FB' },
-    { label: 'Customers', value: stats.customers, icon: Users, color: '#7F77DD', bg: '#EEEDFE' },
-    { label: 'In stock', value: stats.totalStock, icon: Package, color: '#0F6E56', bg: '#E1F5EE' },
+    { label: 'Total Revenue', value: `MVR ${stats.revenue.toFixed(2)}`, icon: DollarSign, color: '#1D9E75', bg: 'linear-gradient(135deg, #E1F5EE, #c8eed8)', accent: '#1D9E75' },
+    { label: 'Net Profit', value: `${stats.netProfit >= 0 ? '' : '-'}MVR ${Math.abs(stats.netProfit).toFixed(2)}`, icon: stats.netProfit >= 0 ? TrendingUp : TrendingDown, color: stats.netProfit >= 0 ? '#1D9E75' : '#E24B4A', bg: stats.netProfit >= 0 ? 'linear-gradient(135deg, #E1F5EE, #c8eed8)' : 'linear-gradient(135deg, #FCEBEB, #fad4d4)', accent: stats.netProfit >= 0 ? '#1D9E75' : '#E24B4A' },
+    { label: 'Active Orders', value: stats.activeOrders, icon: ShoppingCart, color: '#FFA500', bg: 'linear-gradient(135deg, #FFF8E7, #fce8b2)', accent: '#FFA500' },
+    { label: 'Products', value: stats.products, icon: Package, color: '#378ADD', bg: 'linear-gradient(135deg, #E6F1FB, #c5ddf5)', accent: '#378ADD' },
+    { label: 'Customers', value: stats.customers, icon: Users, color: '#7F77DD', bg: 'linear-gradient(135deg, #EEEDFE, #d8d5fb)', accent: '#7F77DD' },
+    { label: 'Units in Stock', value: stats.totalStock, icon: Activity, color: '#0F6E56', bg: 'linear-gradient(135deg, #E1F5EE, #c8eed8)', accent: '#0F6E56' },
+  ]
+
+  const statusGroups = [
+    { label: 'Pending', count: recentOrders.filter(o => o.status === 'pending').length, color: '#FFA500', bg: 'rgba(255,165,0,0.12)' },
+    { label: 'Dispatched', count: recentOrders.filter(o => o.status === 'transit').length, color: '#29b6f6', bg: 'rgba(41,182,246,0.12)' },
+    { label: 'Delivered', count: recentOrders.filter(o => o.status === 'delivered').length, color: '#1D9E75', bg: 'rgba(29,158,117,0.12)' },
+    { label: 'Cancelled', count: recentOrders.filter(o => o.status === 'cancelled').length, color: '#E24B4A', bg: 'rgba(226,75,74,0.12)' },
   ]
 
   return (
     <div style={{ fontFamily: "'Poppins', sans-serif" }}>
       <style>{`
-        .dash-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 24px; }
-        .dash-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
-        .dash-summary { display: flex; gap: 24px; align-items: center; flex-wrap: wrap; }
-        .metric-card { background: #fff; border-radius: 14px; padding: 18px 20px; border: 1px solid #eee; }
-        @media (max-width: 768px) {
-          .dash-metrics { grid-template-columns: repeat(2, 1fr) !important; gap: 10px !important; }
-          .dash-grid { grid-template-columns: 1fr !important; }
-          .dash-summary { gap: 14px !important; }
-          .metric-card { padding: 14px 16px !important; }
+        .dash-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
+        .dash-grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 14px; margin-bottom: 14px; }
+        .metric-card {
+          background: #fff; border-radius: 16px; padding: 20px 22px;
+          border: 1px solid #eee; transition: box-shadow 0.2s, transform 0.2s;
+          position: relative; overflow: hidden;
         }
-        @media (max-width: 380px) {
+        .metric-card::before {
+          content: ''; position: absolute; left: 0; top: 0; bottom: 0;
+          width: 4px; border-radius: 16px 0 0 16px;
+          background: var(--accent);
+        }
+        .metric-card:hover { box-shadow: 0 8px 28px rgba(0,0,0,0.09); transform: translateY(-2px); }
+        .order-row { display: flex; justify-content: space-between; align-items: center; padding: 11px 18px; border-bottom: 1px solid #f5f5f5; transition: background 0.12s; }
+        .order-row:hover { background: #fafafa; }
+        .panel { background: #fff; border-radius: 16px; border: 1px solid #eee; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,0.03); }
+        .panel-header { padding: 15px 18px 13px; border-bottom: 1px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center; }
+        .stat-pill { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 99px; font-size: 11px; font-weight: 600; }
+        @media (max-width: 768px) {
           .dash-metrics { grid-template-columns: repeat(2, 1fr) !important; }
+          .dash-grid { grid-template-columns: 1fr !important; }
         }
       `}</style>
 
       {/* Header */}
-      <div style={{ marginBottom: 22 }}>
-        <h1 style={{ fontSize: 24, fontWeight: 800, margin: 0, color: '#0d1b2a', letterSpacing: '-0.5px' }}>Good morning! 👋</h1>
-        <p style={{ margin: '4px 0 0', color: '#999', fontSize: 13 }}>{today}</p>
+      <div style={{ marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 10 }}>
+        <div>
+          <h1 style={{ fontSize: 26, fontWeight: 800, margin: 0, color: '#0d1b2a', letterSpacing: '-0.6px' }}>{greeting} 👋</h1>
+          <p style={{ margin: '4px 0 0', color: '#bbb', fontSize: 12, fontWeight: 500 }}>{today}</p>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ background: '#fff', border: '1px solid #eee', borderRadius: 10, padding: '8px 14px', fontSize: 12, fontWeight: 600, color: '#0d1b2a', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#1D9E75' }} />
+            Live
+          </div>
+        </div>
       </div>
 
-      {/* Metrics grid */}
+      {/* Metric cards */}
       <div className="dash-metrics">
         {metrics.map((m, i) => (
-          <div key={i} className="metric-card">
+          <div key={i} className="metric-card" style={{ '--accent': m.accent, animation: `fadeSlideUp 0.3s ease both`, animationDelay: `${i * 0.05}s` }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-              <div>
-                <div style={{ fontSize: 11, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 6, fontWeight: 500 }}>{m.label}</div>
-                <div style={{ fontSize: 26, fontWeight: 800, color: m.color, letterSpacing: '-1px', lineHeight: 1 }}>{m.value}</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 10, color: '#bbb', textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 8, fontWeight: 700 }}>{m.label}</div>
+                <div style={{ fontSize: 24, fontWeight: 800, color: '#0d1b2a', letterSpacing: '-0.8px', lineHeight: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.value}</div>
               </div>
-              <div style={{ background: m.bg, borderRadius: 10, padding: 8, flexShrink: 0 }}>
-                <m.icon size={18} color={m.color} />
+              <div style={{ background: m.bg, borderRadius: 12, padding: 10, flexShrink: 0, marginLeft: 10 }}>
+                <m.icon size={17} color={m.color} />
               </div>
             </div>
           </div>
         ))}
       </div>
 
-      {/* Today & This week */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 24 }}>
-        <div style={{ background: '#fff', borderRadius: 14, padding: '18px 22px', border: '1px solid #eee', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <div style={{ fontSize: 11, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 6 }}>Today's sales</div>
-            <div style={{ fontSize: 26, fontWeight: 800, color: stats.todaySales > 0 ? '#1D9E75' : '#aaa' }}>MVR {stats.todaySales.toFixed(2)}</div>
+      {/* Today + This month hero row */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
+        {/* Today's sales — featured */}
+        <div style={{
+          borderRadius: 16, padding: '22px 24px', position: 'relative', overflow: 'hidden',
+          background: 'linear-gradient(135deg, #0d1b2a 0%, #1a2f44 100%)',
+          boxShadow: '0 6px 24px rgba(13,27,42,0.18)',
+          animation: 'fadeSlideUp 0.35s ease both', animationDelay: '0.3s',
+        }}>
+          <div style={{ position: 'absolute', right: -20, top: -20, width: 120, height: 120, borderRadius: '50%', background: 'rgba(255,165,0,0.07)' }} />
+          <div style={{ position: 'absolute', right: 20, bottom: -30, width: 80, height: 80, borderRadius: '50%', background: 'rgba(255,165,0,0.05)' }} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 12 }}>
+            <div style={{ background: 'rgba(255,165,0,0.15)', borderRadius: 8, padding: 6, display: 'flex' }}>
+              <Zap size={13} color="#FFA500" />
+            </div>
+            <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.8px' }}>Today's Sales</span>
           </div>
-          <div style={{ fontSize: 28 }}>{stats.todaySales > 0 ? '🔥' : '💤'}</div>
+          <div style={{ fontSize: 30, fontWeight: 800, color: stats.todaySales > 0 ? '#FFA500' : 'rgba(255,255,255,0.3)', letterSpacing: '-1px', lineHeight: 1 }}>
+            MVR {stats.todaySales.toFixed(2)}
+          </div>
+          <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', marginTop: 8, fontWeight: 500 }}>
+            {stats.todaySales > 0 ? 'Great day so far!' : 'No sales recorded yet'}
+          </div>
         </div>
-        <div style={{ background: '#fff', borderRadius: 14, padding: '18px 22px', border: '1px solid #eee', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <div style={{ fontSize: 11, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 6 }}>This month</div>
-            <div style={{ fontSize: 26, fontWeight: 800, color: '#0d1b2a' }}>MVR {(stats.thisMonthSales || 0).toFixed(2)}</div>
-            {stats.monthChange !== null && (
-              <div style={{ fontSize: 12, marginTop: 4, color: Number(stats.monthChange) >= 0 ? '#1D9E75' : '#c62828', fontWeight: 600 }}>
-                {Number(stats.monthChange) >= 0 ? '▲' : '▼'} {Math.abs(stats.monthChange)}% vs last month
-              </div>
-            )}
+
+        {/* This month */}
+        <div style={{
+          borderRadius: 16, padding: '22px 24px', position: 'relative', overflow: 'hidden',
+          background: '#fff', border: '1px solid #eee',
+          animation: 'fadeSlideUp 0.35s ease both', animationDelay: '0.36s',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 12 }}>
+            <div style={{ background: '#E6F1FB', borderRadius: 8, padding: 6, display: 'flex' }}>
+              <Calendar size={13} color="#378ADD" />
+            </div>
+            <span style={{ fontSize: 11, color: '#bbb', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.8px' }}>This Month</span>
           </div>
-          <div style={{ fontSize: 28 }}>📅</div>
+          <div style={{ fontSize: 30, fontWeight: 800, color: '#0d1b2a', letterSpacing: '-1px', lineHeight: 1 }}>
+            MVR {(stats.thisMonthSales || 0).toFixed(2)}
+          </div>
+          {stats.monthChange !== null ? (
+            <div style={{ marginTop: 10, display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 99, background: Number(stats.monthChange) >= 0 ? '#E1F5EE' : '#FCEBEB' }}>
+              {Number(stats.monthChange) >= 0
+                ? <ArrowUpRight size={13} color="#1D9E75" />
+                : <ArrowDownRight size={13} color="#E24B4A" />}
+              <span style={{ fontSize: 12, fontWeight: 700, color: Number(stats.monthChange) >= 0 ? '#1D9E75' : '#E24B4A' }}>
+                {Math.abs(stats.monthChange)}% vs last month
+              </span>
+            </div>
+          ) : (
+            <div style={{ fontSize: 12, color: '#ccc', marginTop: 8 }}>No previous month data</div>
+          )}
         </div>
       </div>
 
       {/* Activity grid */}
       <div className="dash-grid">
         {/* Recent orders */}
-        <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #eee', overflow: 'hidden' }}>
-          <div style={{ padding: '16px 18px 12px', borderBottom: '1px solid #f5f5f5', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{ background: '#FFF8E7', borderRadius: 8, padding: 6 }}><ShoppingCart size={15} color="#FFA500" /></div>
-              <span style={{ fontWeight: 700, fontSize: 14, color: '#0d1b2a' }}>Recent orders</span>
+        <div className="panel">
+          <div className="panel-header">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+              <div style={{ background: '#FFF8E7', borderRadius: 9, padding: '6px 7px', display: 'flex' }}><ShoppingCart size={14} color="#FFA500" /></div>
+              <span style={{ fontWeight: 700, fontSize: 14, color: '#0d1b2a' }}>Recent Orders</span>
             </div>
-            <span style={{ fontSize: 11, color: '#aaa' }}>{recentOrders.length} orders</span>
+            <span style={{ background: '#f5f5f5', color: '#888', fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 99 }}>{recentOrders.length} total</span>
           </div>
           <div>
             {recentOrders.length === 0 ? (
-              <p style={{ color: '#aaa', fontSize: 13, padding: '16px 18px', margin: 0 }}>No orders yet.</p>
-            ) : recentOrders.map(o => (
-              <div key={o.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 18px', borderBottom: '1px solid #fafafa' }}>
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.customer_name || 'Walk-in'}</div>
-                  <div style={{ fontSize: 11, color: '#aaa', marginTop: 1 }}>{o.product_name} × {o.qty}</div>
+              <div style={{ padding: '28px 18px', textAlign: 'center', color: '#ccc', fontSize: 13 }}>No orders yet</div>
+            ) : recentOrders.map((o, i) => (
+              <div key={o.id} className="order-row">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
+                  <div style={{ width: 34, height: 34, borderRadius: 10, background: AVATAR_COLORS[i % AVATAR_COLORS.length] + '18', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 800, color: AVATAR_COLORS[i % AVATAR_COLORS.length], flexShrink: 0 }}>
+                    {(o.customer_name || 'W')[0].toUpperCase()}
+                  </div>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: '#0d1b2a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.customer_name || 'Walk-in'}</div>
+                    <div style={{ fontSize: 11, color: '#bbb', marginTop: 1 }}>{o.product_name} × {o.qty}</div>
+                  </div>
                 </div>
-                <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 8 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700 }}>MVR {Number(o.total_price || 0).toFixed(2)}</div>
-                  <div style={{ marginTop: 3 }}><StatusBadge status={o.status} /></div>
+                <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 10 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#0d1b2a' }}>MVR {Number(o.total_price || 0).toFixed(2)}</div>
+                  <div style={{ marginTop: 4 }}><StatusBadge status={o.status} /></div>
                 </div>
               </div>
             ))}
@@ -156,28 +224,29 @@ export default function Dashboard() {
         </div>
 
         {/* Right col */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {/* Low stock */}
-          <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #eee', overflow: 'hidden' }}>
-            <div style={{ padding: '16px 18px 12px', borderBottom: '1px solid #f5f5f5', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <div style={{ background: '#FFF8E1', borderRadius: 8, padding: 6 }}><AlertTriangle size={15} color="#f57f17" /></div>
-                <span style={{ fontWeight: 700, fontSize: 14, color: '#0d1b2a' }}>Low stock</span>
+          <div className="panel">
+            <div className="panel-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                <div style={{ background: '#FFF8E1', borderRadius: 9, padding: '6px 7px', display: 'flex' }}><AlertTriangle size={14} color="#f57f17" /></div>
+                <span style={{ fontWeight: 700, fontSize: 14, color: '#0d1b2a' }}>Low Stock</span>
               </div>
-              {lowStock.length > 0 && <span style={{ background: '#FAEEDA', color: '#854F0B', fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 99 }}>{lowStock.length}</span>}
+              {lowStock.length > 0 && (
+                <span style={{ background: '#FAEEDA', color: '#854F0B', fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 99 }}>{lowStock.length} items</span>
+              )}
             </div>
             <div>
               {lowStock.length === 0 ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 18px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '14px 18px' }}>
                   <CheckCircle size={15} color="#1D9E75" />
-                  <span style={{ fontSize: 13, color: '#aaa' }}>All stocked up!</span>
+                  <span style={{ fontSize: 13, color: '#aaa', fontWeight: 500 }}>All stocked up!</span>
                 </div>
               ) : lowStock.map(p => (
-                <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 18px', borderBottom: '1px solid #fafafa' }}>
-                  <div style={{ fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{p.name}</div>
+                <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 18px', borderBottom: '1px solid #f5f5f5' }}>
+                  <div style={{ fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, color: '#333' }}>{p.name}</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, marginLeft: 8 }}>
                     <StockBadge qty={p.stock_qty} threshold={p.low_stock_threshold} />
-                    <span style={{ fontSize: 11, color: '#aaa' }}>{p.stock_qty}</span>
                   </div>
                 </div>
               ))}
@@ -185,22 +254,25 @@ export default function Dashboard() {
           </div>
 
           {/* Recent customers */}
-          <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #eee', overflow: 'hidden' }}>
-            <div style={{ padding: '16px 18px 12px', borderBottom: '1px solid #f5f5f5', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{ background: '#EEEDFE', borderRadius: 8, padding: 6 }}><Users size={15} color="#7F77DD" /></div>
-              <span style={{ fontWeight: 700, fontSize: 14, color: '#0d1b2a' }}>Customers</span>
+          <div className="panel">
+            <div className="panel-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                <div style={{ background: '#EEEDFE', borderRadius: 9, padding: '6px 7px', display: 'flex' }}><Users size={14} color="#7F77DD" /></div>
+                <span style={{ fontWeight: 700, fontSize: 14, color: '#0d1b2a' }}>Customers</span>
+              </div>
+              <span style={{ fontSize: 11, color: '#bbb', fontWeight: 600 }}>{recentCustomers.length} recent</span>
             </div>
             <div>
               {recentCustomers.length === 0 ? (
-                <p style={{ color: '#aaa', fontSize: 13, padding: '12px 18px', margin: 0 }}>No customers yet.</p>
-              ) : recentCustomers.map(c => (
-                <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 18px', borderBottom: '1px solid #fafafa' }}>
-                  <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#EEEDFE', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: '#7F77DD', flexShrink: 0 }}>
+                <div style={{ padding: '14px 18px', color: '#ccc', fontSize: 13 }}>No customers yet</div>
+              ) : recentCustomers.map((c, i) => (
+                <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 18px', borderBottom: '1px solid #f5f5f5' }}>
+                  <div style={{ width: 34, height: 34, borderRadius: 10, background: AVATAR_COLORS[i % AVATAR_COLORS.length] + '18', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 800, color: AVATAR_COLORS[i % AVATAR_COLORS.length], flexShrink: 0 }}>
                     {c.name.charAt(0).toUpperCase()}
                   </div>
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</div>
-                    <div style={{ fontSize: 11, color: '#aaa' }}>{c.email || c.phone || '—'}</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: '#0d1b2a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</div>
+                    <div style={{ fontSize: 11, color: '#bbb' }}>{c.email || c.phone || '—'}</div>
                   </div>
                 </div>
               ))}
@@ -210,23 +282,24 @@ export default function Dashboard() {
       </div>
 
       {/* Order summary bar */}
-      <div style={{ background: '#0d1b2a', borderRadius: 14, padding: '18px 22px' }}>
-        <div className="dash-summary">
-          <div style={{ color: '#fff' }}>
-            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 3 }}>Total orders</div>
-            <div style={{ fontSize: 22, fontWeight: 800 }}>{recentOrders.length}</div>
-          </div>
-          {[
-            { label: 'Pending', count: recentOrders.filter(o => o.status === 'pending').length, color: '#FFA500' },
-            { label: 'Dispatched', count: recentOrders.filter(o => o.status === 'transit').length, color: '#29b6f6' },
-            { label: 'Delivered', count: recentOrders.filter(o => o.status === 'delivered').length, color: '#1D9E75' },
-            { label: 'Cancelled', count: recentOrders.filter(o => o.status === 'cancelled').length, color: '#E24B4A' },
-          ].map(s => (
-            <div key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{ width: 8, height: 8, borderRadius: '50%', background: s.color, flexShrink: 0 }} />
+      <div style={{
+        background: 'linear-gradient(135deg, #0d1b2a 0%, #162538 100%)',
+        borderRadius: 16, padding: '20px 26px',
+        boxShadow: '0 4px 20px rgba(13,27,42,0.15)',
+        display: 'flex', alignItems: 'center', gap: 0, flexWrap: 'wrap',
+      }}>
+        <div style={{ marginRight: 32 }}>
+          <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 700, marginBottom: 4 }}>Total Orders</div>
+          <div style={{ fontSize: 28, fontWeight: 800, color: '#fff', lineHeight: 1 }}>{recentOrders.length}</div>
+        </div>
+        <div style={{ width: 1, height: 40, background: 'rgba(255,255,255,0.08)', marginRight: 32 }} />
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+          {statusGroups.map(s => (
+            <div key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(255,255,255,0.05)', borderRadius: 12, padding: '10px 16px' }}>
+              <div style={{ width: 8, height: 8, borderRadius: '50%', background: s.color, boxShadow: `0 0 6px ${s.color}` }} />
               <div>
-                <div style={{ fontSize: 20, fontWeight: 800, color: s.color, lineHeight: 1 }}>{s.count}</div>
-                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{s.label}</div>
+                <div style={{ fontSize: 18, fontWeight: 800, color: s.color, lineHeight: 1 }}>{s.count}</div>
+                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '0.6px', fontWeight: 600, marginTop: 2 }}>{s.label}</div>
               </div>
             </div>
           ))}

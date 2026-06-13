@@ -1,24 +1,36 @@
 import React, { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Button, Input, Select, Table, Modal, Spinner, FormRow, useToast, Toasts, Badge } from '../components/UI'
-import { Plus, Trash2 } from 'lucide-react'
+import { Plus, Trash2, Gift, FlaskConical, Megaphone, Instagram, Users, Package, Truck, User, Store, Lightbulb, Undo2, FileText, ArrowLeftRight, Tag, PieChart, Filter } from 'lucide-react'
 
 const MVR_RATE = 15.4 // 1 USD = 15.4 MVR (update as needed)
 
 const COST_CATEGORIES = [
-  { value: 'Giveaway', label: '🎁 Giveaway' },
-  { value: 'Sample Testing', label: '🧪 Sample Testing' },
-  { value: 'Marketing Ads', label: '📣 Marketing Ads' },
-  { value: 'Instagram Ads', label: '📸 Instagram Ads' },
-  { value: 'Facebook Ads', label: '👥 Facebook Ads' },
-  { value: 'Packaging', label: '📦 Packaging' },
-  { value: 'Shipping', label: '🚚 Shipping' },
-  { value: 'Staff / Salary', label: '👤 Staff / Salary' },
-  { value: 'Rent / Warehouse', label: '🏪 Rent / Warehouse' },
-  { value: 'Utilities', label: '💡 Utilities' },
-  { value: 'Returns / Refunds', label: '↩️ Returns / Refunds' },
-  { value: 'Other', label: '📝 Other' },
+  { value: 'Giveaway', label: 'Giveaway', icon: Gift },
+  { value: 'Sample Testing', label: 'Sample Testing', icon: FlaskConical },
+  { value: 'Marketing Ads', label: 'Marketing Ads', icon: Megaphone },
+  { value: 'Instagram Ads', label: 'Instagram Ads', icon: Instagram },
+  { value: 'Facebook Ads', label: 'Facebook Ads', icon: Users },
+  { value: 'Packaging', label: 'Packaging', icon: Package },
+  { value: 'Shipping', label: 'Shipping', icon: Truck },
+  { value: 'Staff / Salary', label: 'Staff / Salary', icon: User },
+  { value: 'Rent / Warehouse', label: 'Rent / Warehouse', icon: Store },
+  { value: 'Utilities', label: 'Utilities', icon: Lightbulb },
+  { value: 'Returns / Refunds', label: 'Returns / Refunds', icon: Undo2 },
+  { value: 'Other', label: 'Other', icon: FileText },
 ]
+
+// Inline category label with its Lucide icon
+function CatLabel({ value, size = 13, color = 'currentColor' }) {
+  const cat = COST_CATEGORIES.find(c => c.value === value)
+  const Icon = cat?.icon || Tag
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+      <Icon size={size} color={color} style={{ flexShrink: 0 }} />
+      {cat?.label || value}
+    </span>
+  )
+}
 
 const categoryColors = {
   'Giveaway': 'purple', 'Sample Testing': 'blue', 'Marketing Ads': 'amber',
@@ -115,12 +127,11 @@ export default function Costs() {
   const columns = [
     { key: 'expense_date', label: 'Date', render: r => <span style={{ color: '#888', fontSize: 12 }}>{r.expense_date}</span> },
     { key: 'description', label: 'Description', render: r => <span style={{ fontWeight: 500 }}>{r.description.replace(/ \[(USD|MVR)\]/, '')}</span> },
-    { key: 'category', label: 'Category', render: r => {
-      const cat = COST_CATEGORIES.find(c => c.value === r.category)
-      return <Badge color={categoryColors[r.category] || 'gray'}>{cat?.label || r.category}</Badge>
-    }},
-    { key: 'amount_usd', label: 'USD', render: r => <span style={{ fontWeight: 600, color: '#1565c0' }}>${Number(r.amount).toFixed(2)}</span> },
-    { key: 'amount_mvr', label: 'MVR', render: r => <span style={{ fontWeight: 600, color: '#2e7d32' }}>MVR {(Number(r.amount) * MVR_RATE).toFixed(2)}</span> },
+    { key: 'category', label: 'Category', render: r => (
+      <Badge color={categoryColors[r.category] || 'gray'}><CatLabel value={r.category} size={11} /></Badge>
+    )},
+    { key: 'amount_usd', label: 'USD', render: r => <span style={{ fontWeight: 600, color: '#378ADD' }}>${Number(r.amount).toFixed(2)}</span> },
+    { key: 'amount_mvr', label: 'MVR', render: r => <span style={{ fontWeight: 600, color: '#1D9E75' }}>MVR {(Number(r.amount) * MVR_RATE).toFixed(2)}</span> },
     { key: 'actions', label: '', render: r => <Button variant="danger" size="sm" onClick={() => del(r.id)}><Trash2 size={13} /></Button> },
   ]
 
@@ -162,17 +173,17 @@ export default function Costs() {
       <div className="costs-grid">
         <div style={{ background: '#fff', borderRadius: 14, padding: '18px 20px', border: '1px solid #eee' }}>
           <div style={{ fontSize: 11, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 6 }}>Total costs</div>
-          <div style={{ fontSize: 26, fontWeight: 800, color: '#c62828' }}>{displayAmt(totalUSD)}</div>
+          <div style={{ fontSize: 26, fontWeight: 700, color: '#E24B4A' }}>{displayAmt(totalUSD)}</div>
           <div style={{ fontSize: 12, color: '#aaa', marginTop: 4 }}>{displayCurrency === 'USD' ? `MVR ${(totalUSD * MVR_RATE).toFixed(2)}` : `$${totalUSD.toFixed(2)}`}</div>
         </div>
         <div style={{ background: '#fff', borderRadius: 14, padding: '18px 20px', border: '1px solid #eee' }}>
           <div style={{ fontSize: 11, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 6 }}>This month</div>
-          <div style={{ fontSize: 26, fontWeight: 800, color: '#f57f17' }}>{displayAmt(thisMonthUSD)}</div>
+          <div style={{ fontSize: 26, fontWeight: 700, color: '#FFA500' }}>{displayAmt(thisMonthUSD)}</div>
           <div style={{ fontSize: 12, color: '#aaa', marginTop: 4 }}>{displayCurrency === 'USD' ? `MVR ${(thisMonthUSD * MVR_RATE).toFixed(2)}` : `$${thisMonthUSD.toFixed(2)}`}</div>
         </div>
         <div style={{ background: '#fff', borderRadius: 14, padding: '18px 20px', border: '1px solid #eee' }}>
           <div style={{ fontSize: 11, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 6 }}>Top category</div>
-          <div style={{ fontSize: 20, fontWeight: 800, color: '#0d1b2a' }}>{topCategory ? topCategory[0] : '—'}</div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: '#0d1b2a' }}>{topCategory ? <CatLabel value={topCategory[0]} size={17} color="#FFA500" /> : '—'}</div>
           <div style={{ fontSize: 12, color: '#aaa', marginTop: 4 }}>{topCategory ? displayAmt(topCategory[1]) : 'No data yet'}</div>
         </div>
       </div>
@@ -180,14 +191,15 @@ export default function Costs() {
       <div className="costs-split">
         {/* Table */}
         <Card>
-          <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+            <Filter size={15} color="#bbb" style={{ flexShrink: 0 }} />
             <select value={filterCat} onChange={e => setFilterCat(e.target.value)}
-              style={{ padding: '7px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', background: '#fff', cursor: 'pointer' }}>
+              style={{ padding: '7px 12px', border: '1px solid #e0e0e0', borderRadius: 9, fontSize: 13, fontFamily: 'inherit', color: '#0d1b2a', background: '#fff', cursor: 'pointer', outline: 'none' }}>
               <option value="all">All categories</option>
               {COST_CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
             </select>
             <select value={filterMonth} onChange={e => setFilterMonth(e.target.value)}
-              style={{ padding: '7px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', background: '#fff', cursor: 'pointer' }}>
+              style={{ padding: '7px 12px', border: '1px solid #e0e0e0', borderRadius: 9, fontSize: 13, fontFamily: 'inherit', color: '#0d1b2a', background: '#fff', cursor: 'pointer', outline: 'none' }}>
               <option value="all">All months</option>
               {months.map(m => <option key={m} value={m}>{new Date(m + '-01').toLocaleDateString('en', { month: 'long', year: 'numeric' })}</option>)}
             </select>
@@ -197,21 +209,20 @@ export default function Costs() {
 
         {/* Category breakdown */}
         <Card>
-          <h3 style={{ fontSize: 14, fontWeight: 700, color: '#0d1b2a', marginBottom: 16 }}>By category</h3>
+          <h3 style={{ fontSize: 14, fontWeight: 600, color: '#0d1b2a', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 7 }}><PieChart size={15} color="#FFA500" /> By category</h3>
           {Object.keys(byCat).length === 0 ? (
             <p style={{ color: '#aaa', fontSize: 13 }}>No data yet.</p>
           ) : Object.entries(byCat).sort((a, b) => b[1] - a[1]).map(([cat, usdAmt]) => {
             const total = Object.values(byCat).reduce((s, v) => s + v, 0)
             const pct = total > 0 ? (usdAmt / total * 100).toFixed(0) : 0
-            const catObj = COST_CATEGORIES.find(c => c.value === cat)
             return (
               <div key={cat} style={{ marginBottom: 14 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 5 }}>
-                  <span style={{ fontWeight: 500 }}>{catObj?.label || cat}</span>
-                  <span style={{ color: '#c62828', fontWeight: 600 }}>{displayAmt(usdAmt)}</span>
+                  <span style={{ fontWeight: 500, color: '#0d1b2a' }}><CatLabel value={cat} size={13} color="#888" /></span>
+                  <span style={{ color: '#E24B4A', fontWeight: 600 }}>{displayAmt(usdAmt)}</span>
                 </div>
                 <div style={{ height: 6, background: '#f0f0f0', borderRadius: 3, overflow: 'hidden' }}>
-                  <div style={{ width: `${pct}%`, height: '100%', background: '#FFA500', borderRadius: 3 }} />
+                  <div style={{ width: `${pct}%`, height: '100%', background: '#FFA500', borderRadius: 3, transition: 'width 0.4s ease' }} />
                 </div>
                 <div style={{ fontSize: 11, color: '#aaa', marginTop: 3 }}>{pct}% of total</div>
               </div>
@@ -225,7 +236,7 @@ export default function Costs() {
 
       {/* Add cost modal */}
       {modal && (
-        <Modal title="Add cost" onClose={() => setModal(false)}>
+        <Modal title="Add cost" subtitle="Log a new business expense" onClose={() => setModal(false)}>
           <FormRow>
             <Input label="Description *" value={form.description} onChange={f('description')}
               placeholder="e.g. Instagram giveaway for June" style={{ gridColumn: 'span 2' }} />
@@ -264,12 +275,12 @@ export default function Costs() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ textAlign: 'center' }}>
                   <div style={{ fontSize: 11, color: '#aaa' }}>USD</div>
-                  <div style={{ fontSize: 18, fontWeight: 700, color: '#1565c0' }}>${previewUSD}</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: '#378ADD' }}>${previewUSD}</div>
                 </div>
-                <div style={{ fontSize: 20, color: '#ddd' }}>⇄</div>
+                <ArrowLeftRight size={20} color="#ddd" />
                 <div style={{ textAlign: 'center' }}>
                   <div style={{ fontSize: 11, color: '#aaa' }}>MVR</div>
-                  <div style={{ fontSize: 18, fontWeight: 700, color: '#2e7d32' }}>MVR {previewMVR}</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: '#1D9E75' }}>MVR {previewMVR}</div>
                 </div>
               </div>
               <div style={{ fontSize: 11, color: '#bbb', marginTop: 8, textAlign: 'center' }}>Rate: 1 USD = {MVR_RATE} MVR</div>
@@ -282,8 +293,8 @@ export default function Costs() {
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               {['Giveaway', 'Sample Testing', 'Marketing Ads', 'Instagram Ads', 'Packaging'].map(cat => (
                 <button key={cat} onClick={() => setForm(p => ({ ...p, category: cat }))}
-                  style={{ padding: '5px 12px', borderRadius: 99, border: '1px solid #ddd', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', background: form.category === cat ? '#FFA500' : '#fff', color: form.category === cat ? '#fff' : '#555', fontWeight: form.category === cat ? 600 : 400 }}>
-                  {COST_CATEGORIES.find(c => c.value === cat)?.label}
+                  style={{ padding: '5px 12px', borderRadius: 99, border: '1px solid #ddd', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', background: form.category === cat ? '#FFA500' : '#fff', color: form.category === cat ? '#fff' : '#555', fontWeight: form.category === cat ? 600 : 500, transition: 'all 0.15s' }}>
+                  <CatLabel value={cat} size={12} />
                 </button>
               ))}
             </div>
