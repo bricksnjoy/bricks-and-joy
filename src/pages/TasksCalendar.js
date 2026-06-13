@@ -92,17 +92,6 @@ export default function TasksCalendar() {
     toast.success('Task added!')
   }
 
-  function completeTask(id) {
-    saveTasks(tasks.filter(t => t.id !== id))
-    toast.success('Task completed and removed! ✅')
-  }
-
-  function deleteTask(id) {
-    if (!window.confirm('Delete this task?')) return
-    saveTasks(tasks.filter(t => t.id !== id))
-    toast.success('Deleted')
-  }
-
   const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
 
   // Calendar helpers
