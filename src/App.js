@@ -11,10 +11,11 @@ import Statistics from './pages/Statistics'
 import PurchaseOrders from './pages/PurchaseOrders'
 import Vendors from './pages/Vendors'
 import TasksCalendar from './pages/TasksCalendar'
+import EmailCenter from './pages/EmailCenter'
 import {
   LayoutDashboard, ShoppingCart, Package, Users,
   DollarSign, BarChart2, Truck, ChevronDown, ChevronRight,
-  LogOut, Building2, FileText, Menu, CalendarDays
+  LogOut, Building2, FileText, Menu, CalendarDays, Mail
 } from 'lucide-react'
 
 const NAV = [
@@ -32,6 +33,7 @@ const NAV = [
       { id: 'purchase-orders', label: 'Purchase Orders', icon: Truck },
       { id: 'customers', label: 'Customers', icon: Users },
       { id: 'tasks', label: 'Tasks & Calendar', icon: CalendarDays },
+      { id: 'email', label: 'Email Center', icon: Mail },
     ]
   },
   {
@@ -87,6 +89,7 @@ export default function App() {
     'purchase-orders': <PurchaseOrders />,
     customers: <Customers />,
     tasks: <TasksCalendar />,
+    email: <EmailCenter />,
     'profit-loss': <ProfitLoss />,
     costs: <CostManagement />,
     vendors: <Vendors />,

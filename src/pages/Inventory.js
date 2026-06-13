@@ -118,9 +118,7 @@ export default function Inventory() {
     setSaving(true)
     // Auto-generate barcode if empty
     const barcode = form.barcode || genBarcode(form.name, form.id || Date.now())
-    // Strip out nested relation data (suppliers object) before saving
-    const { suppliers: _s, ...formClean } = form
-    const payload = { ...formClean, barcode, stock_qty: parseInt(form.stock_qty) || 0, cost_price: parseFloat(form.cost_price) || 0, sell_price: parseFloat(form.sell_price) || 0, low_stock_threshold: parseInt(form.low_stock_threshold) || 10 }
+    const payload = { ...form, barcode, stock_qty: parseInt(form.stock_qty) || 0, cost_price: parseFloat(form.cost_price) || 0, sell_price: parseFloat(form.sell_price) || 0, low_stock_threshold: parseInt(form.low_stock_threshold) || 10 }
     const { error } = modal === 'add'
       ? await supabase.from('products').insert(payload)
       : await supabase.from('products').update(payload).eq('id', form.id)
@@ -223,17 +221,19 @@ export default function Inventory() {
   async function printAllBarcodes() {
     const w = window.open('', '_blank')
     const labels = await Promise.all(products.filter(p => p.barcode).map(async p => {
-      const canvas = document.createElement('canvas')
       try {
         const tempSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
         document.body.appendChild(tempSvg)
         JsBarcode(tempSvg, p.barcode, { format: 'CODE128', width: 1.5, height: 50, displayValue: true, fontSize: 10, margin: 5 })
         const svgData = new XMLSerializer().serializeToString(tempSvg)
         document.body.removeChild(tempSvg)
-        return { name: p.name, brand: p.brand, price: p.sell_price, barcode: p.barcode, svg: svgData }
-      } catch { return null }
+        // Repeat label for each unit in stock
+        const qty = Math.max(1, parseInt(p.stock_qty) || 1)
+        return Array.from({ length: qty }, () => ({ name: p.name, brand: p.brand, price: p.sell_price, barcode: p.barcode, svg: svgData }))
+      } catch { return [] }
     }))
-    
+
+    const allLabels = labels.flat().filter(Boolean)
     w.document.write(`<html><head><title>All Barcodes — Brick's & Joy</title>
     <style>
       body { font-family: Arial, sans-serif; margin: 0; padding: 10px; }
@@ -245,7 +245,7 @@ export default function Inventory() {
       @media print { .grid { grid-template-columns: repeat(3, 1fr); } }
     </style></head><body>
     <div class="grid">
-      ${labels.filter(Boolean).map(l => `
+      ${allLabels.map(l => `
         <div class="label">
           <img src="data:image/svg+xml;base64,${btoa(l.svg)}" alt="barcode" />
           <h4>${l.name}</h4>
