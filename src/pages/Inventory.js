@@ -317,7 +317,7 @@ export default function Inventory() {
     { key: 'actions', label: '', render: r => (
       <div style={{ display: 'flex', gap: 4 }}>
         <Button variant="ghost" size="sm" onClick={() => openView(r)} title="View"><Eye size={13} /></Button>
-        <Button variant="ghost" size="sm" onClick={() => openBarcode(r)} title="Barcode" style={{ color: '#FFA500' }}>▦</Button>
+        <Button variant="ghost" size="sm" onClick={() => openBarcode(r)} title="Barcode" style={{ color: '#FFA500' }}><Barcode size={13} /></Button>
         <Button variant="ghost" size="sm" onClick={() => openEdit(r)}><Edit2 size={13} /></Button>
         <Button variant="danger" size="sm" onClick={() => del(r.id)}><Trash2 size={13} /></Button>
       </div>
@@ -333,7 +333,7 @@ export default function Inventory() {
               <Camera size={15} /> Scan
             </Button>
             <Button variant="ghost" onClick={printAllBarcodes} title="Print all barcodes">
-              🖨️ Print all barcodes
+              <Printer size={15} /> Print all
             </Button>
             <Button onClick={openAdd}><Plus size={15} /> Add product</Button>
           </div>
@@ -350,14 +350,14 @@ export default function Inventory() {
           </select>
           <div style={{ display: 'flex', gap: 0, border: '1px solid #ddd', borderRadius: 8, overflow: 'hidden' }}>
             <button onClick={() => setShowDiscontinued(false)}
-              style={{ padding: '8px 16px', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, fontFamily: 'inherit',
-                background: !showDiscontinued ? '#1D9E75' : '#fff', color: !showDiscontinued ? '#fff' : '#888' }}>
-              ✅ Active ({products.filter(p=>!p.discontinued).length})
+              style={{ padding: '7px 14px', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', transition: 'all 0.15s',
+                background: !showDiscontinued ? '#1D9E75' : '#fff', color: !showDiscontinued ? '#fff' : '#999' }}>
+              Active ({products.filter(p=>!p.discontinued).length})
             </button>
             <button onClick={() => setShowDiscontinued(true)}
-              style={{ padding: '8px 16px', border: 'none', borderLeft: '1px solid #ddd', cursor: 'pointer', fontSize: 12, fontWeight: 700, fontFamily: 'inherit',
-                background: showDiscontinued ? '#888' : '#fff', color: showDiscontinued ? '#fff' : '#888' }}>
-              ⛔ Discontinued ({products.filter(p=>p.discontinued).length})
+              style={{ padding: '7px 14px', border: 'none', borderLeft: '1px solid #ddd', cursor: 'pointer', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', transition: 'all 0.15s',
+                background: showDiscontinued ? '#666' : '#fff', color: showDiscontinued ? '#fff' : '#999' }}>
+              Discontinued ({products.filter(p=>p.discontinued).length})
             </button>
           </div>
         </div>
@@ -391,11 +391,15 @@ export default function Inventory() {
 
           {/* Action buttons */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <button onClick={downloadBarcode} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '11px', background: '#FFA500', color: '#fff', border: 'none', borderRadius: 10, cursor: 'pointer', fontSize: 13, fontWeight: 700, fontFamily: 'inherit' }}>
-              ⬇️ Download PNG
+            <button onClick={downloadBarcode} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '11px', background: '#FFA500', color: '#fff', border: 'none', borderRadius: 10, cursor: 'pointer', fontSize: 13, fontWeight: 700, fontFamily: 'inherit', transition: 'all 0.15s' }}
+              onMouseEnter={e => { e.currentTarget.style.background='#e6940a'; e.currentTarget.style.transform='translateY(-1px)' }}
+              onMouseLeave={e => { e.currentTarget.style.background='#FFA500'; e.currentTarget.style.transform='translateY(0)' }}>
+              <Download size={15} /> Download
             </button>
-            <button onClick={printBarcode} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '11px', background: '#0d1b2a', color: '#fff', border: 'none', borderRadius: 10, cursor: 'pointer', fontSize: 13, fontWeight: 700, fontFamily: 'inherit' }}>
-              🖨️ Print label
+            <button onClick={printBarcode} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '11px', background: '#0d1b2a', color: '#fff', border: 'none', borderRadius: 10, cursor: 'pointer', fontSize: 13, fontWeight: 700, fontFamily: 'inherit', transition: 'all 0.15s' }}
+              onMouseEnter={e => { e.currentTarget.style.background='#1a2f44'; e.currentTarget.style.transform='translateY(-1px)' }}
+              onMouseLeave={e => { e.currentTarget.style.background='#0d1b2a'; e.currentTarget.style.transform='translateY(0)' }}>
+              <Printer size={15} /> Print label
             </button>
           </div>
           <div style={{ fontSize: 11, color: '#aaa', textAlign: 'center', marginTop: 10 }}>

@@ -68,7 +68,8 @@ export default function Dashboard() {
         .dash-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 24px; }
         .dash-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
         .dash-summary { display: flex; gap: 24px; align-items: center; flex-wrap: wrap; }
-        .metric-card { background: #fff; border-radius: 14px; padding: 18px 20px; border: 1px solid #eee; }
+        .metric-card { background: #fff; border-radius: 14px; padding: 18px 20px; border: 1px solid #eee; transition: box-shadow 0.2s, transform 0.2s; }
+        .metric-card:hover { box-shadow: 0 6px 24px rgba(0,0,0,0.08); transform: translateY(-2px); }
         @media (max-width: 768px) {
           .dash-metrics { grid-template-columns: repeat(2, 1fr) !important; gap: 10px !important; }
           .dash-grid { grid-template-columns: 1fr !important; }
@@ -89,7 +90,7 @@ export default function Dashboard() {
       {/* Metrics grid */}
       <div className="dash-metrics">
         {metrics.map((m, i) => (
-          <div key={i} className="metric-card">
+          <div key={i} className="metric-card" style={{ animation: `fadeSlideUp 0.3s ease both`, animationDelay: `${i * 0.06}s` }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <div>
                 <div style={{ fontSize: 11, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 6, fontWeight: 500 }}>{m.label}</div>
