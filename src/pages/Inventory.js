@@ -8,7 +8,7 @@ import BarcodeScanner from '../components/BarcodeScanner'
 
 const CATEGORIES = ['Building & Blocks','Action Figures','Dolls & Plush','Board Games','Outdoor & Sports','Educational','Vehicles & RC','Arts & Crafts','Puzzles','Other']
 const AGE_RANGES = ['0–2','3–5','6–8','9–12','12+','All ages']
-const EMPTY = { name:'', category:'Building & Blocks', age_range:'3–5', brand:'', sku:'', barcode:'', stock_qty:0, low_stock_threshold:10, cost_price:0, sell_price:0, description:'', sizes:'', weight:'', dimensions:'', tags:'', photo_url:'' }
+const EMPTY = { name:'', category:'Building & Blocks', age_range:'3–5', brand:'', sku:'', barcode:'', stock_qty:0, low_stock_threshold:10, cost_price:0, sell_price:0, description:'', sizes:'', weight:'', dimensions:'', tags:'', photo_url:'', discontinued:false }
 
 // Generate a unique barcode number
 function genBarcode(name, id) {
@@ -72,6 +72,12 @@ export default function Inventory() {
     setProducts(p.data || [])
     setSuppliers(s.data || [])
     setLoading(false)
+  }
+
+  async function toggleDiscontinued(product) {
+    await supabase.from('products').update({ discontinued: !product.discontinued }).eq('id', product.id)
+    toast.success(product.discontinued ? `${product.name} marked active` : `${product.name} marked discontinued`)
+    load()
   }
 
   function openAdd() { 
@@ -267,10 +273,13 @@ export default function Inventory() {
   const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
   const margin = form.sell_price > 0 ? Math.round((form.sell_price - form.cost_price) / form.sell_price * 100) : 0
 
+  const [showDiscontinued, setShowDiscontinued] = useState(false)
+
   const filtered = products.filter(p => {
     const ms = p.name.toLowerCase().includes(search.toLowerCase()) || (p.brand || '').toLowerCase().includes(search.toLowerCase()) || (p.sku || '').toLowerCase().includes(search.toLowerCase()) || (p.barcode || '').includes(search)
     const mc = filterCat === 'all' || p.category === filterCat
-    return ms && mc
+    const md = showDiscontinued ? p.discontinued : !p.discontinued
+    return ms && mc && md
   })
 
   const columns = [
@@ -291,6 +300,13 @@ export default function Inventory() {
     { key: 'sell_price', label: 'Price', render: r => `MVR ${Number(r.sell_price).toFixed(2)}` },
     { key: 'margin', label: 'Margin', render: r => { const m = r.sell_price > 0 ? Math.round((r.sell_price - r.cost_price) / r.sell_price * 100) : 0; return <span style={{ color: m >= 40 ? '#2e7d32' : m >= 20 ? '#f57f17' : '#c62828', fontWeight: 600 }}>{m}%</span> }},
     { key: 'status', label: 'Stock', render: r => <StockBadge qty={r.stock_qty} threshold={r.low_stock_threshold} /> },
+    { key: 'discontinued', label: 'Status', render: r => (
+      <button onClick={() => toggleDiscontinued(r)} title={r.discontinued ? 'Mark as active' : 'Mark as discontinued'}
+        style={{ padding: '3px 10px', borderRadius: 99, border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 700, fontFamily: 'inherit',
+          background: r.discontinued ? '#f5f5f5' : '#E1F5EE', color: r.discontinued ? '#999' : '#1D9E75' }}>
+        {r.discontinued ? '⛔ Discontinued' : '✅ Active'}
+      </button>
+    )},
     { key: 'actions', label: '', render: r => (
       <div style={{ display: 'flex', gap: 4 }}>
         <Button variant="ghost" size="sm" onClick={() => openView(r)} title="View"><Eye size={13} /></Button>
@@ -317,7 +333,7 @@ export default function Inventory() {
         } />
 
       <Card>
-        <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name, barcode, SKU…"
             style={{ padding: '9px 14px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', width: 240, outline: 'none' }} />
           <select value={filterCat} onChange={e => setFilterCat(e.target.value)}
@@ -325,8 +341,13 @@ export default function Inventory() {
             <option value="all">All categories</option>
             {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
+          <button onClick={() => setShowDiscontinued(!showDiscontinued)}
+            style={{ padding: '9px 14px', borderRadius: 8, border: '1px solid #ddd', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
+              background: showDiscontinued ? '#f5f5f5' : '#E1F5EE', color: showDiscontinued ? '#999' : '#1D9E75' }}>
+            {showDiscontinued ? '⛔ Discontinued' : '✅ Active'} ({showDiscontinued ? products.filter(p=>p.discontinued).length : products.filter(p=>!p.discontinued).length})
+          </button>
         </div>
-        {loading ? <Spinner /> : <Table columns={columns} data={filtered} emptyMessage="No products yet." />}
+        {loading ? <Spinner /> : <Table columns={columns} data={filtered} emptyMessage={showDiscontinued ? 'No discontinued products.' : 'No products yet.'} />}
       </Card>
 
       {/* ── BARCODE MODAL ── */}

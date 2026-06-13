@@ -16,6 +16,7 @@ function getFirstDayOfMonth(year, month) {
 
 export default function TasksCalendar() {
   const [tasks, setTasks] = useState([])
+  const [taskHistory, setTaskHistory] = useState(() => { try { return JSON.parse(localStorage.getItem('bj_tasks_history') || '[]') } catch { return [] } })
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('calendar')
@@ -46,7 +47,37 @@ export default function TasksCalendar() {
     setTasks(updated)
   }
 
-  function openAdd(date) {
+  function saveHistory(updated) {
+    localStorage.setItem('bj_tasks_history', JSON.stringify(updated))
+    setTaskHistory(updated)
+  }
+
+  function completeTask(id) {
+    const task = tasks.find(t => t.id === id)
+    if (task) {
+      const completed = { ...task, done: true, completed_at: new Date().toISOString() }
+      saveHistory([completed, ...taskHistory])
+    }
+    saveTasks(tasks.filter(t => t.id !== id))
+    toast.success('Task completed! ✅')
+  }
+
+  function deleteTask(id) {
+    if (!window.confirm('Delete this task?')) return
+    saveTasks(tasks.filter(t => t.id !== id))
+    toast.success('Deleted')
+  }
+
+  function deleteHistoryTask(id) {
+    saveHistory(taskHistory.filter(t => t.id !== id))
+    toast.success('Removed from history')
+  }
+
+  function clearHistory() {
+    if (!window.confirm('Clear all task history?')) return
+    saveHistory([])
+    toast.success('History cleared')
+  }
     setForm({ ...TASK_EMPTY, date: date || new Date().toISOString().split('T')[0] })
     setModal(true)
   }
@@ -122,10 +153,11 @@ export default function TasksCalendar() {
         action={<Button onClick={() => openAdd()}><Plus size={15} /> Add task</Button>} />
 
       {/* Summary row */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 20 }}>
         {[
           { label: "Today's tasks", value: todayTasks.length, color: todayTasks.length > 0 ? '#f57f17' : '#1D9E75' },
           { label: 'Pending tasks', value: pendingTasks.length, color: pendingTasks.length > 0 ? '#c62828' : '#1D9E75' },
+          { label: 'Completed total', value: taskHistory.length, color: '#1D9E75' },
           { label: 'Active deliveries', value: upcomingDeliveries.length, color: '#378ADD' },
         ].map((m, i) => (
           <div key={i} style={{ background: '#fff', borderRadius: 14, padding: '16px 20px', border: '1px solid #eee' }}>
@@ -137,7 +169,7 @@ export default function TasksCalendar() {
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
-        {[['calendar', 'Calendar', Calendar], ['tasks', 'Task List', ClipboardList]].map(([id, label, Icon]) => (
+        {[['calendar', 'Calendar', Calendar], ['tasks', 'Task List', ClipboardList], ['history', 'History', CheckCircle]].map(([id, label, Icon]) => (
           <button key={id} className="tab-btn" onClick={() => setActiveTab(id)}
             style={{ background: activeTab === id ? '#FFA500' : '#fff', color: activeTab === id ? '#fff' : '#555', border: activeTab === id ? 'none' : '1px solid #eee' }}>
             <Icon size={14} /> {label}
@@ -331,6 +363,38 @@ export default function TasksCalendar() {
                 ))}
               </Card>
             </div>
+          </div>
+        )}
+
+        {/* ── HISTORY ── */}
+        {activeTab === 'history' && (
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h3 style={{ fontSize: 14, fontWeight: 700, color: '#0d1b2a', margin: 0 }}>Completed tasks ({taskHistory.length})</h3>
+              {taskHistory.length > 0 && <Button variant="ghost" onClick={clearHistory}><Trash2 size={13} /> Clear all</Button>}
+            </div>
+            {taskHistory.length === 0 ? (
+              <Card>
+                <div style={{ textAlign: 'center', padding: '40px 0', color: '#aaa' }}>
+                  <CheckCircle size={32} style={{ marginBottom: 12, opacity: 0.3 }} />
+                  <p style={{ fontSize: 14 }}>No completed tasks yet.</p>
+                </div>
+              </Card>
+            ) : taskHistory.map(t => (
+              <div key={t.id} style={{ display: 'flex', gap: 12, padding: '12px 16px', border: '1px solid #eee', borderRadius: 10, marginBottom: 8, background: '#fff', borderLeft: `3px solid #1D9E75`, alignItems: 'flex-start' }}>
+                <CheckCircle size={18} color="#1D9E75" style={{ flexShrink: 0, marginTop: 1 }} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 600, fontSize: 14, color: '#0d1b2a', textDecoration: 'line-through', opacity: 0.7 }}>{t.title}</div>
+                  {t.notes && <div style={{ fontSize: 12, color: '#888', marginTop: 3 }}>{t.notes}</div>}
+                  <div style={{ display: 'flex', gap: 12, marginTop: 4, fontSize: 11, color: '#aaa' }}>
+                    <span>📅 Due: {t.date}</span>
+                    <span>✅ Done: {t.completed_at ? new Date(t.completed_at).toLocaleDateString('en', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</span>
+                    <span style={{ color: PRIORITY_COLORS[t.priority], fontWeight: 600 }}>{t.priority}</span>
+                  </div>
+                </div>
+                <button onClick={() => deleteHistoryTask(t.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ddd', padding: 2, flexShrink: 0 }}><Trash2 size={14} /></button>
+              </div>
+            ))}
           </div>
         )}
       </>}
