@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Button, Input, Modal, Spinner, useToast, Toasts, Badge } from '../components/UI'
-import { Mail, Send, Plus, Trash2, AlertTriangle, Package, ClipboardList, Truck, Edit2, CheckCircle } from 'lucide-react'
+import { Mail, Send, Plus, Trash2, AlertTriangle, Package, ClipboardList, Truck, Edit2, CheckCircle, User, Bike, Calendar, XCircle, Lightbulb, Users, AtSign, Phone } from 'lucide-react'
 
 const EMAILJS_SERVICE = 'service_pt7xkma'
 const EMAILJS_TEMPLATE = 'template_9zgrhkb'
@@ -73,7 +73,7 @@ export default function EmailCenter() {
     setSending(true)
     try {
       await sendEmailJS(to, subject, body)
-      toast.success(`✅ Email sent to ${to}!`)
+      toast.success(`Email sent to ${to}!`)
       setComposeModal(null)
       setComposeForm({ to: '', subject: '', body: '' })
     } catch (err) {
@@ -145,9 +145,9 @@ Please confirm once delivered.
   }
 
   function emailLowStock() {
-    const subject = `⚠️ Low Stock Alert — Brick's & Joy`
-    const outLines = outOfStockProducts.map(p => `  ❌ ${p.name} — OUT OF STOCK (was ${p.stock_qty})`).join('\n')
-    const lowLines = lowStockProducts.map(p => `  ⚠️ ${p.name} — ${p.stock_qty} left (threshold: ${p.low_stock_threshold || 10})`).join('\n')
+    const subject = `Low Stock Alert — Brick's & Joy`
+    const outLines = outOfStockProducts.map(p => `  - ${p.name} — OUT OF STOCK (was ${p.stock_qty})`).join('\n')
+    const lowLines = lowStockProducts.map(p => `  - ${p.name} — ${p.stock_qty} left (threshold: ${p.low_stock_threshold || 10})`).join('\n')
     const body = `Stock Alert — Brick's & Joy
 ${new Date().toLocaleDateString('en', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
 
@@ -169,7 +169,7 @@ Please reorder as needed.
   }
 
   function emailTask(task) {
-    const subject = `📋 Task Assigned — ${task.title}`
+    const subject = `Task Assigned — ${task.title}`
     const body = `Hi,
 
 A task has been assigned to you from Brick's & Joy.
@@ -204,12 +204,15 @@ Please complete this by the due date.
 
   return (
     <div>
-      <style>{`.email-card { background:#fff; border:1px solid #eee; border-radius:12px; padding:14px 16px; margin-bottom:10px; }`}</style>
+      <style>{`
+        .email-card { background:#fff; border:1px solid #eee; border-radius:12px; padding:14px 16px; margin-bottom:10px; transition: box-shadow 0.15s, border-color 0.15s; }
+        .email-card:hover { border-color:#e3e3e3; box-shadow:0 2px 10px rgba(0,0,0,0.05); }
+      `}</style>
       <PageHeader title="Email Center" subtitle="Send delivery assignments, stock alerts, tasks and custom emails" />
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
-        {[['compose', 'Compose', Mail], ['deliveries', 'Deliveries', Truck], ['stock', 'Stock Alerts', AlertTriangle], ['tasks', 'Tasks', ClipboardList], ['contacts', 'Contacts', Plus]].map(([id, label, Icon]) => (
+        {[['compose', 'Compose', Mail], ['deliveries', 'Deliveries', Truck], ['stock', 'Stock Alerts', AlertTriangle], ['tasks', 'Tasks', ClipboardList], ['contacts', 'Contacts', Users]].map(([id, label, Icon]) => (
           <button key={id} style={TAB_STYLE(id)} onClick={() => setActiveTab(id)}>
             <Icon size={14} /> {label}
           </button>
@@ -229,7 +232,7 @@ Please complete this by the due date.
                   style={{ flex: 1, padding: '9px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', outline: 'none' }} />
                 <select onChange={e => { if (e.target.value) setComposeForm(p => ({ ...p, to: e.target.value })) }}
                   style={{ padding: '9px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', background: '#fff', outline: 'none' }}>
-                  <option value="">📋 From contacts</option>
+                  <option value="">From contacts…</option>
                   {contacts.map((c, i) => <option key={i} value={c.email}>{c.name} — {c.email}</option>)}
                 </select>
               </div>
@@ -256,8 +259,9 @@ Please complete this by the due date.
         {/* ── DELIVERIES ── */}
         {activeTab === 'deliveries' && (
           <div>
-            <div style={{ background: '#EEF4FF', border: '1px solid #d0e4ff', borderRadius: 10, padding: '12px 16px', marginBottom: 16, fontSize: 13, color: '#378ADD' }}>
-              💡 Click <strong>Send delivery email</strong> on any order — it'll open pre-filled with the delivery person's details saved in Contacts.
+            <div style={{ background: '#EEF4FF', border: '1px solid #d0e4ff', borderRadius: 10, padding: '12px 16px', marginBottom: 16, fontSize: 13, color: '#378ADD', display: 'flex', alignItems: 'flex-start', gap: 9 }}>
+              <Lightbulb size={16} style={{ flexShrink: 0, marginTop: 1 }} />
+              <span>Click <strong>Send delivery email</strong> on any order — it'll open pre-filled with the delivery person's details saved in Contacts.</span>
             </div>
             {orders.filter(o => o.delivery_person).length === 0 && (
               <Card><p style={{ color: '#aaa', fontSize: 13, textAlign: 'center', padding: '30px 0' }}>No active orders with delivery persons assigned.</p></Card>
@@ -269,10 +273,14 @@ Please complete this by the due date.
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                     <div>
                       <div style={{ fontWeight: 700, fontSize: 14, color: '#0d1b2a', marginBottom: 4 }}>{o.product_name} × {o.qty}</div>
-                      <div style={{ fontSize: 13, color: '#555' }}>👤 {o.customer_name || 'Walk-in'} · 🚴 {o.delivery_person}</div>
+                      <div style={{ fontSize: 13, color: '#555', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><User size={13} /> {o.customer_name || 'Walk-in'}</span>
+                        <span style={{ color: '#ddd' }}>·</span>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#378ADD' }}><Bike size={13} /> {o.delivery_person}</span>
+                      </div>
                       <div style={{ fontSize: 12, color: '#aaa', marginTop: 2 }}>{o.invoice_number || '—'} · {o.order_date}</div>
-                      {!contact && <div style={{ fontSize: 11, color: '#f57f17', marginTop: 4 }}>⚠️ {o.delivery_person} not in contacts — add them to pre-fill email address</div>}
-                      {contact && <div style={{ fontSize: 11, color: '#1D9E75', marginTop: 4 }}>✅ Contact found: {contact.email}</div>}
+                      {!contact && <div style={{ fontSize: 11, color: '#f57f17', marginTop: 5, display: 'flex', alignItems: 'center', gap: 5 }}><AlertTriangle size={12} /> {o.delivery_person} not in contacts — add them to pre-fill email address</div>}
+                      {contact && <div style={{ fontSize: 11, color: '#1D9E75', marginTop: 5, display: 'flex', alignItems: 'center', gap: 5 }}><CheckCircle size={12} /> Contact found: {contact.email}</div>}
                     </div>
                     <Button onClick={() => { emailDelivery(o); setActiveTab('compose') }} disabled={!contact?.email}>
                       <Mail size={13} /> {contact?.email ? 'Send email' : 'Add contact email first'}
@@ -290,18 +298,18 @@ Please complete this by the due date.
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 20 }}>
               <div style={{ background: '#FCEBEB', borderRadius: 12, padding: '16px 20px', border: '1px solid #f5c6c6' }}>
                 <div style={{ fontSize: 11, color: '#c62828', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Out of stock</div>
-                <div style={{ fontSize: 28, fontWeight: 800, color: '#c62828' }}>{outOfStockProducts.length}</div>
+                <div style={{ fontSize: 28, fontWeight: 700, color: '#c62828', letterSpacing: '-0.5px' }}>{outOfStockProducts.length}</div>
               </div>
               <div style={{ background: '#FFF8E1', borderRadius: 12, padding: '16px 20px', border: '1px solid #FAEEDA' }}>
                 <div style={{ fontSize: 11, color: '#f57f17', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Low stock</div>
-                <div style={{ fontSize: 28, fontWeight: 800, color: '#f57f17' }}>{lowStockProducts.length}</div>
+                <div style={{ fontSize: 28, fontWeight: 700, color: '#f57f17', letterSpacing: '-0.5px' }}>{lowStockProducts.length}</div>
               </div>
             </div>
             <div style={{ marginBottom: 16 }}>
               <Button onClick={async () => {
-                const subject = `⚠️ Low Stock Alert — Brick's & Joy`
-                const outLines = outOfStockProducts.map(p => `  ❌ ${p.name} — OUT OF STOCK`).join('\n')
-                const lowLines = lowStockProducts.map(p => `  ⚠️ ${p.name} — ${p.stock_qty} left (threshold: ${p.low_stock_threshold || 10})`).join('\n')
+                const subject = `Low Stock Alert — Brick's & Joy`
+                const outLines = outOfStockProducts.map(p => `  - ${p.name} — OUT OF STOCK`).join('\n')
+                const lowLines = lowStockProducts.map(p => `  - ${p.name} — ${p.stock_qty} left (threshold: ${p.low_stock_threshold || 10})`).join('\n')
                 const body = `Stock Alert — Brick's & Joy\n${new Date().toLocaleDateString('en', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}\n\nOUT OF STOCK (${outOfStockProducts.length})\n${outLines || '  None'}\n\nLOW STOCK (${lowStockProducts.length})\n${lowLines || '  None'}\n\nPlease reorder as needed.\n\n— Brick's & Joy System`
                 await sendEmail(BNJ_EMAIL, subject, body)
               }} disabled={sending}>
@@ -312,15 +320,17 @@ Please complete this by the due date.
               <div key={p.id} className="email-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
                   <div style={{ fontWeight: 600, fontSize: 13 }}>{p.name}</div>
-                  <div style={{ fontSize: 12, color: p.stock_qty <= 0 ? '#c62828' : '#f57f17', marginTop: 2, fontWeight: 600 }}>
-                    {p.stock_qty <= 0 ? '❌ Out of stock' : `⚠️ ${p.stock_qty} left (threshold: ${p.low_stock_threshold || 10})`}
+                  <div style={{ fontSize: 12, color: p.stock_qty <= 0 ? '#c62828' : '#f57f17', marginTop: 3, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 5 }}>
+                    {p.stock_qty <= 0
+                      ? <><XCircle size={12} /> Out of stock</>
+                      : <><AlertTriangle size={12} /> {p.stock_qty} left (threshold: {p.low_stock_threshold || 10})</>}
                   </div>
                 </div>
                 <Badge color={p.stock_qty <= 0 ? 'red' : 'amber'}>{p.stock_qty <= 0 ? 'Out of stock' : 'Low stock'}</Badge>
               </div>
             ))}
             {outOfStockProducts.length === 0 && lowStockProducts.length === 0 && (
-              <Card><p style={{ color: '#1D9E75', fontSize: 13, textAlign: 'center', padding: '30px 0' }}>✅ All products are well stocked!</p></Card>
+              <Card><p style={{ color: '#1D9E75', fontSize: 13, textAlign: 'center', padding: '30px 0', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7 }}><CheckCircle size={16} /> All products are well stocked!</p></Card>
             )}
           </div>
         )}
@@ -328,8 +338,9 @@ Please complete this by the due date.
         {/* ── TASKS ── */}
         {activeTab === 'tasks' && (
           <div>
-            <div style={{ background: '#EEF4FF', border: '1px solid #d0e4ff', borderRadius: 10, padding: '12px 16px', marginBottom: 16, fontSize: 13, color: '#378ADD' }}>
-              💡 Click <strong>Send task email</strong> — it opens pre-filled. Enter the recipient's email in the To field or pick from Contacts.
+            <div style={{ background: '#EEF4FF', border: '1px solid #d0e4ff', borderRadius: 10, padding: '12px 16px', marginBottom: 16, fontSize: 13, color: '#378ADD', display: 'flex', alignItems: 'flex-start', gap: 9 }}>
+              <Lightbulb size={16} style={{ flexShrink: 0, marginTop: 1 }} />
+              <span>Click <strong>Send task email</strong> — it opens pre-filled. Enter the recipient's email in the To field or pick from Contacts.</span>
             </div>
             {tasks.length === 0 ? (
               <Card><p style={{ color: '#aaa', fontSize: 13, textAlign: 'center', padding: '30px 0' }}>No pending tasks.</p></Card>
@@ -338,7 +349,7 @@ Please complete this by the due date.
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <div>
                     <div style={{ fontWeight: 700, fontSize: 14, color: '#0d1b2a', marginBottom: 4 }}>{t.title}</div>
-                    <div style={{ fontSize: 12, color: '#888' }}>📅 {t.date} · {t.priority} priority</div>
+                    <div style={{ fontSize: 12, color: '#888', display: 'flex', alignItems: 'center', gap: 5 }}><Calendar size={12} /> {t.date} · {t.priority} priority</div>
                     {t.notes && <div style={{ fontSize: 12, color: '#555', marginTop: 2 }}>{t.notes}</div>}
                   </div>
                   <Button onClick={() => { emailTask(t); setActiveTab('compose') }}>
@@ -365,9 +376,9 @@ Please complete this by the due date.
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
                     <div style={{ fontWeight: 700, fontSize: 14, color: '#0d1b2a' }}>{c.name}</div>
-                    <div style={{ fontSize: 13, color: '#555', marginTop: 2 }}>📧 {c.email}</div>
-                    {c.role && <div style={{ fontSize: 12, color: '#aaa', marginTop: 1 }}>{c.role}</div>}
-                    {c.phone && <div style={{ fontSize: 12, color: '#aaa' }}>📞 {c.phone}</div>}
+                    <div style={{ fontSize: 13, color: '#555', marginTop: 3, display: 'flex', alignItems: 'center', gap: 5 }}><AtSign size={12} /> {c.email}</div>
+                    {c.role && <div style={{ fontSize: 12, color: '#aaa', marginTop: 2 }}>{c.role}</div>}
+                    {c.phone && <div style={{ fontSize: 12, color: '#aaa', marginTop: 2, display: 'flex', alignItems: 'center', gap: 5 }}><Phone size={12} /> {c.phone}</div>}
                   </div>
                   <div style={{ display: 'flex', gap: 6 }}>
                     <Button variant="ghost" size="sm" onClick={() => { setComposeForm({ to: c.email, subject: '', body: '' }); setActiveTab('compose') }}><Mail size={13} /></Button>
