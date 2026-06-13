@@ -1,25 +1,50 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Button, Input, Modal, Spinner, useToast, Toasts, Badge } from '../components/UI'
-import { Mail, Send, Plus, Trash2, AlertTriangle, Package, ClipboardList, Truck, Edit2 } from 'lucide-react'
+import { Mail, Send, Plus, Trash2, AlertTriangle, Package, ClipboardList, Truck, Edit2, CheckCircle } from 'lucide-react'
 
+const EMAILJS_SERVICE = 'service_pt7xkma'
+const EMAILJS_TEMPLATE = 'template_9zgrhkb'
+const EMAILJS_PUBLIC_KEY = 'kLZVT1yzwlXV3hua6'
 const BNJ_EMAIL = 'bricknjoy@gmail.com'
 
-// Save/load contacts from localStorage
 function getContacts() { try { return JSON.parse(localStorage.getItem('bj_email_contacts') || '[]') } catch { return [] } }
 function saveContacts(c) { localStorage.setItem('bj_email_contacts', JSON.stringify(c)) }
+
+async function sendEmailJS(to, subject, message, replyTo = BNJ_EMAIL) {
+  const res = await fetch(`https://api.emailjs.com/api/v1.0/email/send`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      service_id: EMAILJS_SERVICE,
+      template_id: EMAILJS_TEMPLATE,
+      user_id: EMAILJS_PUBLIC_KEY,
+      template_params: {
+        to_email: to,
+        subject,
+        message,
+        reply_to: replyTo,
+        name: "Brick's & Joy",
+        email: BNJ_EMAIL,
+      }
+    })
+  })
+  if (!res.ok) throw new Error(await res.text())
+}
 
 export default function EmailCenter() {
   const [orders, setOrders] = useState([])
   const [products, setProducts] = useState([])
   const [loading, setLoading] = useState(true)
   const [contacts, setContacts] = useState(getContacts())
+  const [customers, setCustomers] = useState([])
   const [contactModal, setContactModal] = useState(false)
-  const [contactForm, setContactForm] = useState({ name: '', email: '', role: '', phone: '', address: '' })
+  const [contactForm, setContactForm] = useState({ name: '', email: '', role: '', phone: '' })
   const [editContact, setEditContact] = useState(null)
   const [composeModal, setComposeModal] = useState(null) // { type, prefill }
   const [composeForm, setComposeForm] = useState({ to: '', subject: '', body: '' })
   const [activeTab, setActiveTab] = useState('compose')
+  const [sending, setSending] = useState(false)
   const toast = useToast()
 
   const tasks = (() => { try { return JSON.parse(localStorage.getItem('bj_tasks') || '[]') } catch { return [] } })()
@@ -29,24 +54,38 @@ export default function EmailCenter() {
 
   async function load() {
     setLoading(true)
-    const [o, p] = await Promise.all([
+    const [o, p, c] = await Promise.all([
       supabase.from('orders').select('*').in('status', ['pending', 'transit']).order('created_at', { ascending: false }),
       supabase.from('products').select('*'),
+      supabase.from('customers').select('*'),
     ])
     setOrders(o.data || [])
     setProducts(p.data || [])
+    setCustomers(c.data || [])
     setLoading(false)
   }
 
   const lowStockProducts = products.filter(p => p.stock_qty <= (p.low_stock_threshold || 10) && p.stock_qty > 0)
   const outOfStockProducts = products.filter(p => p.stock_qty <= 0)
 
-  // Open mailto link
-  function sendEmail(to, subject, body, cc = BNJ_EMAIL) {
-    const ccParam = cc && cc !== to ? `&cc=${encodeURIComponent(cc)}` : ''
-    const url = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}${ccParam}`
-    window.open(url, '_blank')
-    toast.success('Email client opened!')
+  // Send via EmailJS
+  async function sendEmail(to, subject, body) {
+    if (!to || !subject) { toast.error('To and subject are required'); return }
+    setSending(true)
+    try {
+      await sendEmailJS(to, subject, body)
+      // Also send copy to BNJ if recipient is different
+      if (to !== BNJ_EMAIL) {
+        await sendEmailJS(BNJ_EMAIL, `[COPY] ${subject}`, `Copy of email sent to: ${to}\n\n${body}`)
+      }
+      toast.success(`✅ Email sent to ${to}!`)
+      setComposeModal(null)
+      setComposeForm({ to: '', subject: '', body: '' })
+    } catch (err) {
+      console.error(err)
+      toast.error('Failed to send. Check EmailJS setup.')
+    }
+    setSending(false)
   }
 
   // Save contact
@@ -62,7 +101,7 @@ export default function EmailCenter() {
     setContacts(updated)
     setContactModal(false)
     setEditContact(null)
-    setContactForm({ name: '', email: '', role: '', phone: '', address: '' })
+    setContactForm({ name: '', email: '', role: '', phone: '' })
     toast.success(editContact !== null ? 'Contact updated!' : 'Contact saved!')
   }
 
@@ -77,6 +116,7 @@ export default function EmailCenter() {
   // Pre-built email templates
   function emailDelivery(order) {
     const contact = contacts.find(c => c.name === order.delivery_person) || {}
+    const customer = customers.find(c => c.id === order.customer_id) || {}
     const to = contact.email || ''
     const subject = `Delivery Assignment — ${order.invoice_number || 'Order'}`
     const body = `Hi ${order.delivery_person || 'Delivery Person'},
@@ -87,19 +127,20 @@ You have a new delivery assignment from Brick's & Joy.
 ORDER DETAILS
 ━━━━━━━━━━━━━━━━━━━━
 Invoice:       ${order.invoice_number || '—'}
-Customer:      ${order.customer_name || 'Walk-in'}
 Product:       ${order.product_name}
 Quantity:      ${order.qty}
 Order Date:    ${order.order_date}
 Status:        ${order.status}
 
 ━━━━━━━━━━━━━━━━━━━━
-DELIVERY INFO
+CUSTOMER / DELIVERY INFO
 ━━━━━━━━━━━━━━━━━━━━
-${contact.address ? `Address:  ${contact.address}` : 'Address:  [Please add delivery address]'}
-${contact.phone ? `Phone:    ${contact.phone}` : 'Phone:    [Customer phone]'}
-
-${order.notes ? `Notes:\n${order.notes}` : ''}
+Name:      ${customer.name || order.customer_name || 'Walk-in'}
+Phone:     ${customer.phone || '—'}
+Address:   ${customer.address || '—'}
+Instagram: ${customer.email || '—'}
+${customer.notes ? `Notes:     ${customer.notes}` : ''}
+${order.notes ? `\nOrder notes:\n${order.notes}` : ''}
 
 Please confirm once delivered.
 
@@ -210,8 +251,8 @@ Please complete this by the due date.
             </div>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ fontSize: 12, color: '#aaa' }}>A copy will be sent to {BNJ_EMAIL}</div>
-              <Button onClick={() => sendEmail(composeForm.to, composeForm.subject, composeForm.body)} disabled={!composeForm.to || !composeForm.subject}>
-                <Send size={14} /> Send via email app
+              <Button onClick={() => sendEmail(composeForm.to, composeForm.subject, composeForm.body)} disabled={!composeForm.to || !composeForm.subject || sending}>
+                <Send size={14} /> {sending ? 'Sending…' : 'Send email'}
               </Button>
             </div>
           </Card>
@@ -238,8 +279,8 @@ Please complete this by the due date.
                       {!contact && <div style={{ fontSize: 11, color: '#f57f17', marginTop: 4 }}>⚠️ {o.delivery_person} not in contacts — add them to pre-fill email address</div>}
                       {contact && <div style={{ fontSize: 11, color: '#1D9E75', marginTop: 4 }}>✅ Contact found: {contact.email}</div>}
                     </div>
-                    <Button onClick={() => { emailDelivery(o); setActiveTab('compose') }}>
-                      <Mail size={13} /> Send email
+                    <Button onClick={() => { emailDelivery(o); setActiveTab('compose') }} disabled={!contact?.email}>
+                      <Mail size={13} /> {contact?.email ? 'Send email' : 'Add contact email first'}
                     </Button>
                   </div>
                 </div>
@@ -262,8 +303,14 @@ Please complete this by the due date.
               </div>
             </div>
             <div style={{ marginBottom: 16 }}>
-              <Button onClick={() => { emailLowStock(); setActiveTab('compose') }}>
-                <AlertTriangle size={14} /> Send stock alert to {BNJ_EMAIL}
+              <Button onClick={async () => {
+                const subject = `⚠️ Low Stock Alert — Brick's & Joy`
+                const outLines = outOfStockProducts.map(p => `  ❌ ${p.name} — OUT OF STOCK`).join('\n')
+                const lowLines = lowStockProducts.map(p => `  ⚠️ ${p.name} — ${p.stock_qty} left (threshold: ${p.low_stock_threshold || 10})`).join('\n')
+                const body = `Stock Alert — Brick's & Joy\n${new Date().toLocaleDateString('en', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}\n\nOUT OF STOCK (${outOfStockProducts.length})\n${outLines || '  None'}\n\nLOW STOCK (${lowStockProducts.length})\n${lowLines || '  None'}\n\nPlease reorder as needed.\n\n— Brick's & Joy System`
+                await sendEmail(BNJ_EMAIL, subject, body)
+              }} disabled={sending}>
+                <AlertTriangle size={14} /> {sending ? 'Sending…' : `Send stock alert to ${BNJ_EMAIL}`}
               </Button>
             </div>
             {[...outOfStockProducts, ...lowStockProducts].map(p => (
@@ -326,10 +373,9 @@ Please complete this by the due date.
                     <div style={{ fontSize: 13, color: '#555', marginTop: 2 }}>📧 {c.email}</div>
                     {c.role && <div style={{ fontSize: 12, color: '#aaa', marginTop: 1 }}>{c.role}</div>}
                     {c.phone && <div style={{ fontSize: 12, color: '#aaa' }}>📞 {c.phone}</div>}
-                    {c.address && <div style={{ fontSize: 12, color: '#aaa' }}>📍 {c.address}</div>}
                   </div>
                   <div style={{ display: 'flex', gap: 6 }}>
-                    <Button variant="ghost" size="sm" onClick={() => sendEmail(c.email, '', '')}><Mail size={13} /></Button>
+                    <Button variant="ghost" size="sm" onClick={() => { setComposeForm({ to: c.email, subject: '', body: '' }); setActiveTab('compose') }}><Mail size={13} /></Button>
                     <Button variant="ghost" size="sm" onClick={() => { setContactForm(c); setEditContact(i); setContactModal(true) }}><Edit2 size={13} /></Button>
                     <Button variant="danger" size="sm" onClick={() => deleteContact(i)}><Trash2 size={13} /></Button>
                   </div>
@@ -348,7 +394,6 @@ Please complete this by the due date.
             { label: 'Email *', key: 'email', placeholder: 'email@example.com' },
             { label: 'Role', key: 'role', placeholder: 'e.g. Delivery, Supplier, Staff' },
             { label: 'Phone', key: 'phone', placeholder: '+960 xxx xxxx' },
-            { label: 'Address / delivery area', key: 'address', placeholder: 'e.g. Male, Hulhumale' },
           ].map(field => (
             <div key={field.key} style={{ marginBottom: 12 }}>
               <label style={{ fontSize: 12, color: '#666', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.4px', display: 'block', marginBottom: 5 }}>{field.label}</label>
