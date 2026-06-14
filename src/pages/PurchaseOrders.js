@@ -38,7 +38,7 @@ export default function PurchaseOrders() {
   const [payModal, setPayModal] = useState(null) // PO object being paid
   const [payForm, setPayForm] = useState({ amount: '', payment_date: new Date().toISOString().split('T')[0], payment_method: 'Bank Transfer', reference: '', notes: '' })
   const [paymentsTab, setPaymentsTab] = useState(false)
-  const [batchForm, setBatchForm] = useState({ supplier_id: '', supplier_name: '', order_date: new Date().toISOString().split('T')[0], expected_date: '', items: [] })
+  const [batchForm, setBatchForm] = useState({ supplier_id: '', supplier_name: '', order_date: new Date().toISOString().split('T')[0], expected_date: '', items: [], extraCosts: [] })
   const [supplierForm, setSupplierForm] = useState({ name: '', contact_name: '', email: '', phone: '', address: '' })
   const [saving, setSaving] = useState(false)
   const [supplierCatalog, setSupplierCatalog] = useState([])
@@ -81,7 +81,8 @@ export default function PurchaseOrders() {
       supplier_id: '', supplier_name: '',
       order_date: new Date().toISOString().split('T')[0],
       expected_date: '',
-      items: suggestedItems.length > 0 ? suggestedItems : [{ product_id: '', product_name: '', qty: 1, unit_cost: 0, current_stock: 0 }]
+      items: suggestedItems.length > 0 ? suggestedItems : [{ product_id: '', product_name: '', qty: 1, unit_cost: 0, current_stock: 0 }],
+      extraCosts: []
     })
     setBatchModal(true)
   }
@@ -117,11 +118,27 @@ export default function PurchaseOrders() {
     setBatchForm(prev => ({ ...prev, items: prev.items.filter((_, i) => i !== idx) }))
   }
 
+  function addCost() {
+    setBatchForm(prev => ({ ...prev, extraCosts: [...(prev.extraCosts || []), { type: 'Alibaba transaction charge', label: '', amount: '' }] }))
+  }
+
+  function updateCost(idx, key, value) {
+    setBatchForm(prev => {
+      const next = [...(prev.extraCosts || [])]
+      next[idx] = { ...next[idx], [key]: value }
+      return { ...prev, extraCosts: next }
+    })
+  }
+
+  function removeCost(idx) {
+    setBatchForm(prev => ({ ...prev, extraCosts: (prev.extraCosts || []).filter((_, i) => i !== idx) }))
+  }
+
   async function saveBatch() {
     const validItems = batchForm.items.filter(i => i.product_id && i.qty > 0)
     if (validItems.length === 0) { toast.error('Add at least one product'); return }
     setSaving(true)
-    
+
     const records = validItems.map(item => ({
       supplier_id: batchForm.supplier_id || null,
       supplier_name: batchForm.supplier_name,
@@ -134,11 +151,27 @@ export default function PurchaseOrders() {
       expected_date: batchForm.expected_date || null,
       image_url: item.image_url || null,
     }))
-    
-    const { error } = await supabase.from('purchase_orders').insert(records)
+
+    // Extra costs become their own line items (freight, fees, etc.)
+    const costRecords = (batchForm.extraCosts || [])
+      .filter(c => Number(c.amount) > 0)
+      .map(c => ({
+        supplier_id: batchForm.supplier_id || null,
+        supplier_name: batchForm.supplier_name,
+        product_id: null,
+        product_name: c.type === 'Other' ? (c.label || 'Other cost') : c.type,
+        qty: 1,
+        unit_cost: parseFloat(c.amount),
+        status: 'pending',
+        order_date: batchForm.order_date,
+        expected_date: batchForm.expected_date || null,
+        cost_type: 'extra',
+      }))
+
+    const { error } = await supabase.from('purchase_orders').insert([...records, ...costRecords])
     setSaving(false)
     if (error) { toast.error('Failed to save'); return }
-    toast.success(`Batch order created! ${validItems.length} items`)
+    toast.success(`Batch order created! ${validItems.length} item${validItems.length > 1 ? 's' : ''}${costRecords.length ? ` + ${costRecords.length} cost${costRecords.length > 1 ? 's' : ''}` : ''}`)
     setBatchModal(false)
     load()
   }
@@ -253,7 +286,9 @@ export default function PurchaseOrders() {
 
   const totalSpend = pos.filter(p => p.status === 'received').reduce((s, p) => s + Number(p.total_cost || 0), 0)
   const pendingValue = pos.filter(p => p.status === 'pending' || p.status === 'ordered').reduce((s, p) => s + Number(p.total_cost || 0), 0)
-  const batchTotal = batchForm.items.reduce((s, i) => s + (parseFloat(i.qty || 0) * parseFloat(i.unit_cost || 0)), 0)
+  const batchItemsTotal = batchForm.items.reduce((s, i) => s + (parseFloat(i.qty || 0) * parseFloat(i.unit_cost || 0)), 0)
+  const batchCostsTotal = (batchForm.extraCosts || []).reduce((s, c) => s + parseFloat(c.amount || 0), 0)
+  const batchTotal = batchItemsTotal + batchCostsTotal
   const lowStockProducts = products.filter(p => p.stock_qty <= (p.low_stock_threshold || 10))
 
   const columns = [
@@ -262,10 +297,13 @@ export default function PurchaseOrders() {
       : <span style={{ color: '#aaa' }}>—</span> },
     { key: 'product_name', label: 'Product', render: r => (
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        {r.image_url
-          ? <img src={r.image_url} style={{ width: 34, height: 34, objectFit: 'contain', borderRadius: 6, border: '1px solid #f0f0f0', flexShrink: 0 }} onError={e => e.target.style.display='none'} />
-          : <div style={{ width: 34, height: 34, borderRadius: 6, background: '#f5f5f5', flexShrink: 0 }} />}
+        {r.cost_type === 'extra'
+          ? <div style={{ width: 34, height: 34, borderRadius: 6, background: '#FFF3D6', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><CreditCard size={15} color="#FFA500" /></div>
+          : r.image_url
+            ? <img src={r.image_url} style={{ width: 34, height: 34, objectFit: 'contain', borderRadius: 6, border: '1px solid #f0f0f0', flexShrink: 0 }} onError={e => e.target.style.display='none'} />
+            : <div style={{ width: 34, height: 34, borderRadius: 6, background: '#f5f5f5', flexShrink: 0 }} />}
         <span style={{ fontWeight: 500 }}>{r.product_name}</span>
+        {r.cost_type === 'extra' && <span style={{ fontSize: 10, fontWeight: 700, color: '#FFA500', background: '#FFF3D6', padding: '2px 7px', borderRadius: 99 }}>FEE</span>}
       </div>
     )},
     { key: 'qty', label: 'Qty', render: r => <strong>{r.qty}</strong> },
@@ -365,7 +403,7 @@ export default function PurchaseOrders() {
               <span style={{ fontSize: 12, fontWeight: 600, color: '#666', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Items ({batchForm.items.length})</span>
               <Button variant="ghost" size="sm" onClick={addItem}><Plus size={13} /> Add item</Button>
             </div>
-            <div style={{ border: '1px solid #eee', borderRadius: 10, overflow: 'hidden' }}>
+            <div style={{ border: '1px solid #eee', borderRadius: 10, overflow: 'visible' }}>
               <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ background: '#fafafa' }}>
@@ -410,7 +448,7 @@ export default function PurchaseOrders() {
                               const total = catItems.length + invItems.length
                               if (total === 0) return null
                               return (
-                                <div style={{position:'absolute',top:'100%',left:0,right:0,background:'#fff',border:'1px solid #e0e0e0',borderRadius:8,boxShadow:'0 4px 16px rgba(0,0,0,0.1)',zIndex:999,maxHeight:220,overflowY:'auto'}}>
+                                <div style={{position:'absolute',top:'100%',left:0,right:0,marginTop:4,background:'#fff',border:'1px solid #e0e0e0',borderRadius:8,boxShadow:'0 8px 28px rgba(0,0,0,0.16)',zIndex:9999,maxHeight:300,overflowY:'auto'}}>
                                   {catItems.length > 0 && <div style={{padding:'4px 10px',fontSize:10,fontWeight:700,color:'#FFA500',textTransform:'uppercase',letterSpacing:'0.5px',borderBottom:'1px solid #f5f5f5'}}>Supplier Catalog</div>}
                                   {catItems.map(p => (
                                     <div key={'cat:'+p.id} onClick={() => { updateItem(idx,'product_id','cat:'+p.id); setItemSearch(s=>({...s,[idx]:''})) }}
@@ -475,6 +513,63 @@ export default function PurchaseOrders() {
               </table>
             </div>
           </div>
+
+          {/* Additional costs */}
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: '#666', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Additional costs ({(batchForm.extraCosts || []).length})</span>
+              <Button variant="ghost" size="sm" onClick={addCost}><Plus size={13} /> Add cost</Button>
+            </div>
+            {(batchForm.extraCosts || []).length > 0 && (
+              <div style={{ border: '1px solid #eee', borderRadius: 10, overflow: 'hidden' }}>
+                <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ background: '#fafafa' }}>
+                      <th style={{ padding: '8px 10px', textAlign: 'left', fontWeight: 600, color: '#999', fontSize: 11, textTransform: 'uppercase' }}>Cost type</th>
+                      <th style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 600, color: '#999', fontSize: 11, textTransform: 'uppercase', width: 140 }}>Amount (MVR)</th>
+                      <th style={{ width: 40 }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(batchForm.extraCosts || []).map((c, idx) => (
+                      <tr key={idx} style={{ borderTop: '1px solid #f5f5f5' }}>
+                        <td style={{ padding: 6 }}>
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <select value={c.type} onChange={e => updateCost(idx, 'type', e.target.value)}
+                              style={{ flex: c.type === 'Other' ? '0 0 130px' : 1, padding: '6px 8px', border: '1px solid #ddd', borderRadius: 6, fontSize: 12, fontFamily: 'inherit', background: '#fff' }}>
+                              {['Alibaba transaction charge', 'China local delivery', 'Shipping / Freight', 'Customs / Duty', 'Other'].map(o => <option key={o} value={o}>{o}</option>)}
+                            </select>
+                            {c.type === 'Other' && (
+                              <input value={c.label} onChange={e => updateCost(idx, 'label', e.target.value)} placeholder="Specify cost..."
+                                style={{ flex: 1, padding: '6px 8px', border: '1px solid #ddd', borderRadius: 6, fontSize: 12, fontFamily: 'inherit' }} />
+                            )}
+                          </div>
+                        </td>
+                        <td style={{ padding: 6 }}>
+                          <input type="number" step="0.01" min="0" value={c.amount} onChange={e => updateCost(idx, 'amount', e.target.value)} placeholder="0.00"
+                            style={{ width: '100%', padding: '6px 8px', border: '1px solid #ddd', borderRadius: 6, fontSize: 12, fontFamily: 'inherit', textAlign: 'right', boxSizing: 'border-box' }} />
+                        </td>
+                        <td>
+                          <button onClick={() => removeCost(idx)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#c62828', padding: 4 }}>
+                            <X size={14} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Grand total summary */}
+          {batchCostsTotal > 0 && (
+            <div style={{ background: '#FFF8E0', border: '1px solid #FAEEDA', borderRadius: 10, padding: '12px 16px', marginBottom: 16, fontSize: 13 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', color: '#888', marginBottom: 5 }}><span>Products</span><span>MVR {batchItemsTotal.toFixed(2)}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', color: '#888', marginBottom: 8 }}><span>Additional costs</span><span>MVR {batchCostsTotal.toFixed(2)}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, color: '#0d1b2a', borderTop: '1px solid #FAEEDA', paddingTop: 8 }}><span>Grand total</span><span style={{ color: '#FFA500' }}>MVR {batchTotal.toFixed(2)}</span></div>
+            </div>
+          )}
 
           <div style={{ background: '#f8f7f4', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 12, color: '#888', display: 'flex', alignItems: 'center', gap: 8 }}>
             <Info size={15} color="#aaa" style={{ flexShrink: 0 }} />
