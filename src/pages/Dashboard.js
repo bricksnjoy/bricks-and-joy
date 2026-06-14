@@ -4,7 +4,7 @@ import { StockBadge, StatusBadge, Spinner } from '../components/UI'
 import {
   Package, ShoppingCart, Users, TrendingUp, TrendingDown,
   AlertTriangle, CheckCircle, DollarSign, Zap, Calendar,
-  ArrowUpRight, ArrowDownRight, Activity
+  ArrowUpRight, ArrowDownRight, Activity, Star, UserCheck
 } from 'lucide-react'
 
 const AVATAR_COLORS = ['#7F77DD','#1D9E75','#FFA500','#378ADD','#E24B4A','#0F6E56']
@@ -14,6 +14,8 @@ export default function Dashboard() {
   const [lowStock, setLowStock] = useState([])
   const [recentOrders, setRecentOrders] = useState([])
   const [recentCustomers, setRecentCustomers] = useState([])
+  const [bestSellers, setBestSellers] = useState([])
+  const [newCustomers30, setNewCustomers30] = useState([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => { loadDashboard() }, [])
@@ -46,6 +48,28 @@ export default function Dashboard() {
     const thisMonthSales = delivered.filter(o => o.order_date?.startsWith(thisMonthStr)).reduce((s, o) => s + Number(o.total_price || 0), 0)
     const lastMonthSales = delivered.filter(o => o.order_date?.startsWith(lastMonthStr)).reduce((s, o) => s + Number(o.total_price || 0), 0)
     const monthChange = lastMonthSales > 0 ? ((thisMonthSales - lastMonthSales) / lastMonthSales * 100).toFixed(0) : null
+
+    // Best sellers — last 30 days delivered orders
+    const since30 = new Date(); since30.setDate(since30.getDate() - 30)
+    const since30Str = since30.toISOString().split('T')[0]
+    const last30Orders = delivered.filter(o => o.order_date >= since30Str)
+    const productSales = {}
+    last30Orders.forEach(o => {
+      const key = o.product_id
+      if (!key) return
+      if (!productSales[key]) {
+        const prod = prods.find(p => p.id === key)
+        productSales[key] = { id: key, name: o.product_name || prod?.name || 'Unknown', qty: 0, revenue: 0 }
+      }
+      productSales[key].qty += Number(o.qty || 1)
+      productSales[key].revenue += Number(o.total_price || 0)
+    })
+    const sellers = Object.values(productSales).sort((a, b) => b.qty - a.qty).slice(0, 5)
+    setBestSellers(sellers)
+
+    // New customers last 30 days
+    const newCusts = custs.filter(c => c.created_at && c.created_at.split('T')[0] >= since30Str)
+    setNewCustomers30(newCusts)
 
     setStats({ products: prods.length, totalStock: prods.reduce((s, p) => s + (p.stock_qty || 0), 0), customers: custs.length, activeOrders: ords.filter(o => o.status === 'pending' || o.status === 'transit').length, deliveredOrders: delivered.length, revenue, netProfit, pendingOrders: ords.filter(o => o.status === 'pending').length, todaySales, thisMonthSales, lastMonthSales, monthChange })
     setLowStock(prods.filter(p => p.stock_qty <= (p.low_stock_threshold || 10)).slice(0, 5))
@@ -278,6 +302,104 @@ export default function Dashboard() {
               ))}
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Best Sellers + Customer Base — last 30 days */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+
+        {/* Best Selling Products */}
+        <div className="panel" style={{ animation: 'fadeSlideUp 0.35s ease both', animationDelay: '0.18s' }}>
+          <div className="panel-header">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+              <div style={{ background: '#FFF8E7', borderRadius: 9, padding: '6px 7px', display: 'flex' }}>
+                <Star size={14} color="#FFA500" />
+              </div>
+              <div>
+                <span style={{ fontWeight: 700, fontSize: 14, color: '#0d1b2a' }}>Best Sellers</span>
+                <div style={{ fontSize: 10, color: '#bbb', fontWeight: 500, marginTop: 1 }}>Last 30 days by units sold</div>
+              </div>
+            </div>
+            <span style={{ background: '#FFF8E7', color: '#d48a00', fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 99 }}>{bestSellers.length} products</span>
+          </div>
+          {bestSellers.length === 0 ? (
+            <div style={{ padding: '28px 18px', textAlign: 'center', color: '#ccc', fontSize: 13 }}>No sales in the last 30 days</div>
+          ) : (
+            <div>
+              {bestSellers.map((p, i) => {
+                const maxQty = bestSellers[0].qty
+                const pct = Math.round((p.qty / maxQty) * 100)
+                const rankColors = ['#FFA500', '#7F77DD', '#1D9E75', '#378ADD', '#E24B4A']
+                return (
+                  <div key={p.id} style={{ padding: '11px 18px', borderBottom: i < bestSellers.length - 1 ? '1px solid #f5f5f5' : 'none' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                      <div style={{ width: 22, height: 22, borderRadius: 7, background: rankColors[i] + '18', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, color: rankColors[i], flexShrink: 0 }}>
+                        {i + 1}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: '#0d1b2a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
+                      </div>
+                      <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: '#0d1b2a' }}>{p.qty} units</div>
+                        <div style={{ fontSize: 10, color: '#bbb' }}>MVR {p.revenue.toFixed(0)}</div>
+                      </div>
+                    </div>
+                    <div style={{ height: 4, background: '#f0f0f0', borderRadius: 99, overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${pct}%`, background: rankColors[i], borderRadius: 99, transition: 'width 0.6s ease' }} />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Customer Base — last 30 days */}
+        <div className="panel" style={{ animation: 'fadeSlideUp 0.35s ease both', animationDelay: '0.22s' }}>
+          <div className="panel-header">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+              <div style={{ background: '#EEEDFE', borderRadius: 9, padding: '6px 7px', display: 'flex' }}>
+                <UserCheck size={14} color="#7F77DD" />
+              </div>
+              <div>
+                <span style={{ fontWeight: 700, fontSize: 14, color: '#0d1b2a' }}>Customer Base</span>
+                <div style={{ fontSize: 10, color: '#bbb', fontWeight: 500, marginTop: 1 }}>New sign-ups in last 30 days</div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <span style={{ background: '#E8F5E9', color: '#2e7d32', fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 99 }}>+{newCustomers30.length} new</span>
+              <span style={{ background: '#f5f5f5', color: '#888', fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 99 }}>{stats.customers} total</span>
+            </div>
+          </div>
+          {newCustomers30.length === 0 ? (
+            <div style={{ padding: '28px 18px', textAlign: 'center', color: '#ccc', fontSize: 13 }}>No new customers in the last 30 days</div>
+          ) : (
+            <div>
+              {newCustomers30.slice(0, 6).map((c, i) => (
+                <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 18px', borderBottom: i < Math.min(newCustomers30.length, 6) - 1 ? '1px solid #f5f5f5' : 'none', transition: 'background 0.12s' }}
+                  onMouseEnter={e => e.currentTarget.style.background = '#fafafa'}
+                  onMouseLeave={e => e.currentTarget.style.background = ''}>
+                  <div style={{ width: 34, height: 34, borderRadius: 10, background: AVATAR_COLORS[i % AVATAR_COLORS.length] + '18', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: AVATAR_COLORS[i % AVATAR_COLORS.length], flexShrink: 0 }}>
+                    {c.name.charAt(0).toUpperCase()}
+                  </div>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: '#0d1b2a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</div>
+                    <div style={{ fontSize: 11, color: '#bbb' }}>{c.email || c.phone || '—'}</div>
+                  </div>
+                  <div style={{ flexShrink: 0 }}>
+                    <span style={{ fontSize: 10, color: '#7F77DD', background: '#EEEDFE', padding: '2px 8px', borderRadius: 99, fontWeight: 600 }}>
+                      {new Date(c.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    </span>
+                  </div>
+                </div>
+              ))}
+              {newCustomers30.length > 6 && (
+                <div style={{ padding: '10px 18px', fontSize: 12, color: '#bbb', textAlign: 'center' }}>
+                  +{newCustomers30.length - 6} more new customers
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
