@@ -8,17 +8,19 @@ const EMAILJS_TEMPLATE = 'template_9zgrhkb'
 const EMAILJS_PUBLIC_KEY = 'kLZVT1yzwlXV3hua6'
 const BNJ_EMAIL = 'bricknjoy@gmail.com'
 
-function getContacts() { try { return JSON.parse(localStorage.getItem('bj_email_contacts') || '[]') } catch { return [] } }
-function saveContacts(c) { localStorage.setItem('bj_email_contacts', JSON.stringify(c)) }
-
 async function sendEmailJS(to, subject, message, replyTo = BNJ_EMAIL) {
-  const res = await fetch(`https://api.emailjs.com/api/v1.0/email/send`, {
+  // Use EmailJS SDK via CDN-compatible REST call with proper headers
+  const res = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'origin': 'https://bricks-and-joy.vercel.app',
+    },
     body: JSON.stringify({
       service_id: EMAILJS_SERVICE,
       template_id: EMAILJS_TEMPLATE,
       user_id: EMAILJS_PUBLIC_KEY,
+      accessToken: EMAILJS_PUBLIC_KEY,
       template_params: {
         to_email: to,
         subject,
@@ -29,13 +31,17 @@ async function sendEmailJS(to, subject, message, replyTo = BNJ_EMAIL) {
       }
     })
   })
-  if (!res.ok) throw new Error(await res.text())
+  if (!res.ok) {
+    const errText = await res.text()
+    console.error('EmailJS error:', errText)
+    throw new Error(errText)
+  }
 }
 export default function EmailCenter() {
   const [orders, setOrders] = useState([])
   const [products, setProducts] = useState([])
   const [loading, setLoading] = useState(true)
-  const [contacts, setContacts] = useState(getContacts())
+  const [contacts, setContacts] = useState([])
   const [customers, setCustomers] = useState([])
   const [contactModal, setContactModal] = useState(false)
   const [contactForm, setContactForm] = useState({ name: '', email: '', role: '', phone: '' })
@@ -53,14 +59,16 @@ export default function EmailCenter() {
 
   async function load() {
     setLoading(true)
-    const [o, p, c] = await Promise.all([
+    const [o, p, c, ec] = await Promise.all([
       supabase.from('orders').select('*').in('status', ['pending', 'transit']).order('created_at', { ascending: false }),
       supabase.from('products').select('*'),
       supabase.from('customers').select('*'),
+      supabase.from('email_contacts').select('*').order('created_at', { ascending: false }),
     ])
     setOrders(o.data || [])
     setProducts(p.data || [])
     setCustomers(c.data || [])
+    setContacts(ec.data || [])
     setLoading(false)
   }
 
@@ -77,35 +85,34 @@ export default function EmailCenter() {
       setComposeModal(null)
       setComposeForm({ to: '', subject: '', body: '' })
     } catch (err) {
-      console.error(err)
-      toast.error('Failed to send. Check EmailJS setup.')
+      console.error('Email error:', err)
+      toast.error(`Failed: ${err.message || 'Check console for details'}`)
     }
     setSending(false)
   }
 
   // Save contact
-  function saveContact() {
+  async function saveContact() {
     if (!contactForm.name || !contactForm.email) return
-    let updated
     if (editContact !== null) {
-      updated = contacts.map((c, i) => i === editContact ? contactForm : c)
+      const { error } = await supabase.from('email_contacts').update({ name: contactForm.name, email: contactForm.email, role: contactForm.role, phone: contactForm.phone }).eq('id', editContact)
+      if (error) { toast.error('Failed to update: ' + error.message); return }
     } else {
-      updated = [...contacts, contactForm]
+      const { error } = await supabase.from('email_contacts').insert({ name: contactForm.name, email: contactForm.email, role: contactForm.role, phone: contactForm.phone })
+      if (error) { toast.error('Failed to save: ' + error.message); return }
     }
-    saveContacts(updated)
-    setContacts(updated)
     setContactModal(false)
     setEditContact(null)
     setContactForm({ name: '', email: '', role: '', phone: '' })
     toast.success(editContact !== null ? 'Contact updated!' : 'Contact saved!')
+    load()
   }
 
-  function deleteContact(i) {
+  async function deleteContact(id) {
     if (!window.confirm('Delete this contact?')) return
-    const updated = contacts.filter((_, idx) => idx !== i)
-    saveContacts(updated)
-    setContacts(updated)
+    await supabase.from('email_contacts').delete().eq('id', id)
     toast.success('Deleted')
+    load()
   }
 
   // Pre-built email templates
@@ -230,7 +237,7 @@ Please complete this by the due date.
                 <select onChange={e => { if (e.target.value) setComposeForm(p => ({ ...p, to: e.target.value })) }}
                   style={{ padding: '9px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', background: '#fff', outline: 'none' }}>
                   <option value="">📋 From contacts</option>
-                  {contacts.map((c, i) => <option key={i} value={c.email}>{c.name} — {c.email}</option>)}
+                  {contacts.map((c) => <option key={c.id} value={c.email}>{c.name} — {c.email}</option>)}
                 </select>
               </div>
             </div>
@@ -354,14 +361,14 @@ Please complete this by the due date.
         {activeTab === 'contacts' && (
           <div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
-              <Button onClick={() => { setContactForm({ name: '', email: '', role: '', phone: '', address: '' }); setEditContact(null); setContactModal(true) }}>
+              <Button onClick={() => { setContactForm({ name: '', email: '', role: '', phone: '' }); setEditContact(null); setContactModal(true) }}>
                 <Plus size={14} /> Add contact
               </Button>
             </div>
             {contacts.length === 0 ? (
               <Card><p style={{ color: '#aaa', fontSize: 13, textAlign: 'center', padding: '30px 0' }}>No contacts yet. Add delivery persons, suppliers, staff.</p></Card>
-            ) : contacts.map((c, i) => (
-              <div key={i} className="email-card">
+            ) : contacts.map((c) => (
+              <div key={c.id} className="email-card">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
                     <div style={{ fontWeight: 700, fontSize: 14, color: '#0d1b2a' }}>{c.name}</div>
@@ -371,8 +378,8 @@ Please complete this by the due date.
                   </div>
                   <div style={{ display: 'flex', gap: 6 }}>
                     <Button variant="ghost" size="sm" onClick={() => { setComposeForm({ to: c.email, subject: '', body: '' }); setActiveTab('compose') }}><Mail size={13} /></Button>
-                    <Button variant="ghost" size="sm" onClick={() => { setContactForm(c); setEditContact(i); setContactModal(true) }}><Edit2 size={13} /></Button>
-                    <Button variant="danger" size="sm" onClick={() => deleteContact(i)}><Trash2 size={13} /></Button>
+                    <Button variant="ghost" size="sm" onClick={() => { setContactForm({ name: c.name, email: c.email, role: c.role || '', phone: c.phone || '' }); setEditContact(c.id); setContactModal(true) }}><Edit2 size={13} /></Button>
+                    <Button variant="danger" size="sm" onClick={() => deleteContact(c.id)}><Trash2 size={13} /></Button>
                   </div>
                 </div>
               </div>

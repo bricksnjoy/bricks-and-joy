@@ -8,6 +8,8 @@ export default function Dashboard() {
   const [lowStock, setLowStock] = useState([])
   const [recentOrders, setRecentOrders] = useState([])
   const [recentCustomers, setRecentCustomers] = useState([])
+  const [bestSellers, setBestSellers] = useState([])
+  const [reorderSuggestions, setReorderSuggestions] = useState([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => { loadDashboard() }, [])
@@ -45,7 +47,41 @@ export default function Dashboard() {
     setStats({ products: prods.length, totalStock: prods.reduce((s, p) => s + (p.stock_qty || 0), 0), customers: custs.length, activeOrders: ords.filter(o => o.status === 'pending' || o.status === 'transit').length, deliveredOrders: delivered.length, revenue, netProfit, pendingOrders: ords.filter(o => o.status === 'pending').length, todaySales, thisMonthSales, lastMonthSales, monthChange })
     setLowStock(prods.filter(p => p.stock_qty <= (p.low_stock_threshold || 10)).slice(0, 5))
     setRecentOrders(ords.slice(0, 6))
-    setRecentCustomers(custs.slice(0, 4))
+
+    // Recent customers — only those added in the last 30 days
+    const thirtyDaysAgo = new Date(); thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+    const recentCusts = custs.filter(c => c.created_at && new Date(c.created_at) >= thirtyDaysAgo).slice(0, 5)
+    setRecentCustomers(recentCusts)
+
+    // Best sellers — last 30 days, by qty sold
+    const salesByProduct = {}
+    delivered.filter(o => new Date(o.order_date) >= thirtyDaysAgo).forEach(o => {
+      if (!o.product_id) return
+      salesByProduct[o.product_id] = (salesByProduct[o.product_id] || 0) + Number(o.qty || 0)
+    })
+    const bestSellers = Object.entries(salesByProduct)
+      .map(([pid, qty]) => ({ product: prods.find(p => p.id === pid), qtySold: qty }))
+      .filter(b => b.product)
+      .sort((a, b) => b.qtySold - a.qtySold)
+      .slice(0, 3)
+    setBestSellers(bestSellers)
+
+    // Reorder suggestions — based on sales velocity vs current stock
+    // Velocity = units sold per day over last 30 days; reorder if stock covers < 14 days
+    const reorder = Object.entries(salesByProduct)
+      .map(([pid, qtySold]) => {
+        const product = prods.find(p => p.id === pid)
+        if (!product) return null
+        const dailyVelocity = qtySold / 30
+        const daysOfStockLeft = dailyVelocity > 0 ? product.stock_qty / dailyVelocity : Infinity
+        const suggestedQty = Math.ceil(dailyVelocity * 21 - product.stock_qty) // cover 21 days
+        return { product, dailyVelocity, daysOfStockLeft, suggestedQty, qtySold }
+      })
+      .filter(r => r && r.daysOfStockLeft < 14 && r.suggestedQty > 0)
+      .sort((a, b) => a.daysOfStockLeft - b.daysOfStockLeft)
+      .slice(0, 5)
+    setReorderSuggestions(reorder)
+
     setLoading(false)
   }
 
@@ -188,11 +224,11 @@ export default function Dashboard() {
           <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #eee', overflow: 'hidden' }}>
             <div style={{ padding: '16px 18px 12px', borderBottom: '1px solid #f5f5f5', display: 'flex', alignItems: 'center', gap: 8 }}>
               <div style={{ background: '#EEEDFE', borderRadius: 8, padding: 6 }}><Users size={15} color="#7F77DD" /></div>
-              <span style={{ fontWeight: 700, fontSize: 14, color: '#0d1b2a' }}>Customers</span>
+              <span style={{ fontWeight: 700, fontSize: 14, color: '#0d1b2a' }}>New customers (last 30 days)</span>
             </div>
             <div>
               {recentCustomers.length === 0 ? (
-                <p style={{ color: '#aaa', fontSize: 13, padding: '12px 18px', margin: 0 }}>No customers yet.</p>
+                <p style={{ color: '#aaa', fontSize: 13, padding: '12px 18px', margin: 0 }}>No new customers in the last 30 days.</p>
               ) : recentCustomers.map(c => (
                 <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 18px', borderBottom: '1px solid #fafafa' }}>
                   <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#EEEDFE', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: '#7F77DD', flexShrink: 0 }}>
@@ -208,6 +244,65 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* Best sellers & Reorder suggestions */}
+      {(bestSellers.length > 0 || reorderSuggestions.length > 0) && (
+        <div className="dash-grid">
+          {/* Best sellers */}
+          <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #eee', overflow: 'hidden' }}>
+            <div style={{ padding: '16px 18px 12px', borderBottom: '1px solid #f5f5f5', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ background: '#FFF8E7', borderRadius: 8, padding: 6 }}>🔥</div>
+              <span style={{ fontWeight: 700, fontSize: 14, color: '#0d1b2a' }}>Best sellers (30 days)</span>
+            </div>
+            <div>
+              {bestSellers.length === 0 ? (
+                <p style={{ color: '#aaa', fontSize: 13, padding: '12px 18px', margin: 0 }}>No sales data yet.</p>
+              ) : bestSellers.map((b, i) => (
+                <div key={b.product.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 18px', borderBottom: '1px solid #fafafa' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                    <div style={{ width: 26, height: 26, borderRadius: '50%', background: i === 0 ? '#FFF8E1' : '#f5f5f5', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, flexShrink: 0 }}>
+                      {i === 0 ? '🥇' : i === 1 ? '🥈' : '🥉'}
+                    </div>
+                    <div style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.product.name}</div>
+                  </div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#FFA500', flexShrink: 0, marginLeft: 8 }}>{b.qtySold} sold</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Reorder suggestions */}
+          <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #eee', overflow: 'hidden' }}>
+            <div style={{ padding: '16px 18px 12px', borderBottom: '1px solid #f5f5f5', display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ background: '#E6F1FB', borderRadius: 8, padding: 6 }}><Package size={15} color="#378ADD" /></div>
+                <span style={{ fontWeight: 700, fontSize: 14, color: '#0d1b2a' }}>Reorder suggestions</span>
+              </div>
+              {reorderSuggestions.length > 0 && <span style={{ background: '#FAEEDA', color: '#854F0B', fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 99 }}>{reorderSuggestions.length}</span>}
+            </div>
+            <div>
+              {reorderSuggestions.length === 0 ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 18px' }}>
+                  <CheckCircle size={15} color="#1D9E75" />
+                  <span style={{ fontSize: 13, color: '#aaa' }}>Stock levels look healthy for current sales pace.</span>
+                </div>
+              ) : reorderSuggestions.map(r => (
+                <div key={r.product.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 18px', borderBottom: '1px solid #fafafa' }}>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.product.name}</div>
+                    <div style={{ fontSize: 11, color: '#aaa', marginTop: 1 }}>
+                      {r.product.stock_qty} left · {r.daysOfStockLeft === Infinity ? '—' : `~${Math.floor(r.daysOfStockLeft)}d of stock`} · selling {r.dailyVelocity.toFixed(1)}/day
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 8 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#378ADD' }}>Order {r.suggestedQty}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Order summary bar */}
       <div style={{ background: '#0d1b2a', borderRadius: 14, padding: '18px 22px' }}>

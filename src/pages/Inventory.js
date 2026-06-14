@@ -20,6 +20,7 @@ function genBarcode(name, id) {
 
 export default function Inventory() {
   const [products, setProducts] = useState([])
+  const [bestSellerIds, setBestSellerIds] = useState([])
   const [suppliers, setSuppliers] = useState([])
   const [loading, setLoading] = useState(true)
   const [modal, setModal] = useState(null)
@@ -65,12 +66,22 @@ export default function Inventory() {
 
   async function load() {
     setLoading(true)
-    const [p, s] = await Promise.all([
+    const [p, s, o] = await Promise.all([
       supabase.from('products').select('*, suppliers(name)').order('created_at', { ascending: false }),
-      supabase.from('suppliers').select('id, name')
+      supabase.from('suppliers').select('id, name'),
+      supabase.from('orders').select('product_id, qty, order_date, status').eq('status', 'delivered'),
     ])
     setProducts(p.data || [])
     setSuppliers(s.data || [])
+    // Compute best sellers (last 30 days)
+    const thirtyDaysAgo = new Date(); thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+    const salesByProduct = {}
+    ;(o.data || []).filter(ord => ord.order_date && new Date(ord.order_date) >= thirtyDaysAgo).forEach(ord => {
+      if (!ord.product_id) return
+      salesByProduct[ord.product_id] = (salesByProduct[ord.product_id] || 0) + Number(ord.qty || 0)
+    })
+    const top3 = Object.entries(salesByProduct).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([pid]) => pid)
+    setBestSellerIds(top3)
     setLoading(false)
   }
 
@@ -289,7 +300,10 @@ export default function Inventory() {
     },
     { key: 'name', label: 'Product', render: r => (
       <div>
-        <div style={{ fontWeight: 600, color: '#0d1b2a' }}>{r.name}</div>
+        <div style={{ fontWeight: 600, color: '#0d1b2a', display: 'flex', alignItems: 'center', gap: 6 }}>
+          {r.name}
+          {bestSellerIds.includes(r.id) && <span title="Best seller (last 30 days)" style={{ fontSize: 11, background: '#FFF8E1', color: '#f57f17', padding: '1px 7px', borderRadius: 99, fontWeight: 700 }}>🔥 Best seller</span>}
+        </div>
         <div style={{ fontSize: 11, color: '#aaa', fontFamily: 'monospace' }}>{r.barcode || 'No barcode'}</div>
       </div>
     )},
