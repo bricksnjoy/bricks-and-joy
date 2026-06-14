@@ -9,7 +9,7 @@ const EMAILJS_PUBLIC_KEY = 'kLZVT1yzwlXV3hua6'
 const BNJ_EMAIL = 'bricknjoy@gmail.com'
 
 function getContacts() { try { return JSON.parse(localStorage.getItem('bj_email_contacts') || '[]') } catch { return [] } }
-function saveContacts(c) { try { localStorage.setItem('bj_email_contacts', JSON.stringify(c)) } catch(e) { console.error('localStorage save failed', e) } }
+// localStorage kept only as migration fallback — contacts now live in Supabase email_contacts table
 
 async function sendEmailJS(to, subject, message, replyTo = BNJ_EMAIL) {
   const res = await fetch(`https://api.emailjs.com/api/v1.0/email/send`, {
@@ -35,7 +35,7 @@ export default function EmailCenter() {
   const [orders, setOrders] = useState([])
   const [products, setProducts] = useState([])
   const [loading, setLoading] = useState(true)
-  const [contacts, setContacts] = useState(getContacts())
+  const [contacts, setContacts] = useState([])
   const [customers, setCustomers] = useState([])
   const [contactModal, setContactModal] = useState(false)
   const [contactForm, setContactForm] = useState({ name: '', email: '', role: '', phone: '' })
@@ -49,18 +49,34 @@ export default function EmailCenter() {
   const tasks = (() => { try { return JSON.parse(localStorage.getItem('bj_tasks') || '[]') } catch { return [] } })()
   const deliveryStaff = (() => { try { return JSON.parse(localStorage.getItem('deliveryStaff') || '[]') } catch { return [] } })()
 
-  useEffect(() => { load(); setContacts(getContacts()) }, [])
+  useEffect(() => { load() }, [])
 
   async function load() {
     setLoading(true)
-    const [o, p, c] = await Promise.all([
+    const [o, p, c, ct] = await Promise.all([
       supabase.from('orders').select('*').in('status', ['pending', 'transit']).order('created_at', { ascending: false }),
       supabase.from('products').select('*'),
       supabase.from('customers').select('*'),
+      supabase.from('email_contacts').select('*').order('name'),
     ])
     setOrders(o.data || [])
     setProducts(p.data || [])
     setCustomers(c.data || [])
+    // Migrate any localStorage contacts to Supabase on first load
+    const dbContacts = ct.data || []
+    if (dbContacts.length === 0) {
+      const legacy = getContacts()
+      if (legacy.length > 0) {
+        await supabase.from('email_contacts').insert(legacy.map(c => ({ name: c.name, email: c.email, role: c.role || '', phone: c.phone || '' })))
+        const { data } = await supabase.from('email_contacts').select('*').order('name')
+        setContacts(data || legacy)
+        localStorage.removeItem('bj_email_contacts')
+      } else {
+        setContacts([])
+      }
+    } else {
+      setContacts(dbContacts)
+    }
     setLoading(false)
   }
 
@@ -83,30 +99,31 @@ export default function EmailCenter() {
     setSending(false)
   }
 
-  // Save contact
-  function saveContact() {
+  // Save contact to Supabase
+  async function saveContact() {
     if (!contactForm.name.trim()) { toast.error('Name is required'); return }
     if (!contactForm.email.trim()) { toast.error('Email is required'); return }
-    const trimmed = { ...contactForm, name: contactForm.name.trim(), email: contactForm.email.trim() }
-    let updated
-    if (editContact !== null) {
-      updated = contacts.map((c, i) => i === editContact ? trimmed : c)
+    const trimmed = { name: contactForm.name.trim(), email: contactForm.email.trim(), role: contactForm.role || '', phone: contactForm.phone || '' }
+    if (editContact) {
+      const { error } = await supabase.from('email_contacts').update(trimmed).eq('id', editContact.id)
+      if (error) { toast.error('Failed to update'); return }
+      toast.success('Contact updated!')
     } else {
-      updated = [...contacts, trimmed]
+      const { error } = await supabase.from('email_contacts').insert(trimmed)
+      if (error) { toast.error('Failed to save'); return }
+      toast.success('Contact saved!')
     }
-    saveContacts(updated)
-    setContacts(updated)
     setContactModal(false)
     setEditContact(null)
     setContactForm({ name: '', email: '', role: '', phone: '' })
-    toast.success(editContact !== null ? 'Contact updated!' : 'Contact saved!')
+    const { data } = await supabase.from('email_contacts').select('*').order('name')
+    setContacts(data || [])
   }
 
-  function deleteContact(i) {
+  async function deleteContact(contact) {
     if (!window.confirm('Delete this contact?')) return
-    const updated = contacts.filter((_, idx) => idx !== i)
-    saveContacts(updated)
-    setContacts(updated)
+    await supabase.from('email_contacts').delete().eq('id', contact.id)
+    setContacts(c => c.filter(x => x.id !== contact.id))
     toast.success('Deleted')
   }
 
@@ -384,8 +401,8 @@ Please complete this by the due date.
                   </div>
                   <div style={{ display: 'flex', gap: 6 }}>
                     <Button variant="ghost" size="sm" onClick={() => { setComposeForm({ to: c.email, subject: '', body: '' }); setActiveTab('compose') }}><Mail size={13} /></Button>
-                    <Button variant="ghost" size="sm" onClick={() => { setContactForm(c); setEditContact(i); setContactModal(true) }}><Edit2 size={13} /></Button>
-                    <Button variant="danger" size="sm" onClick={() => deleteContact(i)}><Trash2 size={13} /></Button>
+                    <Button variant="ghost" size="sm" onClick={() => { setContactForm({ name: c.name, email: c.email, role: c.role || '', phone: c.phone || '' }); setEditContact(c); setContactModal(true) }}><Edit2 size={13} /></Button>
+                    <Button variant="danger" size="sm" onClick={() => deleteContact(c)}><Trash2 size={13} /></Button>
                   </div>
                 </div>
               </div>
@@ -396,7 +413,7 @@ Please complete this by the due date.
 
       {/* Contact modal */}
       {contactModal && (
-        <Modal title={editContact !== null ? 'Edit contact' : 'Add contact'} subtitle="Name and email are required" onClose={() => { setContactModal(false); setEditContact(null); setContactForm({ name: '', email: '', role: '', phone: '' }) }} width={480}>
+        <Modal title={editContact ? 'Edit contact' : 'Add contact'} subtitle="Name and email are required" onClose={() => { setContactModal(false); setEditContact(null); setContactForm({ name: '', email: '', role: '', phone: '' }) }} width={480}>
           {[
             { label: 'Name', key: 'name', placeholder: 'e.g. Ahmed Izyan', required: true },
             { label: 'Email', key: 'email', placeholder: 'email@example.com', required: true },

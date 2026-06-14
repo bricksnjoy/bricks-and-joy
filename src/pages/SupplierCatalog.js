@@ -1,0 +1,573 @@
+import React, { useEffect, useState, useRef } from 'react'
+import { supabase } from '../lib/supabase'
+import { PageHeader, Card, Button, Input, Select, Modal, Spinner, FormRow, useToast, Toasts, Badge } from '../components/UI'
+import {
+  Plus, Trash2, Edit2, Eye, Search, Building2, Package,
+  Barcode, QrCode, Upload, Download, FileSpreadsheet, Camera,
+  ArrowUpDown, ChevronDown, CheckCircle, AlertTriangle, RefreshCw, X
+} from 'lucide-react'
+import JsBarcode from 'jsbarcode'
+import QRCode from 'qrcode'
+import * as XLSX from 'xlsx'
+
+const AVATAR_COLORS = ['#7F77DD','#1D9E75','#FFA500','#378ADD','#E24B4A','#0F6E56']
+function avatarColor(name=''){let h=0;for(let i=0;i<name.length;i++)h=name.charCodeAt(i)+((h<<5)-h);return AVATAR_COLORS[Math.abs(h)%AVATAR_COLORS.length]}
+function Avatar({ name, size=34 }){const c=avatarColor(name);return <div style={{width:size,height:size,borderRadius:size>28?10:7,background:c+'18',color:c,display:'flex',alignItems:'center',justifyContent:'center',fontSize:size>28?14:11,fontWeight:700,flexShrink:0}}>{(name||'?').charAt(0).toUpperCase()}</div>}
+
+function genBarcode(name, id) {
+  const prefix = '299'
+  const hash = (name + (id || Date.now())).split('').reduce((a,c)=>((a<<5)-a+c.charCodeAt(0))|0,0)
+  return prefix + Math.abs(hash).toString().padStart(9,'0').slice(0,9)
+}
+
+async function renderBarcodeSvg(code) {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg','svg')
+  JsBarcode(svg, code, { format:'CODE128', width:2, height:50, displayValue:false, margin:0 })
+  return new XMLSerializer().serializeToString(svg)
+}
+
+async function renderQRDataUrl(code) {
+  return QRCode.toDataURL(code, { width:120, margin:1 })
+}
+
+export default function SupplierCatalog() {
+  const [suppliers, setSuppliers] = useState([])
+  const [catalog, setCatalog] = useState([])   // supplier_products rows
+  const [loading, setLoading] = useState(true)
+  const [activeSupplier, setActiveSupplier] = useState(null) // supplier obj
+  const [search, setSearch] = useState('')
+  const [compareMode, setCompareMode] = useState(false)
+  const [addModal, setAddModal] = useState(false)
+  const [editItem, setEditItem] = useState(null)
+  const [form, setForm] = useState({ product_name:'', sku:'', category:'', price:'', unit:'', notes:'' })
+  const [saving, setSaving] = useState(false)
+  const [importModal, setImportModal] = useState(false)
+  const [importRows, setImportRows] = useState([])
+  const [importLoading, setImportLoading] = useState(false)
+  const [barcodePreview, setBarcodePreview] = useState(null) // { item, svgUrl, qrUrl }
+  const fileRef = useRef()
+  const toast = useToast()
+
+  useEffect(() => { load() }, [])
+
+  async function load() {
+    setLoading(true)
+    const [s, c] = await Promise.all([
+      supabase.from('suppliers').select('*').order('name'),
+      supabase.from('supplier_products').select('*').order('product_name'),
+    ])
+    setSuppliers(s.data || [])
+    setCatalog(c.data || [])
+    setLoading(false)
+  }
+
+  // ── Filter ──────────────────────────────────────────────────────────────────
+  const visibleCatalog = catalog.filter(item => {
+    const matchSupplier = compareMode ? true : (!activeSupplier || item.supplier_id === activeSupplier.id)
+    const matchSearch = !search || item.product_name?.toLowerCase().includes(search.toLowerCase()) || item.sku?.toLowerCase().includes(search.toLowerCase())
+    return matchSupplier && matchSearch
+  })
+
+  // Group by product name for comparison view
+  const grouped = {}
+  visibleCatalog.forEach(item => {
+    const key = item.product_name?.trim().toLowerCase()
+    if (!grouped[key]) grouped[key] = []
+    grouped[key].push(item)
+  })
+  const comparedGroups = Object.values(grouped).filter(g => g.length > 1).sort((a,b) => b.length - a.length)
+  const singleItems = Object.values(grouped).filter(g => g.length === 1).map(g => g[0])
+
+  // ── Add / Edit ───────────────────────────────────────────────────────────────
+  function openAdd() {
+    setForm({ product_name:'', sku:'', category:'', price:'', unit:'piece', notes:'' })
+    setEditItem(null)
+    setAddModal(true)
+  }
+
+  function openEdit(item) {
+    setForm({ product_name: item.product_name, sku: item.sku||'', category: item.category||'', price: item.price||'', unit: item.unit||'piece', notes: item.notes||'' })
+    setEditItem(item)
+    setAddModal(true)
+  }
+
+  async function save() {
+    if (!form.product_name.trim()) { toast.error('Product name is required'); return }
+    const supplierId = editItem?.supplier_id || activeSupplier?.id
+    if (!supplierId) { toast.error('Select a supplier first'); return }
+    const supplier = suppliers.find(s => s.id === supplierId)
+    const barcode = editItem?.barcode || genBarcode(form.product_name, supplierId)
+    setSaving(true)
+    const payload = {
+      supplier_id: supplierId,
+      supplier_name: supplier?.name || '',
+      product_name: form.product_name.trim(),
+      sku: form.sku.trim() || null,
+      category: form.category.trim() || null,
+      price: form.price ? parseFloat(form.price) : null,
+      unit: form.unit || 'piece',
+      notes: form.notes.trim() || null,
+      barcode,
+    }
+    if (editItem) {
+      await supabase.from('supplier_products').update(payload).eq('id', editItem.id)
+      toast.success('Updated!')
+    } else {
+      await supabase.from('supplier_products').insert(payload)
+      toast.success('Product added to catalog!')
+    }
+    setSaving(false)
+    setAddModal(false)
+    load()
+  }
+
+  async function del(item) {
+    if (!window.confirm(`Delete "${item.product_name}" from catalog?`)) return
+    await supabase.from('supplier_products').delete().eq('id', item.id)
+    toast.success('Deleted')
+    load()
+  }
+
+  // ── Barcode preview ──────────────────────────────────────────────────────────
+  async function showBarcode(item) {
+    const code = item.barcode || genBarcode(item.product_name, item.id)
+    const svgStr = await renderBarcodeSvg(code)
+    const svgUrl = 'data:image/svg+xml;base64,' + btoa(svgStr)
+    const qrUrl = await renderQRDataUrl(code)
+    setBarcodePreview({ item, svgUrl, qrUrl, code })
+  }
+
+  function printLabel(preview) {
+    const logoUrl = window.location.origin + '/logo.png'
+    const w = window.open('','_blank','width=360,height=500')
+    w.document.write(`<html><head><title>Label</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+      *{margin:0;padding:0;box-sizing:border-box}body{font-family:'Poppins',sans-serif;background:#f0f0f0;display:flex;align-items:center;justify-content:center;min-height:100vh}
+      .label{background:#fff;border-radius:16px;width:300px;box-shadow:0 6px 24px rgba(0,0,0,0.12);overflow:hidden}
+      .top{display:flex;justify-content:space-between;align-items:center;padding:10px 14px 8px;border-bottom:1px solid #f5f5f5}
+      .logo{display:flex;align-items:center;gap:8px}.logo img{height:44px;width:44px;object-fit:contain}
+      .brand{font-size:12px;font-weight:600;color:#0d1b2a}.sub{font-size:8px;color:#bbb;text-transform:uppercase;letter-spacing:0.8px}
+      .tag{font-size:8px;color:#FFA500;font-weight:600;text-transform:uppercase;letter-spacing:1px}
+      .bc{padding:14px 16px 8px;text-align:center}.bc img{max-width:100%;display:block;margin:0 auto}
+      .info{padding:10px 16px 14px}
+      .name{font-size:14px;font-weight:600;color:#0d1b2a;margin-bottom:2px}
+      .supplier{font-size:11px;color:#aaa;margin-bottom:8px}
+      .footer{display:flex;justify-content:space-between;align-items:center}
+      .price{background:#0d1b2a;color:#FFA500;font-size:14px;font-weight:700;padding:5px 14px;border-radius:8px}
+      .code{font-size:9px;color:#ccc;font-family:monospace}
+      @media print{body{background:none;min-height:auto}.label{box-shadow:none;border:1px solid #ddd;border-radius:0}}
+    </style></head><body>
+    <div class="label">
+      <div class="top">
+        <div class="logo">
+          <img src="${logoUrl}" onerror="this.style.display='none'" />
+          <div><div class="brand">Brick's &amp; Joy</div><div class="sub">Toy Store</div></div>
+        </div>
+        <div class="tag">Supplier Label</div>
+      </div>
+      <div class="bc"><img src="${preview.svgUrl}" /></div>
+      <div class="info">
+        <div class="name">${preview.item.product_name}</div>
+        <div class="supplier">${preview.item.supplier_name || ''}</div>
+        <div class="footer">
+          <div class="price">${preview.item.price ? 'MVR ' + Number(preview.item.price).toFixed(2) : 'No price'}</div>
+          <div class="code">${preview.code}</div>
+        </div>
+      </div>
+    </div>
+    <script>window.onload=()=>window.print()</script></body></html>`)
+    w.document.close()
+  }
+
+  // ── Excel import ──────────────────────────────────────────────────────────────
+  async function handleFileImport(e) {
+    const file = e.target.files[0]
+    if (!file) return
+    e.target.value = ''
+    setImportLoading(true)
+    setImportModal(true)
+
+    const isImage = file.type.startsWith('image/')
+    if (isImage) {
+      // Image: try to read text via canvas (basic) — show instructions
+      setImportRows([{ _image: true, _file: URL.createObjectURL(file) }])
+      setImportLoading(false)
+      return
+    }
+
+    // Excel / CSV
+    const buf = await file.arrayBuffer()
+    const wb = XLSX.read(buf, { type: 'array' })
+    const ws = wb.Sheets[wb.SheetNames[0]]
+    const rows = XLSX.utils.sheet_to_json(ws, { defval: '' })
+
+    // Try to auto-map columns (flexible headers)
+    const mapped = rows.map(row => {
+      const keys = Object.keys(row).map(k => k.toLowerCase().trim())
+      const get = (...names) => {
+        for (const n of names) {
+          const k = Object.keys(row).find(k => k.toLowerCase().trim() === n)
+          if (k && row[k]) return String(row[k]).trim()
+        }
+        return ''
+      }
+      return {
+        product_name: get('product name','product','name','item','description','desc','item name'),
+        sku: get('sku','code','item code','product code','ref'),
+        category: get('category','cat','type','group'),
+        price: get('price','unit price','cost','cost price','unit cost','rate','amount'),
+        unit: get('unit','uom','unit of measure') || 'piece',
+        notes: get('notes','note','remarks','remark','comment'),
+        _selected: true,
+      }
+    }).filter(r => r.product_name)
+
+    setImportRows(mapped)
+    setImportLoading(false)
+  }
+
+  async function confirmImport() {
+    if (!activeSupplier) { toast.error('Select a supplier first'); return }
+    const rows = importRows.filter(r => r._selected && r.product_name)
+    setSaving(true)
+    const records = rows.map(r => ({
+      supplier_id: activeSupplier.id,
+      supplier_name: activeSupplier.name,
+      product_name: r.product_name,
+      sku: r.sku || null,
+      category: r.category || null,
+      price: r.price ? parseFloat(r.price) : null,
+      unit: r.unit || 'piece',
+      notes: r.notes || null,
+      barcode: genBarcode(r.product_name, activeSupplier.id + r.product_name),
+    }))
+    const { error } = await supabase.from('supplier_products').insert(records)
+    setSaving(false)
+    if (error) { toast.error('Import failed: ' + error.message); return }
+    toast.success(`Imported ${records.length} products!`)
+    setImportModal(false)
+    setImportRows([])
+    load()
+  }
+
+  // ── UI ───────────────────────────────────────────────────────────────────────
+  const supplierCatalogCount = sid => catalog.filter(c => c.supplier_id === sid).length
+
+  const priceColor = (price, allPrices) => {
+    if (!price || allPrices.length < 2) return '#0d1b2a'
+    const min = Math.min(...allPrices)
+    const max = Math.max(...allPrices)
+    if (price === min) return '#1D9E75'
+    if (price === max) return '#E24B4A'
+    return '#f57f17'
+  }
+
+  return (
+    <div>
+      <style>{`
+        .sc-grid { display: grid; grid-template-columns: 260px 1fr; gap: 16px; }
+        .sc-supplier-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; cursor: pointer; transition: all 0.12s; border: 1px solid transparent; }
+        .sc-supplier-item:hover { background: #f8f7f4; }
+        .sc-supplier-item.active { background: #fff8f0; border-color: #FFA500; }
+        .sc-product-row { display: grid; grid-template-columns: 1fr auto auto auto; gap: 12px; align-items: center; padding: 11px 16px; border-bottom: 1px solid #f5f5f5; transition: background 0.1s; }
+        .sc-product-row:hover { background: #fafafa; }
+        @media (max-width: 768px) { .sc-grid { grid-template-columns: 1fr; } }
+      `}</style>
+
+      <PageHeader
+        title="Supplier Catalog"
+        subtitle="Track which suppliers offer which products and compare prices"
+        action={
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Button variant="ghost" onClick={() => setCompareMode(m => !m)} style={{ background: compareMode ? '#e8f5e9' : undefined, color: compareMode ? '#1D9E75' : undefined }}>
+              <ArrowUpDown size={14} /> {compareMode ? 'Exit compare' : 'Price compare'}
+            </Button>
+            <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv,image/*" style={{ display:'none' }} onChange={handleFileImport} />
+            <Button variant="ghost" onClick={() => fileRef.current.click()}>
+              <Upload size={14} /> Import Excel / Photo
+            </Button>
+            {activeSupplier && <Button onClick={openAdd}><Plus size={14} /> Add product</Button>}
+          </div>
+        }
+      />
+
+      {loading ? <Spinner /> : (
+        <div className="sc-grid">
+          {/* Left: supplier list */}
+          <div>
+            <Card style={{ padding: '12px 8px' }}>
+              <div style={{ padding: '0 8px 10px', fontSize: 11, fontWeight: 700, color: '#bbb', textTransform: 'uppercase', letterSpacing: '0.6px' }}>Suppliers</div>
+              <div
+                onClick={() => { setActiveSupplier(null); setCompareMode(false) }}
+                className={`sc-supplier-item${!activeSupplier && !compareMode ? ' active' : ''}`}>
+                <div style={{ width: 34, height: 34, borderRadius: 10, background: '#f0f0f0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Building2 size={15} color="#aaa" />
+                </div>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: '#0d1b2a' }}>All suppliers</div>
+                  <div style={{ fontSize: 11, color: '#bbb' }}>{catalog.length} products</div>
+                </div>
+              </div>
+
+              {suppliers.map(s => (
+                <div key={s.id} onClick={() => { setActiveSupplier(s); setCompareMode(false) }}
+                  className={`sc-supplier-item${activeSupplier?.id === s.id ? ' active' : ''}`}>
+                  <Avatar name={s.name} />
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: '#0d1b2a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</div>
+                    <div style={{ fontSize: 11, color: '#bbb' }}>{supplierCatalogCount(s.id)} products</div>
+                  </div>
+                </div>
+              ))}
+
+              {suppliers.length === 0 && (
+                <div style={{ padding: '16px 8px', color: '#ccc', fontSize: 12, textAlign: 'center' }}>No suppliers yet — add them in Purchase Orders</div>
+              )}
+            </Card>
+          </div>
+
+          {/* Right: product list / compare */}
+          <div>
+            {/* Search + compare toggle */}
+            <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+              <div style={{ flex: 1, position: 'relative' }}>
+                <Search size={14} color="#bbb" style={{ position:'absolute', left:12, top:'50%', transform:'translateY(-50%)' }} />
+                <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search products…"
+                  style={{ width:'100%', padding:'9px 12px 9px 34px', border:'1px solid #e0e0e0', borderRadius:9, fontSize:13, fontFamily:'inherit', outline:'none', boxSizing:'border-box' }} />
+              </div>
+              {compareMode && (
+                <div style={{ background: '#E1F5EE', border: '1px solid #a7f3d8', borderRadius: 9, padding: '8px 14px', fontSize: 12, fontWeight: 600, color: '#1D9E75', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <ArrowUpDown size={13} /> {comparedGroups.length} shared product{comparedGroups.length !== 1 ? 's' : ''} across suppliers
+                </div>
+              )}
+            </div>
+
+            {compareMode ? (
+              /* Price comparison view */
+              <div>
+                {comparedGroups.length === 0 ? (
+                  <Card><p style={{ textAlign:'center', color:'#ccc', padding:'40px 0', fontSize:13 }}>No products shared across multiple suppliers{search && ` matching "${search}"`}</p></Card>
+                ) : comparedGroups.map(group => {
+                  const prices = group.map(i => Number(i.price)).filter(p => p > 0)
+                  const minP = prices.length ? Math.min(...prices) : 0
+                  return (
+                    <Card key={group[0].product_name} style={{ marginBottom: 12 }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:12, paddingBottom:10, borderBottom:'1px solid #f5f5f5' }}>
+                        <Package size={15} color="#FFA500" />
+                        <span style={{ fontSize:14, fontWeight:700, color:'#0d1b2a' }}>{group[0].product_name}</span>
+                        <span style={{ fontSize:11, color:'#bbb', background:'#f5f5f5', padding:'2px 8px', borderRadius:99 }}>{group[0].category || 'No category'}</span>
+                        <span style={{ marginLeft:'auto', fontSize:11, fontWeight:700, color:'#1D9E75' }}>Cheapest: MVR {minP.toFixed(2)}</span>
+                      </div>
+                      {group.sort((a,b) => (Number(a.price)||Infinity)-(Number(b.price)||Infinity)).map((item, i) => {
+                        const p = Number(item.price)
+                        const isMin = p === minP && p > 0
+                        const savings = i > 0 && p > 0 && minP > 0 ? ((p - minP) / minP * 100).toFixed(0) : null
+                        return (
+                          <div key={item.id} style={{ display:'flex', alignItems:'center', gap:12, padding:'9px 0', borderBottom:'1px solid #f8f8f8' }}>
+                            <Avatar name={item.supplier_name||'?'} size={28} />
+                            <div style={{ flex:1 }}>
+                              <div style={{ fontSize:13, fontWeight:500, color:'#0d1b2a' }}>{item.supplier_name}</div>
+                              {item.sku && <div style={{ fontSize:11, color:'#bbb' }}>SKU: {item.sku}</div>}
+                            </div>
+                            <div style={{ textAlign:'right' }}>
+                              <div style={{ fontSize:15, fontWeight:700, color: priceColor(p, prices) }}>
+                                {p > 0 ? `MVR ${p.toFixed(2)}` : '—'}
+                                {isMin && <span style={{ marginLeft:6, fontSize:10, background:'#E1F5EE', color:'#1D9E75', padding:'1px 6px', borderRadius:99, fontWeight:600 }}>Cheapest</span>}
+                              </div>
+                              {savings && Number(savings) > 0 && <div style={{ fontSize:10, color:'#E24B4A' }}>+{savings}% vs cheapest</div>}
+                            </div>
+                            <button className="icon-btn" onClick={() => showBarcode(item)} title="View barcode"><Barcode size={13} /></button>
+                          </div>
+                        )
+                      })}
+                    </Card>
+                  )
+                })}
+
+                {singleItems.length > 0 && (
+                  <Card>
+                    <div style={{ fontSize:12, color:'#bbb', fontWeight:600, textTransform:'uppercase', letterSpacing:'0.5px', marginBottom:10 }}>Unique to one supplier</div>
+                    {singleItems.map(item => (
+                      <div key={item.id} className="sc-product-row">
+                        <div>
+                          <div style={{ fontSize:13, fontWeight:500, color:'#0d1b2a' }}>{item.product_name}</div>
+                          <div style={{ fontSize:11, color:'#bbb' }}>{item.supplier_name}</div>
+                        </div>
+                        <div style={{ fontSize:13, fontWeight:700, color:'#0d1b2a' }}>{item.price ? `MVR ${Number(item.price).toFixed(2)}` : '—'}</div>
+                        <button className="icon-btn" onClick={() => showBarcode(item)}><Barcode size={13}/></button>
+                        <button className="icon-btn" onClick={() => openEdit(item)}><Edit2 size={13}/></button>
+                      </div>
+                    ))}
+                  </Card>
+                )}
+              </div>
+            ) : (
+              /* Normal catalog view */
+              <Card>
+                {visibleCatalog.length === 0 ? (
+                  <div style={{ textAlign:'center', padding:'48px 0', color:'#ccc' }}>
+                    <Package size={32} color="#e0e0e0" style={{ marginBottom:12 }} />
+                    <div style={{ fontSize:13 }}>
+                      {activeSupplier ? `No products for ${activeSupplier.name} yet.` : 'No products in catalog yet.'}
+                    </div>
+                    {activeSupplier && <div style={{ marginTop:12 }}><Button onClick={openAdd}><Plus size={13}/> Add first product</Button></div>}
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ display:'grid', gridTemplateColumns:'1fr auto auto auto auto', gap:12, padding:'8px 16px', borderBottom:'2px solid #f0f0f0', fontSize:10, color:'#bbb', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.5px' }}>
+                      <div>Product</div>
+                      <div style={{ textAlign:'right', width:80 }}>Price</div>
+                      <div style={{ width:60, textAlign:'center' }}>SKU</div>
+                      <div style={{ width:30 }}></div>
+                      <div style={{ width:30 }}></div>
+                    </div>
+                    {visibleCatalog.map(item => (
+                      <div key={item.id} style={{ display:'grid', gridTemplateColumns:'1fr auto auto auto auto', gap:12, alignItems:'center', padding:'11px 16px', borderBottom:'1px solid #f5f5f5', transition:'background 0.1s' }}
+                        onMouseEnter={e=>e.currentTarget.style.background='#fafafa'}
+                        onMouseLeave={e=>e.currentTarget.style.background=''}>
+                        <div>
+                          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                            {!activeSupplier && <Avatar name={item.supplier_name||'?'} size={26} />}
+                            <div>
+                              <div style={{ fontSize:13, fontWeight:600, color:'#0d1b2a' }}>{item.product_name}</div>
+                              <div style={{ fontSize:11, color:'#bbb' }}>
+                                {!activeSupplier && <span>{item.supplier_name} · </span>}
+                                {item.category && <span>{item.category} · </span>}
+                                {item.unit}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        <div style={{ fontSize:13, fontWeight:700, color:'#0d1b2a', width:80, textAlign:'right' }}>
+                          {item.price ? `MVR ${Number(item.price).toFixed(2)}` : <span style={{color:'#ddd'}}>—</span>}
+                        </div>
+                        <div style={{ width:60, textAlign:'center', fontSize:11, color:'#aaa' }}>{item.sku || '—'}</div>
+                        <button className="icon-btn" onClick={() => showBarcode(item)} title="Barcode / QR"><Barcode size={13}/></button>
+                        <div style={{ display:'flex', gap:4 }}>
+                          <button className="icon-btn" onClick={() => openEdit(item)} title="Edit"><Edit2 size={13}/></button>
+                          <button className="icon-btn danger" onClick={() => del(item)} title="Delete"><Trash2 size={13}/></button>
+                        </div>
+                      </div>
+                    ))}
+                  </>
+                )}
+              </Card>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Add / Edit modal */}
+      {addModal && (
+        <Modal title={editItem ? 'Edit product' : `Add product — ${activeSupplier?.name}`}
+          subtitle="Product details for this supplier's catalog"
+          onClose={() => setAddModal(false)} width={560}>
+          <FormRow>
+            <Input label="Product name *" value={form.product_name} onChange={e => setForm(p=>({...p,product_name:e.target.value}))} placeholder="e.g. LEGO Classic Bricks" style={{ gridColumn:'span 2' }} />
+          </FormRow>
+          <FormRow>
+            <Input label="SKU / Item code" value={form.sku} onChange={e => setForm(p=>({...p,sku:e.target.value}))} placeholder="SUP-001" />
+            <Input label="Category" value={form.category} onChange={e => setForm(p=>({...p,category:e.target.value}))} placeholder="e.g. Building & Blocks" />
+          </FormRow>
+          <FormRow>
+            <Input label="Price (MVR)" type="number" min="0" step="0.01" value={form.price} onChange={e => setForm(p=>({...p,price:e.target.value}))} placeholder="0.00" />
+            <Select label="Unit" value={form.unit} onChange={e => setForm(p=>({...p,unit:e.target.value}))}
+              options={['piece','box','set','pack','dozen','kg','litre']} />
+          </FormRow>
+          <Input label="Notes" value={form.notes} onChange={e => setForm(p=>({...p,notes:e.target.value}))} placeholder="Any notes about this product from this supplier" style={{ marginBottom:20 }} />
+          <div style={{ display:'flex', gap:10, justifyContent:'flex-end' }}>
+            <Button variant="ghost" onClick={() => setAddModal(false)}>Cancel</Button>
+            <Button onClick={save} disabled={saving}>{saving ? 'Saving…' : editItem ? 'Save changes' : 'Add to catalog'}</Button>
+          </div>
+        </Modal>
+      )}
+
+      {/* Barcode preview modal */}
+      {barcodePreview && (
+        <Modal title={barcodePreview.item.product_name} subtitle={barcodePreview.item.supplier_name} onClose={() => setBarcodePreview(null)} width={380}>
+          <div style={{ textAlign:'center' }}>
+            <div style={{ background:'#f8f7f4', borderRadius:12, padding:'16px', marginBottom:16 }}>
+              <img src={barcodePreview.svgUrl} alt="barcode" style={{ maxWidth:'100%', height:60 }} />
+              <div style={{ fontSize:10, color:'#bbb', marginTop:6, fontFamily:'monospace' }}>{barcodePreview.code}</div>
+            </div>
+            <div style={{ display:'inline-block', background:'#fff', border:'1px solid #f0f0f0', borderRadius:10, padding:12, marginBottom:16 }}>
+              <img src={barcodePreview.qrUrl} alt="qr" style={{ width:100, height:100 }} />
+              <div style={{ fontSize:10, color:'#bbb', marginTop:4 }}>QR Code</div>
+            </div>
+            <div style={{ display:'flex', gap:8, justifyContent:'center' }}>
+              <Button variant="ghost" onClick={() => {
+                const a = document.createElement('a'); a.href = barcodePreview.qrUrl; a.download = `qr-${barcodePreview.code}.png`; a.click()
+              }}><Download size={13} /> Download QR</Button>
+              <Button onClick={() => printLabel(barcodePreview)}><Barcode size={13} /> Print Label</Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Import modal */}
+      {importModal && (
+        <Modal title="Import Products" subtitle={activeSupplier ? `Adding to ${activeSupplier.name}` : 'Select a supplier first'} onClose={() => { setImportModal(false); setImportRows([]) }} width={740}>
+          {!activeSupplier && (
+            <div style={{ background:'#FFF8E1', border:'1px solid #FAEEDA', borderRadius:10, padding:'12px 16px', marginBottom:16, fontSize:13, color:'#854F0B' }}>
+              Please select a supplier from the left panel before importing.
+            </div>
+          )}
+          {importLoading ? <Spinner /> : importRows.length === 0 ? (
+            <div style={{ textAlign:'center', padding:'32px 0', color:'#ccc' }}>No rows detected. Make sure the file has a column named "Product Name" or similar.</div>
+          ) : importRows[0]?._image ? (
+            <div style={{ textAlign:'center' }}>
+              <img src={importRows[0]._file} alt="uploaded" style={{ maxWidth:'100%', maxHeight:300, borderRadius:10, marginBottom:16 }} />
+              <div style={{ background:'#f8f7f4', borderRadius:10, padding:'14px 16px', fontSize:13, color:'#666' }}>
+                Image import detected. Please use an Excel/CSV file for automatic import. You can type the product names manually after uploading a photo.
+              </div>
+            </div>
+          ) : (
+            <>
+              <div style={{ fontSize:13, color:'#555', marginBottom:12 }}>
+                Found <strong>{importRows.filter(r=>r._selected).length}</strong> products. Review and deselect any you don't want.
+              </div>
+              <div style={{ maxHeight:340, overflowY:'auto', border:'1px solid #f0f0f0', borderRadius:10, marginBottom:16 }}>
+                <table style={{ width:'100%', fontSize:12, borderCollapse:'collapse' }}>
+                  <thead>
+                    <tr style={{ background:'#fafafa', position:'sticky', top:0 }}>
+                      <th style={{ padding:'8px 10px', textAlign:'left', fontWeight:600, color:'#999', fontSize:11, textTransform:'uppercase', width:32 }}>
+                        <input type="checkbox" checked={importRows.every(r=>r._selected)} onChange={e => setImportRows(rows => rows.map(r=>({...r,_selected:e.target.checked})))} />
+                      </th>
+                      {['Product Name','SKU','Category','Price','Unit','Notes'].map(h=>(
+                        <th key={h} style={{ padding:'8px 10px', textAlign:'left', fontWeight:600, color:'#999', fontSize:11, textTransform:'uppercase' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {importRows.map((row, i) => (
+                      <tr key={i} style={{ borderBottom:'1px solid #f5f5f5', background: row._selected ? '#fff' : '#fafafa', opacity: row._selected ? 1 : 0.5 }}>
+                        <td style={{ padding:'8px 10px' }}>
+                          <input type="checkbox" checked={!!row._selected} onChange={e => setImportRows(rows => rows.map((r,j) => j===i ? {...r,_selected:e.target.checked} : r))} />
+                        </td>
+                        {['product_name','sku','category','price','unit','notes'].map(k=>(
+                          <td key={k} style={{ padding:'7px 10px' }}>
+                            <input value={row[k]||''} onChange={e => setImportRows(rows => rows.map((r,j) => j===i ? {...r,[k]:e.target.value} : r))}
+                              style={{ width:'100%', border:'none', background:'transparent', fontSize:12, fontFamily:'inherit', outline:'none', color:'#0d1b2a' }} />
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ display:'flex', gap:10, justifyContent:'flex-end' }}>
+                <Button variant="ghost" onClick={() => { setImportModal(false); setImportRows([]) }}>Cancel</Button>
+                <Button onClick={confirmImport} disabled={saving || !activeSupplier || !importRows.some(r=>r._selected)}>
+                  {saving ? 'Importing…' : `Import ${importRows.filter(r=>r._selected).length} products`}
+                </Button>
+              </div>
+            </>
+          )}
+        </Modal>
+      )}
+
+      <Toasts toasts={toast.toasts} />
+    </div>
+  )
+}

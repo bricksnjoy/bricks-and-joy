@@ -92,6 +92,31 @@ create table expenses (
   created_by uuid references auth.users(id)
 );
 
+-- EMAIL CONTACTS (replaces localStorage)
+create table email_contacts (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  email text not null,
+  role text,
+  phone text,
+  created_at timestamptz default now()
+);
+
+-- SUPPLIER PRODUCT CATALOG
+create table supplier_products (
+  id uuid primary key default gen_random_uuid(),
+  supplier_id uuid references suppliers(id) on delete cascade,
+  supplier_name text,
+  product_name text not null,
+  sku text,
+  category text,
+  price numeric(10,2),
+  unit text default 'piece',
+  barcode text,
+  notes text,
+  created_at timestamptz default now()
+);
+
 -- PRODUCT CATEGORIES
 create table categories (
   id uuid primary key default gen_random_uuid(),
@@ -143,6 +168,8 @@ alter table products enable row level security;
 alter table orders enable row level security;
 alter table purchase_orders enable row level security;
 alter table expenses enable row level security;
+alter table email_contacts enable row level security;
+alter table supplier_products enable row level security;
 alter table categories enable row level security;
 alter table supplier_payments enable row level security;
 alter table profiles enable row level security;
@@ -154,6 +181,8 @@ create policy "Authenticated users can do everything" on products for all using 
 create policy "Authenticated users can do everything" on orders for all using (auth.role() = 'authenticated');
 create policy "Authenticated users can do everything" on purchase_orders for all using (auth.role() = 'authenticated');
 create policy "Authenticated users can do everything" on expenses for all using (auth.role() = 'authenticated');
+create policy "Authenticated users can do everything" on email_contacts for all using (auth.role() = 'authenticated');
+create policy "Authenticated users can do everything" on supplier_products for all using (auth.role() = 'authenticated');
 create policy "Authenticated users can do everything" on categories for all using (auth.role() = 'authenticated');
 create policy "Authenticated users can do everything" on supplier_payments for all using (auth.role() = 'authenticated');
 create policy "Users can view all profiles" on profiles for select using (auth.role() = 'authenticated');
