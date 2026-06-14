@@ -264,56 +264,83 @@ export default function SupplierCatalog() {
 
     const buf = await file.arrayBuffer()
 
-    // Extract embedded images from xlsx ZIP, mapped to row numbers via drawing XML
-    // rowImageMap[rowIndex] = objectURL  (0-based, matching json rows)
+    // Extract embedded images from xlsx ZIP (images in xl/media/, ordered numerically = row order)
     let rowImageMap = {}
     try {
       const zip = await JSZip.loadAsync(buf)
 
-      // Build media filename → object URL
-      const mediaUrls = {}
-      await Promise.all(
-        Object.keys(zip.files)
-          .filter(n => n.startsWith('xl/media/') && !zip.files[n].dir)
-          .map(async n => {
-            const blob = await zip.files[n].async('blob')
-            mediaUrls[n.split('/').pop()] = URL.createObjectURL(blob)
-          })
-      )
+      // Get all media images sorted by their number (image1.png < image2.png …)
+      const mediaFiles = Object.keys(zip.files)
+        .filter(n => /^xl\/media\/image\d+\.(png|jpe?g|gif|webp|bmp)/i.test(n))
+        .sort((a, b) => {
+          const numA = parseInt(a.match(/image(\d+)/i)?.[1] || 0)
+          const numB = parseInt(b.match(/image(\d+)/i)?.[1] || 0)
+          return numA - numB
+        })
 
-      // Parse drawing relationships: rId → media filename
-      const relsFile = zip.files['xl/drawings/_rels/drawing1.xml.rels']
-      const ridToFile = {}
-      if (relsFile) {
-        const relsXml = await relsFile.async('string')
-        const matches = [...relsXml.matchAll(/Id="(rId\d+)"[^>]*Target="\.\.\/media\/([^"]+)"/g)]
-        matches.forEach(([,rid,fname]) => { ridToFile[rid] = fname })
-      }
-
-      // Parse drawing XML: rId → row anchor (row is 0-based in XML)
+      // Try to map via drawing XML row anchors first
       const drawFile = zip.files['xl/drawings/drawing1.xml']
-      if (drawFile) {
-        const drawXml = await drawFile.async('string')
-        // Each anchor has <xdr:from><xdr:row>N</xdr:row>…</xdr:from> and <a:blip r:embed="rIdX"/>
-        const anchors = [...drawXml.matchAll(/<xdr:(?:twoCellAnchor|oneCellAnchor)[^>]*>([\s\S]*?)<\/xdr:(?:twoCellAnchor|oneCellAnchor)>/g)]
-        anchors.forEach(([,block]) => {
-          const rowM = block.match(/<xdr:from>[\s\S]*?<xdr:row>(\d+)<\/xdr:row>/)
-          const ridM = block.match(/r:embed="(rId\d+)"/)
-          if (rowM && ridM) {
-            const row = parseInt(rowM[1]) // 0-based Excel row (0 = header)
-            const dataRow = row - 1       // subtract 1 for header row
-            const fname = ridToFile[ridM[1]]
-            if (fname && mediaUrls[fname] && dataRow >= 0) {
-              rowImageMap[dataRow] = mediaUrls[fname]
+      const relsFile = zip.files['xl/drawings/_rels/drawing1.xml.rels']
+
+      if (drawFile && relsFile) {
+        const [drawXml, relsXml] = await Promise.all([drawFile.async('string'), relsFile.async('string')])
+
+        // rId → media filename
+        const ridToFile = {}
+        ;[...relsXml.matchAll(/Id="(rId\d+)"[^>]*Target="[^"]*\/([^"/]+)"/g)]
+          .forEach(([,rid,fname]) => { ridToFile[rid] = fname })
+
+        // Extract all row anchors: find row number and rId for each image block
+        const rowRegex = /(?:row[^>]*>|<[^:]+:row>)\s*(\d+)/gi
+        const ridRegex = /embed="(rId\d+)"/gi
+        // Split by anchor blocks
+        const blocks = drawXml.split(/<[^:]+:(?:two|one)CellAnchor/)
+        blocks.slice(1).forEach(block => {
+          const rowMatch = block.match(/(?:<[^:]+:from>[\s\S]*?)<[^:]+:row>\s*(\d+)/)
+          const ridMatch = block.match(/embed="(rId\d+)"/)
+          if (rowMatch && ridMatch) {
+            const excelRow = parseInt(rowMatch[1]) // 0-indexed XML row
+            // sheetStartRow is 1-indexed row of headers; data rows start one below
+            // XML 0-indexed: header is at (sheetStartRow-1), data row 0 is at sheetStartRow
+            const dataIdx = excelRow - sheetStartRow
+            const fname = ridToFile[ridMatch[1]]
+            if (fname && dataIdx >= 0) {
+              const mediaKey = Object.keys(zip.files).find(k => k.endsWith('/' + fname))
+              if (mediaKey && !rowImageMap[dataIdx]) {
+                // Store promise, resolve below
+                rowImageMap[dataIdx] = mediaKey
+              }
             }
           }
         })
+
+        // Resolve file paths to object URLs
+        const keys = Object.keys(rowImageMap)
+        await Promise.all(keys.map(async idx => {
+          const blob = await zip.files[rowImageMap[idx]].async('blob')
+          rowImageMap[idx] = URL.createObjectURL(blob)
+        }))
       }
-    } catch (_) {}
+
+      // Fallback: positional — image[0]→row0, image[1]→row1 …
+      // (works when one image per data row, column A)
+      if (Object.keys(rowImageMap).length === 0 && mediaFiles.length > 0) {
+        await Promise.all(mediaFiles.map(async (path, i) => {
+          const blob = await zip.files[path].async('blob')
+          rowImageMap[i] = URL.createObjectURL(blob)
+        }))
+      }
+      // Also log what we extracted for debugging
+      console.log('Image map:', rowImageMap, 'sheetStartRow:', sheetStartRow)
+    } catch (e) {
+      console.warn('Image extraction failed:', e)
+    }
 
     const wb = XLSX.read(buf, { type: 'array' })
     const ws = wb.Sheets[wb.SheetNames[0]]
     const rows = XLSX.utils.sheet_to_json(ws, { defval: '' })
+    // Detect the 1-indexed Excel row where headers live (from ws['!ref'] e.g. "A2:N43")
+    const sheetStartRow = ws['!ref'] ? parseInt(ws['!ref'].match(/\d+/)?.[0] || 1) : 1
 
     const mapped = rows.map((row, idx) => {
       const get = (...names) => {
