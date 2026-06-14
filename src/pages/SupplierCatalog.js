@@ -9,6 +9,7 @@ import {
 import JsBarcode from 'jsbarcode'
 import QRCode from 'qrcode'
 import * as XLSX from 'xlsx'
+import JSZip from 'jszip'
 
 const AVATAR_COLORS = ['#7F77DD','#1D9E75','#FFA500','#378ADD','#E24B4A','#0F6E56']
 function avatarColor(name=''){let h=0;for(let i=0;i<name.length;i++)h=name.charCodeAt(i)+((h<<5)-h);return AVATAR_COLORS[Math.abs(h)%AVATAR_COLORS.length]}
@@ -202,19 +203,32 @@ export default function SupplierCatalog() {
 
     const isImage = file.type.startsWith('image/')
     if (isImage) {
-      // Image: try to read text via canvas (basic) — show instructions
       setImportRows([{ _image: true, _file: URL.createObjectURL(file) }])
       setImportLoading(false)
       return
     }
 
-    // Excel / CSV
     const buf = await file.arrayBuffer()
+
+    // Extract embedded images from xlsx ZIP (images live in xl/media/)
+    let embeddedImages = [] // array of data URLs, ordered by filename
+    try {
+      const zip = await JSZip.loadAsync(buf)
+      const mediaFiles = Object.keys(zip.files)
+        .filter(n => n.startsWith('xl/media/') && !zip.files[n].dir)
+        .sort() // image1.png, image2.png … order matches row order
+      embeddedImages = await Promise.all(
+        mediaFiles.map(async name => {
+          const blob = await zip.files[name].async('blob')
+          return URL.createObjectURL(blob)
+        })
+      )
+    } catch (_) {}
+
     const wb = XLSX.read(buf, { type: 'array' })
     const ws = wb.Sheets[wb.SheetNames[0]]
     const rows = XLSX.utils.sheet_to_json(ws, { defval: '' })
 
-    // Try to auto-map columns (flexible headers)
     const mapped = rows.map((row, idx) => {
       const get = (...names) => {
         for (const n of names) {
@@ -223,12 +237,13 @@ export default function SupplierCatalog() {
         }
         return ''
       }
-      const productName = get('product name','product','name','item','description','desc','item name','product title','title')
-      // cost = what you paid; sell = what you charge customers
+      const productName = get('product name','product','name','item','item name','product title','title')
       const cost = get('cost','cost price','buying price','purchase price','unit cost','buy price','our price','supplier price')
-      const sell = get('price','sell price','selling price','sale price','retail price','unit price','mrp','rate')
-      // if only one price column exists, treat it as sell price
+      const sell = get('delivery price','price','sell price','selling price','sale price','retail price','unit price','mrp','rate')
       const onlyPrice = get('amount','value')
+      // Match image by row index (image col is usually the first column)
+      const imageUrl = get('image','image url','photo','photo url','picture','picture url','img','img url')
+        || embeddedImages[idx] || ''
       return {
         product_name: productName,
         sku: (() => { const v = get('sku','item code','product code','part no','part number','ref'); return v && /\D/.test(v) ? v : '' })(),
@@ -237,7 +252,7 @@ export default function SupplierCatalog() {
         sell_price: sell || onlyPrice || '',
         unit: get('unit','uom','unit of measure','sold per') || 'piece',
         notes: get('notes','note','remarks','remark','comment','description') || '',
-        image_url: get('image','image url','photo','photo url','picture','picture url','img','img url') || '',
+        image_url: imageUrl,
         _selected: true,
       }
     }).filter(r => r.product_name)
@@ -575,6 +590,7 @@ export default function SupplierCatalog() {
                       <th style={{ padding:'8px 10px', textAlign:'left', fontWeight:600, color:'#999', fontSize:11, textTransform:'uppercase', width:32 }}>
                         <input type="checkbox" checked={importRows.every(r=>r._selected)} onChange={e => setImportRows(rows => rows.map(r=>({...r,_selected:e.target.checked})))} />
                       </th>
+                      <th style={{ padding:'8px 10px', width:44 }}></th>
                       {['Product Name','SKU','Category','Cost Price','Sell Price','Unit','Notes'].map(h=>(
                         <th key={h} style={{ padding:'8px 10px', textAlign:'left', fontWeight:600, color:'#999', fontSize:11, textTransform:'uppercase' }}>{h}</th>
                       ))}
@@ -585,6 +601,11 @@ export default function SupplierCatalog() {
                       <tr key={i} style={{ borderBottom:'1px solid #f5f5f5', background: row._selected ? '#fff' : '#fafafa', opacity: row._selected ? 1 : 0.5 }}>
                         <td style={{ padding:'8px 10px' }}>
                           <input type="checkbox" checked={!!row._selected} onChange={e => setImportRows(rows => rows.map((r,j) => j===i ? {...r,_selected:e.target.checked} : r))} />
+                        </td>
+                        <td style={{ padding:'6px 10px' }}>
+                          {row.image_url
+                            ? <img src={row.image_url} alt="" style={{ width:32, height:32, objectFit:'cover', borderRadius:6, display:'block' }} onError={e=>e.target.style.display='none'} />
+                            : <div style={{ width:32, height:32, borderRadius:6, background:'#f0f0f0' }} />}
                         </td>
                         {['product_name','sku','category','cost_price','sell_price','unit','notes'].map(k=>(
                           <td key={k} style={{ padding:'7px 10px' }}>
