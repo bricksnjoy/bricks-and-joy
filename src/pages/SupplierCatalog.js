@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Button, Input, Select, Modal, Spinner, FormRow, useToast, Toasts, Badge } from '../components/UI'
 import {
-  Plus, Trash2, Edit2, Eye, Search, Building2, Package,
+  Plus, Trash2, Edit2, Eye, Search, Building2, Package, Truck,
   Barcode, QrCode, Upload, Download, FileSpreadsheet, Camera,
   ArrowUpDown, ChevronDown, CheckCircle, AlertTriangle, RefreshCw, X
 } from 'lucide-react'
@@ -47,6 +47,9 @@ export default function SupplierCatalog() {
   const [importLoading, setImportLoading] = useState(false)
   const [barcodePreview, setBarcodePreview] = useState(null) // { item, svgUrl, qrUrl }
   const [selectedIds, setSelectedIds] = useState(new Set())
+  const [selectMode, setSelectMode] = useState(false)
+  const [poModal, setPoModal] = useState(null) // catalog item to order
+  const [poForm, setPoForm] = useState({ qty: 1, unit_cost: '', expected_date: '' })
   const fileRef = useRef()
   const toast = useToast()
 
@@ -158,6 +161,38 @@ export default function SupplierCatalog() {
   function toggleSelectAll() {
     if (selectedIds.size === visibleCatalog.length) setSelectedIds(new Set())
     else setSelectedIds(new Set(visibleCatalog.map(i => i.id)))
+  }
+
+  function exitSelectMode() {
+    setSelectMode(false)
+    setSelectedIds(new Set())
+  }
+
+  function openPO(item) {
+    setPoForm({ qty: 1, unit_cost: item.cost_price || '', expected_date: '' })
+    setPoModal(item)
+  }
+
+  async function createPO() {
+    if (!poModal) return
+    const supplier = suppliers.find(s => s.id === poModal.supplier_id)
+    if (!supplier) { toast.error('Supplier not found'); return }
+    setSaving(true)
+    const { error } = await supabase.from('purchase_orders').insert({
+      supplier_id: supplier.id,
+      supplier_name: supplier.name,
+      product_id: null,
+      product_name: poModal.product_name,
+      qty: parseInt(poForm.qty) || 1,
+      unit_cost: parseFloat(poForm.unit_cost) || 0,
+      status: 'pending',
+      expected_date: poForm.expected_date || null,
+      notes: `From supplier catalog — SKU: ${poModal.sku || 'N/A'}`,
+    })
+    setSaving(false)
+    if (error) { toast.error('Failed: ' + error.message); return }
+    toast.success('Purchase order created!')
+    setPoModal(null)
   }
 
   // ── Barcode preview ──────────────────────────────────────────────────────────
@@ -370,6 +405,10 @@ export default function SupplierCatalog() {
             <Button variant="ghost" onClick={() => setCompareMode(m => !m)} style={{ background: compareMode ? '#e8f5e9' : undefined, color: compareMode ? '#1D9E75' : undefined }}>
               <ArrowUpDown size={14} /> {compareMode ? 'Exit compare' : 'Price compare'}
             </Button>
+            <Button variant="ghost" onClick={() => { if(selectMode) exitSelectMode(); else setSelectMode(true) }}
+              style={{ background: selectMode ? '#FFF3E0' : undefined, color: selectMode ? '#FFA500' : undefined }}>
+              <CheckCircle size={14} /> {selectMode ? 'Cancel select' : 'Select'}
+            </Button>
             <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv,image/*" style={{ display:'none' }} onChange={handleFileImport} />
             <Button variant="ghost" onClick={() => fileRef.current.click()}>
               <Upload size={14} /> Import Excel / Photo
@@ -513,8 +552,8 @@ export default function SupplierCatalog() {
                         <button onClick={() => setSelectedIds(new Set())} style={{ marginLeft:'auto', background:'none', border:'none', cursor:'pointer', color:'#aaa', fontSize:12 }}>Clear</button>
                       </div>
                     )}
-                    <div style={{ display:'grid', gridTemplateColumns:'32px 1fr auto auto auto auto', gap:12, padding:'8px 16px', borderBottom:'2px solid #f0f0f0', fontSize:10, color:'#bbb', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.5px' }}>
-                      <div><input type="checkbox" checked={selectedIds.size === visibleCatalog.length && visibleCatalog.length > 0} onChange={toggleSelectAll} /></div>
+                    <div style={{ display:'grid', gridTemplateColumns:`${selectMode?'32px ':''}1fr auto auto auto auto`, gap:12, padding:'8px 16px', borderBottom:'2px solid #f0f0f0', fontSize:10, color:'#bbb', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.5px' }}>
+                      {selectMode && <div><input type="checkbox" checked={selectedIds.size === visibleCatalog.length && visibleCatalog.length > 0} onChange={toggleSelectAll} /></div>}
                       <div>Product</div>
                       <div style={{ textAlign:'right', width:130 }}>Cost / Sell Price</div>
                       <div style={{ width:60, textAlign:'center' }}>SKU</div>
@@ -522,15 +561,15 @@ export default function SupplierCatalog() {
                       <div style={{ width:30 }}></div>
                     </div>
                     {visibleCatalog.map(item => (
-                      <div key={item.id} style={{ display:'grid', gridTemplateColumns:'32px 1fr auto auto auto auto', gap:12, alignItems:'center', padding:'11px 16px', borderBottom:'1px solid #f5f5f5', transition:'background 0.1s', background: selectedIds.has(item.id) ? '#FFF8E1' : '' }}
+                      <div key={item.id} style={{ display:'grid', gridTemplateColumns:`${selectMode?'32px ':''}1fr auto auto auto auto`, gap:12, alignItems:'center', padding:'11px 16px', borderBottom:'1px solid #f5f5f5', transition:'background 0.1s', background: selectedIds.has(item.id) ? '#FFF8E1' : '' }}
                         onMouseEnter={e=>{ if(!selectedIds.has(item.id)) e.currentTarget.style.background='#fafafa' }}
                         onMouseLeave={e=>{ if(!selectedIds.has(item.id)) e.currentTarget.style.background='' }}>
-                        <input type="checkbox" checked={selectedIds.has(item.id)} onChange={() => toggleSelect(item.id)} onClick={e=>e.stopPropagation()} />
+                        {selectMode && <input type="checkbox" checked={selectedIds.has(item.id)} onChange={() => toggleSelect(item.id)} onClick={e=>e.stopPropagation()} />}
                         <div>
                           <div style={{ display:'flex', alignItems:'center', gap:8 }}>
                             {item.image_url
-                              ? <img src={item.image_url} alt="" style={{ width:34, height:34, objectFit:'cover', borderRadius:7, flexShrink:0 }} onError={e=>{e.target.style.display='none'}} />
-                              : !activeSupplier ? <Avatar name={item.supplier_name||'?'} size={26} /> : null
+                              ? <img src={item.image_url} alt="" style={{ width:36, height:36, objectFit:'contain', borderRadius:7, flexShrink:0, background:'#f8f8f8' }} onError={e=>{e.target.style.display='none'}} />
+                              : <Avatar name={item.supplier_name||item.product_name||'?'} size={36} />
                             }
                             <div>
                               <div style={{ fontSize:13, fontWeight:600, color:'#0d1b2a' }}>{item.product_name}</div>
@@ -551,6 +590,7 @@ export default function SupplierCatalog() {
                         <div style={{ width:60, textAlign:'center', fontSize:11, color:'#aaa' }}>{item.sku || '—'}</div>
                         <button className="icon-btn" onClick={() => showBarcode(item)} title="Barcode / QR"><Barcode size={13}/></button>
                         <div style={{ display:'flex', gap:4 }}>
+                          <button className="icon-btn" onClick={() => openPO(item)} title="Create Purchase Order" style={{ color:'#378ADD' }}><Truck size={13}/></button>
                           <button className="icon-btn" onClick={() => openEdit(item)} title="Edit"><Edit2 size={13}/></button>
                           <button className="icon-btn danger" onClick={() => del(item)} title="Delete"><Trash2 size={13}/></button>
                         </div>
@@ -688,6 +728,34 @@ export default function SupplierCatalog() {
               </div>
             </>
           )}
+        </Modal>
+      )}
+
+      {/* Create Purchase Order modal */}
+      {poModal && (
+        <Modal title="Create Purchase Order" subtitle={`${poModal.product_name} · ${poModal.supplier_name}`} onClose={() => setPoModal(null)} width={440}>
+          <div style={{ display:'flex', alignItems:'center', gap:12, background:'#f8f7f4', borderRadius:10, padding:'12px 14px', marginBottom:20 }}>
+            {poModal.image_url && <img src={poModal.image_url} alt="" style={{ width:48, height:48, objectFit:'contain', borderRadius:8, background:'#fff' }} onError={e=>e.target.style.display='none'} />}
+            <div>
+              <div style={{ fontSize:13, fontWeight:700, color:'#0d1b2a' }}>{poModal.product_name}</div>
+              <div style={{ fontSize:11, color:'#aaa' }}>Supplier: {poModal.supplier_name} · SKU: {poModal.sku || '—'}</div>
+              {poModal.cost_price && <div style={{ fontSize:12, color:'#1D9E75', fontWeight:600, marginTop:2 }}>Catalog cost: MVR {Number(poModal.cost_price).toFixed(2)}</div>}
+            </div>
+          </div>
+          <FormRow>
+            <Input label="Quantity *" type="number" min="1" value={poForm.qty} onChange={e=>setPoForm(p=>({...p,qty:e.target.value}))} />
+            <Input label="Unit cost (MVR) *" type="number" min="0" step="0.01" value={poForm.unit_cost} onChange={e=>setPoForm(p=>({...p,unit_cost:e.target.value}))} />
+          </FormRow>
+          <Input label="Expected delivery date" type="date" value={poForm.expected_date} onChange={e=>setPoForm(p=>({...p,expected_date:e.target.value}))} style={{ marginBottom:8 }} />
+          {poForm.qty && poForm.unit_cost && (
+            <div style={{ background:'#E1F5EE', borderRadius:9, padding:'10px 14px', fontSize:13, color:'#1D9E75', fontWeight:600, marginBottom:20 }}>
+              Total: MVR {(parseFloat(poForm.qty)*parseFloat(poForm.unit_cost)).toFixed(2)}
+            </div>
+          )}
+          <div style={{ display:'flex', gap:10, justifyContent:'flex-end' }}>
+            <Button variant="ghost" onClick={() => setPoModal(null)}>Cancel</Button>
+            <Button onClick={createPO} disabled={saving}>{saving ? 'Creating…' : 'Create Purchase Order'}</Button>
+          </div>
         </Modal>
       )}
 
