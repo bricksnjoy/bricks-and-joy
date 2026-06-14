@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Spinner, Badge } from '../components/UI'
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, AreaChart, Area } from 'recharts'
-import { TrendingUp, TrendingDown, Package, ShoppingCart, Users, AlertTriangle, BarChart3, PieChart as PieIcon, LineChart as LineIcon, Activity, Trophy, Medal, Award, Flame, ArrowUpRight, ArrowDownRight, ArrowRight, CheckCircle, Minus, Coins } from 'lucide-react'
+import { TrendingUp, TrendingDown, Package, ShoppingCart, Users, AlertTriangle, BarChart3, PieChart as PieIcon, LineChart as LineIcon, Activity, Trophy, Medal, Award, Flame, ArrowUpRight, ArrowDownRight, ArrowRight, CheckCircle, Minus, Coins, Tag } from 'lucide-react'
 
 const COLORS = ['#FFA500','#0d1b2a','#1D9E75','#378ADD','#f57f17','#7F77DD','#c62828','#29b6f6']
 
@@ -140,6 +140,12 @@ export default function Statistics() {
     exps.forEach(e => { expByCat[e.category] = (expByCat[e.category] || 0) + Number(e.amount) })
     const expChart = Object.entries(expByCat).sort((a, b) => b[1] - a[1]).map(([name, value]) => ({ name, value: parseFloat(value.toFixed(2)) }))
 
+    // Attach category from products to each delivered order
+    const deliveredWithCat = delivered.map(o => ({
+      ...o,
+      _category: prods.find(p => p.id === o.product_id)?.category || 'Uncategorised'
+    }))
+
     // Status breakdown
     const statusCount = {}
     ords.forEach(o => { statusCount[o.status] = (statusCount[o.status] || 0) + 1 })
@@ -152,7 +158,7 @@ export default function Statistics() {
     const avgOrderValue = delivered.length > 0 ? revenue / delivered.length : 0
     const returnRate = ords.length > 0 ? (statusCount['cancelled'] || 0) / ords.length * 100 : 0
 
-    setData({ revenueChart, productChart, channelChart, forecastData, hotProducts, topCustomers, expChart, statusCount, revenue, netProfit, avgOrderValue, returnRate, totalOrders: ords.length, deliveredOrders: delivered.length, fulfilmentRate: ords.length > 0 ? (delivered.length / ords.length * 100).toFixed(0) : 0, totalCustomers: custs.length, lowStockCount: prods.filter(p => p.stock_qty <= (p.low_stock_threshold || 10)).length })
+    setData({ revenueChart, productChart, channelChart, forecastData, hotProducts, topCustomers, expChart, statusCount, revenue, netProfit, avgOrderValue, returnRate, totalOrders: ords.length, deliveredOrders: delivered.length, fulfilmentRate: ords.length > 0 ? (delivered.length / ords.length * 100).toFixed(0) : 0, totalCustomers: custs.length, lowStockCount: prods.filter(p => p.stock_qty <= (p.low_stock_threshold || 10)).length, _allDelivered: deliveredWithCat, _catPeriod: 'all' })
     setLoading(false)
   }
 
@@ -160,7 +166,7 @@ export default function Statistics() {
   const t = data
   const tt = { background: '#fff', border: '1px solid #eee', borderRadius: 8, fontSize: 12 }
 
-  const tabs = [['overview','Overview',BarChart3],['products','Products',Package],['forecast','Forecast',LineIcon],['customers','Customers',Users],['costs','Cost Analysis',Coins]]
+  const tabs = [['overview','Overview',BarChart3],['products','Products',Package],['categories','By Category',Tag],['forecast','Forecast',LineIcon],['customers','Customers',Users],['costs','Cost Analysis',Coins]]
 
   return (
     <div style={{ fontFamily: "'Poppins', sans-serif" }}>
@@ -314,6 +320,86 @@ export default function Statistics() {
           </Card>
         </>
       )}
+
+      {/* ── CATEGORIES ── */}
+      {activeTab === 'categories' && (() => {
+        const [catPeriod, setCatPeriod] = [data._catPeriod || 'all', v => setData(d => ({ ...d, _catPeriod: v }))]
+        const since30 = new Date(); since30.setDate(since30.getDate() - 30)
+        const since30Str = since30.toISOString().split('T')[0]
+        const thisMonth = new Date().toISOString().slice(0, 7)
+        const delivered = data._allDelivered || []
+        const filtered = catPeriod === 'month' ? delivered.filter(o => o.order_date?.startsWith(thisMonth))
+          : catPeriod === '30d' ? delivered.filter(o => o.order_date >= since30Str)
+          : delivered
+        const catMap = {}
+        filtered.forEach(o => {
+          const cat = o._category || 'Uncategorised'
+          if (!catMap[cat]) catMap[cat] = { name: cat, revenue: 0, units: 0, orders: 0 }
+          catMap[cat].revenue += Number(o.total_price || 0)
+          catMap[cat].units += Number(o.qty || 1)
+          catMap[cat].orders++
+        })
+        const cats = Object.values(catMap).sort((a, b) => b.revenue - a.revenue)
+        const totalRev = cats.reduce((s, c) => s + c.revenue, 0)
+        const CAT_COLORS = ['#FFA500','#7F77DD','#1D9E75','#378ADD','#E24B4A','#0F6E56','#f57f17','#29b6f6']
+        return (
+          <>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+              {[['all','All time'],['30d','Last 30 days'],['month','This month']].map(([v, l]) => (
+                <button key={v} onClick={() => setData(d => ({ ...d, _catPeriod: v }))}
+                  style={{ padding: '6px 14px', borderRadius: 99, border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 600, transition: 'all 0.15s',
+                    background: catPeriod === v ? '#0d1b2a' : '#f0f0f0', color: catPeriod === v ? '#fff' : '#666' }}>
+                  {l}
+                </button>
+              ))}
+            </div>
+
+            {cats.length === 0 ? (
+              <Card><p style={{ textAlign: 'center', color: '#ccc', padding: '40px 0', fontSize: 13 }}>No sales data for this period</p></Card>
+            ) : (
+              <>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12, marginBottom: 20 }}>
+                  {cats.slice(0, 4).map((c, i) => (
+                    <div key={c.name} className="kpi-card" style={{ '--accent': CAT_COLORS[i % CAT_COLORS.length] }}>
+                      <div>
+                        <div style={{ fontSize: 10, color: '#bbb', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4, fontWeight: 600 }}>{c.name}</div>
+                        <div style={{ fontSize: 18, fontWeight: 700, color: CAT_COLORS[i % CAT_COLORS.length] }}>MVR {c.revenue.toFixed(0)}</div>
+                        <div style={{ fontSize: 11, color: '#aaa', marginTop: 2 }}>{c.units} units · {c.orders} orders</div>
+                      </div>
+                      <div style={{ background: CAT_COLORS[i % CAT_COLORS.length] + '14', borderRadius: 9, padding: 8 }}><Tag size={16} color={CAT_COLORS[i % CAT_COLORS.length]} /></div>
+                    </div>
+                  ))}
+                </div>
+
+                <Card>
+                  <ChartTitle icon={Tag} color="#FFA500">Revenue by category</ChartTitle>
+                  {cats.map((c, i) => {
+                    const pct = totalRev > 0 ? (c.revenue / totalRev * 100) : 0
+                    return (
+                      <div key={c.name} style={{ marginBottom: 14 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <div style={{ width: 10, height: 10, borderRadius: '50%', background: CAT_COLORS[i % CAT_COLORS.length], flexShrink: 0 }} />
+                            <span style={{ fontSize: 13, fontWeight: 500, color: '#0d1b2a' }}>{c.name}</span>
+                            <span style={{ fontSize: 11, color: '#bbb' }}>{c.units} units</span>
+                          </div>
+                          <div style={{ textAlign: 'right' }}>
+                            <span style={{ fontSize: 13, fontWeight: 700, color: '#0d1b2a' }}>MVR {c.revenue.toFixed(2)}</span>
+                            <span style={{ fontSize: 11, color: '#aaa', marginLeft: 8 }}>{pct.toFixed(1)}%</span>
+                          </div>
+                        </div>
+                        <div style={{ height: 6, background: '#f0f0f0', borderRadius: 99, overflow: 'hidden' }}>
+                          <div style={{ height: '100%', width: `${pct}%`, background: CAT_COLORS[i % CAT_COLORS.length], borderRadius: 99, transition: 'width 0.6s ease' }} />
+                        </div>
+                      </div>
+                    )
+                  })}
+                </Card>
+              </>
+            )}
+          </>
+        )
+      })()}
 
       {/* ── FORECAST ── */}
       {activeTab === 'forecast' && (

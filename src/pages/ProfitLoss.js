@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Spinner } from '../components/UI'
-import { FileText, BookOpen, Calendar, Download, TrendingUp, TrendingDown } from 'lucide-react'
+import { FileText, BookOpen, Calendar, Download, TrendingUp, TrendingDown, Receipt, CheckCircle, AlertTriangle, Info } from 'lucide-react'
 
 const MVR_RATE = 15.4
 
@@ -13,6 +13,10 @@ export default function Accounting() {
   const [customers, setCustomers] = useState([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('income')
+  const [gstSettings, setGstSettings] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('bj_gst_settings') || '{}') } catch { return {} }
+  })
+  const [gstPeriod, setGstPeriod] = useState('12m')
   const [periodFilter, setPeriodFilter] = useState('all')
   const [currency, setCurrency] = useState('MVR')
 
@@ -340,13 +344,153 @@ export default function Accounting() {
 
       {/* Tabs */}
       <div className="acc-tabs">
-        {[['income', 'Income Statement', FileText], ['balance', 'Balance Sheet', BookOpen], ['cashflow', 'Cash Flow', TrendingUp], ['transactions', 'Transactions', Calendar], ['monthly', 'Monthly Reports', Calendar], ['journal', 'Journal', BookOpen], ['download', 'Download Documents', Download]].map(([id, label, Icon]) => (
+        {[['income', 'Income Statement', FileText], ['gst', 'GST / Tax', Receipt], ['balance', 'Balance Sheet', BookOpen], ['cashflow', 'Cash Flow', TrendingUp], ['transactions', 'Transactions', Calendar], ['monthly', 'Monthly Reports', Calendar], ['journal', 'Journal', BookOpen], ['download', 'Download Documents', Download]].map(([id, label, Icon]) => (
           <button key={id} className="acc-tab" onClick={() => setActiveTab(id)}
             style={{ background: activeTab === id ? '#fff' : 'transparent', color: activeTab === id ? '#0d1b2a' : '#888', boxShadow: activeTab === id ? '0 1px 4px rgba(0,0,0,0.1)' : 'none', fontWeight: activeTab === id ? 700 : 500 }}>
             <Icon size={14} /> {label}
           </button>
         ))}
       </div>
+
+      {/* ── GST / TAX ── */}
+      {activeTab === 'gst' && (() => {
+        const GST_RATE = 0.08
+        const GST_THRESHOLD = 1000000
+        const now = new Date()
+
+        // Period revenue
+        const sinceDate = gstPeriod === '1m' ? new Date(now.getFullYear(), now.getMonth(), 1)
+          : gstPeriod === '3m' ? new Date(now.getFullYear(), now.getMonth() - 3, 1)
+          : new Date(now.getFullYear(), now.getMonth() - 12, 1)
+        const sinceDateStr = sinceDate.toISOString().split('T')[0]
+        const periodDelivered = orders.filter(o => o.status === 'delivered' && o.order_date >= sinceDateStr)
+        const periodRevenue = periodDelivered.reduce((s, o) => s + Number(o.total_price || 0), 0)
+
+        // Last 12m revenue (for threshold check)
+        const last12Start = new Date(now.getFullYear(), now.getMonth() - 12, 1).toISOString().split('T')[0]
+        const last12Revenue = orders.filter(o => o.status === 'delivered' && o.order_date >= last12Start)
+          .reduce((s, o) => s + Number(o.total_price || 0), 0)
+
+        const thresholdPct = Math.min(100, (last12Revenue / GST_THRESHOLD) * 100)
+        const exceedsThreshold = last12Revenue >= GST_THRESHOLD
+
+        const gstApplies = gstSettings.tourism || gstSettings.imports || gstSettings.voluntary || exceedsThreshold
+        const gstExclusive = periodRevenue / (1 + GST_RATE) // if prices are GST-inclusive
+        const gstToRemit = periodRevenue * GST_RATE // if prices are GST-exclusive (standard retail)
+
+        function saveGstSettings(key, val) {
+          const next = { ...gstSettings, [key]: val }
+          setGstSettings(next)
+          localStorage.setItem('bj_gst_settings', JSON.stringify(next))
+        }
+
+        const periodLabels = { '1m': 'This Month', '3m': 'Last 3 Months', '12m': 'Last 12 Months' }
+
+        return (
+          <div>
+            {/* Eligibility */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 20 }}>
+              <Card>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+                  <div style={{ background: '#f8f7f4', borderRadius: 8, padding: 7 }}><Receipt size={15} color="#FFA500" /></div>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: '#0d1b2a' }}>GST Eligibility</span>
+                </div>
+                {[
+                  { key: 'tourism', label: 'We provide tourism goods / services' },
+                  { key: 'imports', label: 'We import goods into the Maldives' },
+                  { key: 'voluntary', label: 'Voluntarily GST-registered' },
+                ].map(({ key, label }) => (
+                  <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: '1px solid #f5f5f5', cursor: 'pointer', fontSize: 13 }}>
+                    <div onClick={() => saveGstSettings(key, !gstSettings[key])} style={{
+                      width: 38, height: 22, borderRadius: 99, background: gstSettings[key] ? '#FFA500' : '#e0e0e0',
+                      position: 'relative', transition: 'background 0.2s', flexShrink: 0, cursor: 'pointer'
+                    }}>
+                      <div style={{ position: 'absolute', top: 3, left: gstSettings[key] ? 18 : 3, width: 16, height: 16, borderRadius: '50%', background: '#fff', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} />
+                    </div>
+                    <span style={{ color: '#333' }}>{label}</span>
+                  </label>
+                ))}
+                <div style={{ marginTop: 14 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                    <span style={{ fontSize: 12, color: '#888' }}>Sales threshold (last 12 months)</span>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: exceedsThreshold ? '#E24B4A' : '#1D9E75' }}>
+                      MVR {last12Revenue.toLocaleString('en', { minimumFractionDigits: 0 })} / 1,000,000
+                    </span>
+                  </div>
+                  <div style={{ height: 8, background: '#f0f0f0', borderRadius: 99, overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: `${thresholdPct}%`, background: thresholdPct >= 100 ? '#E24B4A' : thresholdPct >= 70 ? '#f57f17' : '#1D9E75', borderRadius: 99, transition: 'width 0.6s ease' }} />
+                  </div>
+                  {exceedsThreshold && <p style={{ fontSize: 11, color: '#E24B4A', marginTop: 6, fontWeight: 500 }}>Threshold exceeded — GST registration mandatory</p>}
+                </div>
+              </Card>
+
+              <Card>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+                  {gstApplies
+                    ? <><div style={{ background: '#fef2f2', borderRadius: 8, padding: 7 }}><AlertTriangle size={15} color="#E24B4A" /></div><span style={{ fontSize: 14, fontWeight: 700, color: '#E24B4A' }}>GST Applies</span></>
+                    : <><div style={{ background: '#E1F5EE', borderRadius: 8, padding: 7 }}><CheckCircle size={15} color="#1D9E75" /></div><span style={{ fontSize: 14, fontWeight: 700, color: '#1D9E75' }}>GST Not Required</span></>
+                  }
+                </div>
+                {!gstApplies ? (
+                  <p style={{ fontSize: 13, color: '#aaa', lineHeight: 1.6 }}>
+                    Based on your settings, you are below the MVR 1M threshold and don't provide tourism goods, import goods, or hold voluntary registration. No GST obligation currently.
+                  </p>
+                ) : (
+                  <p style={{ fontSize: 13, color: '#555', lineHeight: 1.6 }}>
+                    GST at <strong>8%</strong> applies to your sales. You must file returns with <strong>MIRA</strong> and remit the GST collected.
+                  </p>
+                )}
+                <div style={{ background: '#f8f7f4', borderRadius: 8, padding: '10px 14px', marginTop: 12, fontSize: 12, color: '#888', display: 'flex', gap: 8 }}>
+                  <Info size={13} color="#aaa" style={{ flexShrink: 0, marginTop: 1 }} />
+                  GST rate: <strong style={{ color: '#0d1b2a' }}>8%</strong> · Maldives GST Act (Tourism Goods & Services Tax) · Threshold: <strong style={{ color: '#0d1b2a' }}>MVR 1,000,000</strong>
+                </div>
+              </Card>
+            </div>
+
+            {/* GST Calculation */}
+            {gstApplies && (
+              <>
+                <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+                  {Object.entries(periodLabels).map(([v, l]) => (
+                    <button key={v} onClick={() => setGstPeriod(v)}
+                      style={{ padding: '6px 14px', borderRadius: 99, border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 600, transition: 'all 0.15s',
+                        background: gstPeriod === v ? '#0d1b2a' : '#f0f0f0', color: gstPeriod === v ? '#fff' : '#666' }}>
+                      {l}
+                    </button>
+                  ))}
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14, marginBottom: 16 }}>
+                  {[
+                    { label: 'Taxable Revenue', value: `MVR ${periodRevenue.toFixed(2)}`, color: '#378ADD', note: periodLabels[gstPeriod] },
+                    { label: 'GST Collected (8%)', value: `MVR ${gstToRemit.toFixed(2)}`, color: '#E24B4A', note: 'On GST-exclusive prices' },
+                    { label: 'GST Inclusive (8/108)', value: `MVR ${(periodRevenue - gstExclusive).toFixed(2)}`, color: '#f57f17', note: 'If prices include GST' },
+                  ].map((s, i) => (
+                    <Card key={i} style={{ borderLeft: `4px solid ${s.color}` }}>
+                      <div style={{ fontSize: 10, color: '#bbb', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 600, marginBottom: 6 }}>{s.label}</div>
+                      <div style={{ fontSize: 20, fontWeight: 700, color: s.color }}>{s.value}</div>
+                      <div style={{ fontSize: 11, color: '#bbb', marginTop: 3 }}>{s.note}</div>
+                    </Card>
+                  ))}
+                </div>
+
+                {/* GST Remittance card */}
+                <div style={{ background: 'linear-gradient(135deg, #0d1b2a 0%, #162538 100%)', borderRadius: 16, padding: '24px 28px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 600, marginBottom: 6 }}>GST to Remit to MIRA — {periodLabels[gstPeriod]}</div>
+                    <div style={{ fontSize: 32, fontWeight: 700, color: '#FFA500', letterSpacing: '-1px' }}>MVR {gstToRemit.toFixed(2)}</div>
+                    <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', marginTop: 6 }}>Based on {periodLabels[gstPeriod].toLowerCase()} revenue of MVR {periodRevenue.toFixed(2)} × 8%</div>
+                  </div>
+                  <div style={{ background: 'rgba(255,165,0,0.12)', borderRadius: 14, padding: '14px 18px', textAlign: 'center' }}>
+                    <Receipt size={28} color="#FFA500" />
+                    <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginTop: 6, textTransform: 'uppercase', letterSpacing: '0.5px' }}>File with MIRA</div>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        )
+      })()}
 
       {/* ── INCOME STATEMENT ── */}
       {activeTab === 'income' && (

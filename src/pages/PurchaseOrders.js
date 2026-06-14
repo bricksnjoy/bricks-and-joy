@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Button, Input, Select, Table, Modal, Spinner, FormRow, useToast, Toasts, Badge } from '../components/UI'
-import { Plus, Trash2, Package, Truck, X, Info, AlertTriangle } from 'lucide-react'
+import { Plus, Trash2, Package, Truck, X, Info, AlertTriangle, CreditCard, Wallet, CheckCircle } from 'lucide-react'
 
 const AVATAR_COLORS = ['#7F77DD', '#1D9E75', '#FFA500', '#378ADD', '#E24B4A', '#0F6E56']
 function avatarColor(name = '') {
@@ -31,9 +31,13 @@ export default function PurchaseOrders() {
   const [pos, setPOs] = useState([])
   const [suppliers, setSuppliers] = useState([])
   const [products, setProducts] = useState([])
+  const [payments, setPayments] = useState([]) // supplier_payments
   const [loading, setLoading] = useState(true)
   const [batchModal, setBatchModal] = useState(false)
   const [supplierModal, setSupplierModal] = useState(false)
+  const [payModal, setPayModal] = useState(null) // PO object being paid
+  const [payForm, setPayForm] = useState({ amount: '', payment_date: new Date().toISOString().split('T')[0], payment_method: 'Bank Transfer', reference: '', notes: '' })
+  const [paymentsTab, setPaymentsTab] = useState(false)
   const [batchForm, setBatchForm] = useState({ supplier_id: '', supplier_name: '', order_date: new Date().toISOString().split('T')[0], expected_date: '', items: [] })
   const [supplierForm, setSupplierForm] = useState({ name: '', contact_name: '', email: '', phone: '', address: '' })
   const [saving, setSaving] = useState(false)
@@ -43,14 +47,16 @@ export default function PurchaseOrders() {
 
   async function load() {
     setLoading(true)
-    const [p, s, pr] = await Promise.all([
+    const [p, s, pr, pay] = await Promise.all([
       supabase.from('purchase_orders').select('*').order('created_at', { ascending: false }),
       supabase.from('suppliers').select('*').order('name'),
       supabase.from('products').select('*').order('name'),
+      supabase.from('supplier_payments').select('*').order('payment_date', { ascending: false }),
     ])
     setPOs(p.data || [])
     setSuppliers(s.data || [])
     setProducts(pr.data || [])
+    setPayments(pay.data || [])
     setLoading(false)
   }
 
@@ -168,6 +174,43 @@ export default function PurchaseOrders() {
 
   const sf = k => e => setSupplierForm(prev => ({ ...prev, [k]: e.target.value }))
 
+  function openPayModal(po) {
+    const paid = payments.filter(p => p.purchase_order_id === po.id).reduce((s, p) => s + Number(p.amount), 0)
+    const outstanding = Math.max(0, Number(po.total_cost || 0) - paid)
+    setPayForm({ amount: outstanding.toFixed(2), payment_date: new Date().toISOString().split('T')[0], payment_method: 'Bank Transfer', reference: '', notes: '' })
+    setPayModal(po)
+  }
+
+  async function recordPayment() {
+    if (!payForm.amount || Number(payForm.amount) <= 0) { toast.error('Enter a valid amount'); return }
+    const { error } = await supabase.from('supplier_payments').insert({
+      purchase_order_id: payModal.id,
+      supplier_id: payModal.supplier_id || null,
+      supplier_name: payModal.supplier_name || '',
+      amount: parseFloat(payForm.amount),
+      payment_date: payForm.payment_date,
+      payment_method: payForm.payment_method,
+      reference: payForm.reference || null,
+      notes: payForm.notes || null,
+    })
+    if (error) { toast.error('Failed to record payment'); return }
+    toast.success(`Payment of MVR ${parseFloat(payForm.amount).toFixed(2)} recorded`)
+    setPayModal(null)
+    load()
+  }
+
+  function paidForPO(poId) {
+    return payments.filter(p => p.purchase_order_id === poId).reduce((s, p) => s + Number(p.amount), 0)
+  }
+
+  function payStatusBadge(po) {
+    const total = Number(po.total_cost || 0)
+    const paid = paidForPO(po.id)
+    if (paid <= 0) return <span style={{ fontSize: 11, fontWeight: 600, color: '#E24B4A', background: '#fef2f2', padding: '2px 8px', borderRadius: 99 }}>Unpaid</span>
+    if (paid >= total) return <span style={{ fontSize: 11, fontWeight: 600, color: '#1D9E75', background: '#E1F5EE', padding: '2px 8px', borderRadius: 99 }}>Paid</span>
+    return <span style={{ fontSize: 11, fontWeight: 600, color: '#f57f17', background: '#FFF8E1', padding: '2px 8px', borderRadius: 99 }}>Partial</span>
+  }
+
   const totalSpend = pos.filter(p => p.status === 'received').reduce((s, p) => s + Number(p.total_cost || 0), 0)
   const pendingValue = pos.filter(p => p.status === 'pending' || p.status === 'ordered').reduce((s, p) => s + Number(p.total_cost || 0), 0)
   const batchTotal = batchForm.items.reduce((s, i) => s + (parseFloat(i.qty || 0) * parseFloat(i.unit_cost || 0)), 0)
@@ -188,6 +231,12 @@ export default function PurchaseOrders() {
         style={{ border: 'none', background: 'transparent', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>
         {STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
       </select>
+    )},
+    { key: 'payment', label: 'Payment', render: r => (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        {payStatusBadge(r)}
+        <button className="icon-btn primary" title="Record payment" onClick={() => openPayModal(r)}><CreditCard size={12} /></button>
+      </div>
     )},
     { key: 'actions', label: '', render: r => <Button variant="danger" size="sm" onClick={() => del(r.id)}><Trash2 size={13} /></Button> },
   ]
@@ -350,6 +399,76 @@ export default function PurchaseOrders() {
           </div>
         </Modal>
       )}
+      {/* Payment modal */}
+      {payModal && (
+        <Modal title="Record Payment" subtitle={`${payModal.supplier_name || 'Supplier'} — MVR ${Number(payModal.total_cost || 0).toFixed(2)} total`} onClose={() => setPayModal(null)} width={480}>
+          <div style={{ background: '#f8f7f4', borderRadius: 10, padding: '12px 16px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <div style={{ fontSize: 11, color: '#bbb', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 2 }}>Outstanding Balance</div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: '#E24B4A' }}>MVR {Math.max(0, Number(payModal.total_cost || 0) - paidForPO(payModal.id)).toFixed(2)}</div>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: 11, color: '#bbb', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 2 }}>Already Paid</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: '#1D9E75' }}>MVR {paidForPO(payModal.id).toFixed(2)}</div>
+            </div>
+          </div>
+          <FormRow>
+            <Input label="Amount (MVR) *" type="number" min="0" step="0.01" value={payForm.amount} onChange={e => setPayForm(p => ({ ...p, amount: e.target.value }))} />
+            <Input label="Payment date" type="date" value={payForm.payment_date} onChange={e => setPayForm(p => ({ ...p, payment_date: e.target.value }))} />
+          </FormRow>
+          <Select label="Payment method" value={payForm.payment_method} onChange={e => setPayForm(p => ({ ...p, payment_method: e.target.value }))}
+            options={['Bank Transfer', 'Cash', 'Cheque', 'Online Transfer', 'Other']} style={{ marginBottom: 14 }} />
+          <Input label="Reference / Transaction ID" value={payForm.reference} onChange={e => setPayForm(p => ({ ...p, reference: e.target.value }))} placeholder="TXN-12345 (optional)" style={{ marginBottom: 14 }} />
+          <Input label="Notes" value={payForm.notes} onChange={e => setPayForm(p => ({ ...p, notes: e.target.value }))} placeholder="Optional notes" style={{ marginBottom: 20 }} />
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+            <Button variant="ghost" onClick={() => setPayModal(null)}>Cancel</Button>
+            <Button onClick={recordPayment}><CreditCard size={13} /> Record Payment</Button>
+          </div>
+        </Modal>
+      )}
+
+      {/* Payments history panel */}
+      {payments.length > 0 && (
+        <Card style={{ marginTop: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ background: '#E1F5EE', borderRadius: 8, padding: 7 }}><Wallet size={14} color="#1D9E75" /></div>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#0d1b2a' }}>Payment History</div>
+                <div style={{ fontSize: 11, color: '#bbb' }}>Total paid: MVR {payments.reduce((s, p) => s + Number(p.amount), 0).toFixed(2)}</div>
+              </div>
+            </div>
+            <button onClick={() => setPaymentsTab(p => !p)} style={{ fontSize: 12, color: '#FFA500', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600 }}>
+              {paymentsTab ? 'Hide' : `Show all (${payments.length})`}
+            </button>
+          </div>
+          {paymentsTab && (
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead>
+                <tr>{['Date','Supplier','PO Product','Amount','Method','Reference'].map(h => (
+                  <th key={h} style={{ textAlign: 'left', padding: '7px 12px', fontSize: 11, color: '#bbb', borderBottom: '1px solid #f0f0f0', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.4px' }}>{h}</th>
+                ))}</tr>
+              </thead>
+              <tbody>
+                {payments.map((p, i) => {
+                  const po = pos.find(o => o.id === p.purchase_order_id)
+                  return (
+                    <tr key={p.id} style={{ borderBottom: '1px solid #f5f5f5' }}>
+                      <td style={{ padding: '9px 12px', color: '#888', fontSize: 12 }}>{p.payment_date}</td>
+                      <td style={{ padding: '9px 12px', fontWeight: 500 }}>{p.supplier_name || '—'}</td>
+                      <td style={{ padding: '9px 12px', color: '#666', fontSize: 12 }}>{po?.product_name || '—'}</td>
+                      <td style={{ padding: '9px 12px', fontWeight: 700, color: '#1D9E75' }}>MVR {Number(p.amount).toFixed(2)}</td>
+                      <td style={{ padding: '9px 12px', fontSize: 12 }}><span style={{ background: '#f5f5f5', padding: '2px 8px', borderRadius: 99, fontWeight: 500 }}>{p.payment_method}</span></td>
+                      <td style={{ padding: '9px 12px', color: '#aaa', fontSize: 11 }}>{p.reference || '—'}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          )}
+        </Card>
+      )}
+
       <Toasts toasts={toast.toasts} />
     </div>
   )

@@ -92,6 +92,28 @@ create table expenses (
   created_by uuid references auth.users(id)
 );
 
+-- PRODUCT CATEGORIES
+create table categories (
+  id uuid primary key default gen_random_uuid(),
+  name text unique not null,
+  color text default '#FFA500',
+  created_at timestamptz default now()
+);
+
+-- SUPPLIER PAYMENTS
+create table supplier_payments (
+  id uuid primary key default gen_random_uuid(),
+  purchase_order_id uuid references purchase_orders(id) on delete cascade,
+  supplier_id uuid references suppliers(id) on delete set null,
+  supplier_name text,
+  amount numeric(10,2) not null,
+  payment_date date default current_date,
+  payment_method text default 'Bank Transfer',
+  reference text,
+  notes text,
+  created_at timestamptz default now()
+);
+
 -- USER PROFILES (extends Supabase auth)
 create table profiles (
   id uuid primary key references auth.users(id) on delete cascade,
@@ -121,6 +143,8 @@ alter table products enable row level security;
 alter table orders enable row level security;
 alter table purchase_orders enable row level security;
 alter table expenses enable row level security;
+alter table categories enable row level security;
+alter table supplier_payments enable row level security;
 alter table profiles enable row level security;
 
 -- Policies: any logged-in user can read/write everything
@@ -130,5 +154,7 @@ create policy "Authenticated users can do everything" on products for all using 
 create policy "Authenticated users can do everything" on orders for all using (auth.role() = 'authenticated');
 create policy "Authenticated users can do everything" on purchase_orders for all using (auth.role() = 'authenticated');
 create policy "Authenticated users can do everything" on expenses for all using (auth.role() = 'authenticated');
+create policy "Authenticated users can do everything" on categories for all using (auth.role() = 'authenticated');
+create policy "Authenticated users can do everything" on supplier_payments for all using (auth.role() = 'authenticated');
 create policy "Users can view all profiles" on profiles for select using (auth.role() = 'authenticated');
 create policy "Users can update own profile" on profiles for update using (auth.uid() = id);
