@@ -55,13 +55,22 @@ export default function Vendors() {
   function openView(v) { setViewModal(v) }
 
   async function save() {
-    if (!form.name) return
+    if (!form.name) { toast.error('Vendor name is required'); return }
     setSaving(true)
+    // Only include columns that exist in the suppliers table
+    const payload = {
+      name: form.name,
+      contact_name: form.contact_name || null,
+      email: form.email || null,
+      phone: form.phone || null,
+      address: form.address || null,
+      notes: form.notes || null,
+    }
     const { error } = modal === 'add'
-      ? await supabase.from('suppliers').insert(form)
-      : await supabase.from('suppliers').update(form).eq('id', form.id)
+      ? await supabase.from('suppliers').insert(payload)
+      : await supabase.from('suppliers').update(payload).eq('id', form.id)
     setSaving(false)
-    if (error) { toast.error('Failed to save'); return }
+    if (error) { toast.error('Failed to save: ' + error.message); return }
     toast.success(modal === 'add' ? 'Vendor added!' : 'Updated!')
     setModal(null); load()
   }
