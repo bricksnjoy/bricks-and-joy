@@ -345,11 +345,11 @@ export default function SupplierCatalog() {
         return ''
       }
       const productName = get('product name','product','name','item','item name','product title','title')
-      const cost = get('cost','cost price','buying price','purchase price','unit cost','buy price','our price','supplier price')
-      const sell = get('delivery price','price','sell price','selling price','sale price','retail price','unit price','mrp','rate')
+      const cost = get('cost price (mvr)','cost price','cost','buying price','purchase price','unit cost','buy price','our price','supplier price')
+      const sell = get('sell price (mvr)','sell price','delivery price','selling price','sale price','retail price','unit price','price','mrp','rate')
       const onlyPrice = get('amount','value')
-      // Match image by actual row position from drawing XML
-      const imageUrl = get('image','image url','photo','photo url','picture','picture url','img','img url')
+      // Image URL column takes priority (guaranteed correct match); fallback to embedded image by row
+      const imageUrl = get('image url','image','photo url','photo','picture url','picture','img url','img')
         || rowImageMap[idx] || ''
       return {
         product_name: productName,
@@ -406,7 +406,50 @@ export default function SupplierCatalog() {
     return '#f57f17'
   }
 
-  return (
+  function downloadTemplate() {
+    const headers = [
+      'Product Name',
+      'Cost Price (MVR)',
+      'Sell Price (MVR)',
+      'Category',
+      'Unit',
+      'Notes',
+      'Image URL',
+    ]
+    const examples = [
+      ['LEGO Classic Bricks', '120.00', '350.00', 'Building & Blocks', 'piece', 'Best seller', 'https://example.com/image.jpg'],
+      ['Hot Wheels Car', '45.00', '150.00', 'Vehicles', 'piece', '', ''],
+      ['Barbie Doll', '80.00', '220.00', 'Dolls', 'piece', 'Popular item', ''],
+    ]
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...examples])
+    // Column widths
+    ws['!cols'] = [{ wch: 30 }, { wch: 18 }, { wch: 18 }, { wch: 20 }, { wch: 10 }, { wch: 25 }, { wch: 40 }]
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Products')
+
+    // Instructions sheet
+    const instr = XLSX.utils.aoa_to_sheet([
+      ['Brick\'s & Joy — Supplier Catalog Import Template'],
+      [''],
+      ['COLUMNS:'],
+      ['Product Name', 'Required. Full product name.'],
+      ['Cost Price (MVR)', 'What you PAY the supplier.'],
+      ['Sell Price (MVR)', 'What you CHARGE customers (the "Delivery price" in your sheet).'],
+      ['Category', 'e.g. Vehicles, Dolls, Building & Blocks'],
+      ['Unit', 'piece / box / set / pack / dozen'],
+      ['Notes', 'Any extra notes.'],
+      ['Image URL', 'Paste a direct image link (https://...) — this ensures the image matches the correct product.'],
+      [''],
+      ['TIP: You can also paste images directly into the cells in column A — they will be imported in row order.'],
+    ])
+    instr['!cols'] = [{ wch: 22 }, { wch: 60 }]
+    XLSX.utils.book_append_sheet(wb, instr, 'Instructions')
+
+    XLSX.writeFile(wb, 'bricksjoy-supplier-template.xlsx')
+    toast.success('Template downloaded!')
+  }
+
+
     <div>
       <style>{`
         .sc-grid { display: grid; grid-template-columns: 260px 1fr; gap: 16px; }
@@ -430,9 +473,12 @@ export default function SupplierCatalog() {
               style={{ background: selectMode ? '#FFF3E0' : undefined, color: selectMode ? '#FFA500' : undefined }}>
               <CheckCircle size={14} /> {selectMode ? 'Cancel select' : 'Select'}
             </Button>
+            <Button variant="ghost" onClick={downloadTemplate}>
+              <Download size={14} /> Template
+            </Button>
             <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv,image/*" style={{ display:'none' }} onChange={handleFileImport} />
             <Button variant="ghost" onClick={() => fileRef.current.click()}>
-              <Upload size={14} /> Import Excel / Photo
+              <Upload size={14} /> Import Excel
             </Button>
             {activeSupplier && <Button onClick={openAdd}><Plus size={14} /> Add product</Button>}
           </div>
