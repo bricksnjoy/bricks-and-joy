@@ -4,7 +4,7 @@ import { PageHeader, Card, Button, Input, Select, Table, Modal, Spinner, FormRow
 import { Plus, Trash2, Edit2, Eye, Package, ShoppingCart, Tag, TrendingDown } from 'lucide-react'
 
 const MVR_RATE = 15.4
-const EMPTY = { name: '', contact_name: '', email: '', phone: '', address: '', payment_terms: 'Net 30', currency: 'MVR', notes: '' }
+const EMPTY = { name: '', contact_name: '', email: '', phone: '', address: '', payment_terms: 'Net 30', notes: '' }
 const PAYMENT_TERMS = ['Net 7', 'Net 15', 'Net 30', 'Net 60', 'Due on receipt', 'Prepaid']
 const PRICE_EMPTY = { product_id: '', custom_name: '', price: '', supplier_sku: '', moq: 1, notes: '' }
 
