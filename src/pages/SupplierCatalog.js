@@ -50,6 +50,9 @@ export default function SupplierCatalog() {
   const [selectMode, setSelectMode] = useState(false)
   const [poModal, setPoModal] = useState(null) // catalog item to order
   const [poForm, setPoForm] = useState({ qty: 1, unit_cost: '', expected_date: '' })
+  const [batchPoModal, setBatchPoModal] = useState(false)
+  const [batchPoItems, setBatchPoItems] = useState([])
+  const [batchPoDate, setBatchPoDate] = useState('')
   const fileRef = useRef()
   const toast = useToast()
 
@@ -166,6 +169,43 @@ export default function SupplierCatalog() {
   function exitSelectMode() {
     setSelectMode(false)
     setSelectedIds(new Set())
+  }
+
+  function openBatchPO() {
+    const items = catalog.filter(i => selectedIds.has(i.id)).map(i => ({
+      ...i,
+      qty: 1,
+      order_cost: i.cost_price || ''
+    }))
+    setBatchPoItems(items)
+    setBatchPoDate('')
+    setBatchPoModal(true)
+  }
+
+  async function saveBatchPO() {
+    if (batchPoItems.length === 0) return
+    setSaving(true)
+    const records = batchPoItems.map(item => {
+      const supplier = suppliers.find(s => s.id === item.supplier_id)
+      return {
+        supplier_id: item.supplier_id || null,
+        supplier_name: item.supplier_name || supplier?.name || '',
+        product_id: null,
+        product_name: item.product_name,
+        qty: parseInt(item.qty) || 1,
+        unit_cost: parseFloat(item.order_cost) || 0,
+        status: 'pending',
+        order_date: new Date().toISOString().split('T')[0],
+        expected_date: batchPoDate || null,
+        notes: `From supplier catalog — SKU: ${item.sku || 'N/A'}`,
+      }
+    })
+    const { error } = await supabase.from('purchase_orders').insert(records)
+    setSaving(false)
+    if (error) { toast.error('Failed: ' + error.message); return }
+    toast.success(`${records.length} purchase orders created!`)
+    setBatchPoModal(false)
+    exitSelectMode()
   }
 
   function openPO(item) {
@@ -618,6 +658,9 @@ export default function SupplierCatalog() {
                         <Button variant="ghost" onClick={deleteSelected} style={{ color:'#E24B4A', fontSize:12, padding:'4px 10px' }}>
                           <Trash2 size={13} /> Delete selected
                         </Button>
+                        <Button onClick={openBatchPO} style={{ fontSize:12, padding:'4px 10px' }}>
+                          <Truck size={13} /> Create batch PO
+                        </Button>
                         <button onClick={() => setSelectedIds(new Set())} style={{ marginLeft:'auto', background:'none', border:'none', cursor:'pointer', color:'#aaa', fontSize:12 }}>Clear</button>
                       </div>
                     )}
@@ -824,6 +867,66 @@ export default function SupplierCatalog() {
           <div style={{ display:'flex', gap:10, justifyContent:'flex-end' }}>
             <Button variant="ghost" onClick={() => setPoModal(null)}>Cancel</Button>
             <Button onClick={createPO} disabled={saving}>{saving ? 'Creating…' : 'Create Purchase Order'}</Button>
+          </div>
+        </Modal>
+      )}
+
+      {batchPoModal && (
+        <Modal title={`Batch Purchase Order — ${batchPoItems.length} items`} subtitle="Creates POs for selected catalog products" onClose={() => setBatchPoModal(false)} width={680}>
+          <Input label="Expected delivery date" type="date" value={batchPoDate} onChange={e=>setBatchPoDate(e.target.value)} style={{marginBottom:16}} />
+          <div style={{border:'1px solid #f0f0f0',borderRadius:10,overflow:'hidden',marginBottom:16,maxHeight:360,overflowY:'auto'}}>
+            <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+              <thead>
+                <tr style={{background:'#fafafa'}}>
+                  <th style={{padding:'8px 12px',textAlign:'left',fontWeight:600,color:'#999',fontSize:11,textTransform:'uppercase'}}>Product</th>
+                  <th style={{padding:'8px 12px',textAlign:'left',fontWeight:600,color:'#999',fontSize:11,textTransform:'uppercase'}}>Supplier</th>
+                  <th style={{padding:'8px 12px',textAlign:'right',fontWeight:600,color:'#999',fontSize:11,textTransform:'uppercase',width:80}}>Qty</th>
+                  <th style={{padding:'8px 12px',textAlign:'right',fontWeight:600,color:'#999',fontSize:11,textTransform:'uppercase',width:110}}>Unit cost (MVR)</th>
+                  <th style={{padding:'8px 12px',textAlign:'right',fontWeight:600,color:'#999',fontSize:11,textTransform:'uppercase',width:100}}>Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {batchPoItems.map((item,i) => (
+                  <tr key={item.id} style={{borderTop:'1px solid #f5f5f5'}}>
+                    <td style={{padding:'8px 12px'}}>
+                      <div style={{display:'flex',alignItems:'center',gap:8}}>
+                        {item.image_url && <img src={item.image_url} style={{width:28,height:28,objectFit:'contain',borderRadius:5}} onError={e=>e.target.style.display='none'} />}
+                        <div>
+                          <div style={{fontWeight:600,color:'#0d1b2a'}}>{item.product_name}</div>
+                          {item.sku && <div style={{fontSize:10,color:'#aaa'}}>{item.sku}</div>}
+                        </div>
+                      </div>
+                    </td>
+                    <td style={{padding:'8px 12px',color:'#666'}}>{item.supplier_name}</td>
+                    <td style={{padding:'8px 12px'}}>
+                      <input type="number" min="1" value={item.qty}
+                        onChange={e => setBatchPoItems(prev => prev.map((it,j) => j===i ? {...it,qty:e.target.value} : it))}
+                        style={{width:'100%',padding:'4px 6px',border:'1px solid #ddd',borderRadius:5,fontSize:12,textAlign:'right',fontFamily:'inherit'}} />
+                    </td>
+                    <td style={{padding:'8px 12px'}}>
+                      <input type="number" step="0.01" min="0" value={item.order_cost}
+                        onChange={e => setBatchPoItems(prev => prev.map((it,j) => j===i ? {...it,order_cost:e.target.value} : it))}
+                        style={{width:'100%',padding:'4px 6px',border:'1px solid #ddd',borderRadius:5,fontSize:12,textAlign:'right',fontFamily:'inherit'}} />
+                    </td>
+                    <td style={{padding:'8px 12px',textAlign:'right',fontWeight:700,color:'#0d1b2a'}}>
+                      MVR {(parseFloat(item.qty||0)*parseFloat(item.order_cost||0)).toFixed(2)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr style={{background:'#fafafa',borderTop:'2px solid #eee'}}>
+                  <td colSpan={4} style={{padding:'10px 12px',fontWeight:700,color:'#0d1b2a'}}>Total</td>
+                  <td style={{padding:'10px 12px',textAlign:'right',fontWeight:700,color:'#FFA500'}}>
+                    MVR {batchPoItems.reduce((s,i)=>s+(parseFloat(i.qty||0)*parseFloat(i.order_cost||0)),0).toFixed(2)}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+          <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+            <Button variant="ghost" onClick={() => setBatchPoModal(false)}>Cancel</Button>
+            <Button onClick={saveBatchPO} disabled={saving}>{saving?'Creating…':`Create ${batchPoItems.length} purchase orders`}</Button>
           </div>
         </Modal>
       )}

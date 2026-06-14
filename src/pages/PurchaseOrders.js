@@ -41,22 +41,26 @@ export default function PurchaseOrders() {
   const [batchForm, setBatchForm] = useState({ supplier_id: '', supplier_name: '', order_date: new Date().toISOString().split('T')[0], expected_date: '', items: [] })
   const [supplierForm, setSupplierForm] = useState({ name: '', contact_name: '', email: '', phone: '', address: '' })
   const [saving, setSaving] = useState(false)
+  const [supplierCatalog, setSupplierCatalog] = useState([])
+  const [itemSearch, setItemSearch] = useState({})
   const toast = useToast()
 
   useEffect(() => { load() }, [])
 
   async function load() {
     setLoading(true)
-    const [p, s, pr, pay] = await Promise.all([
+    const [p, s, pr, pay, sp] = await Promise.all([
       supabase.from('purchase_orders').select('*').order('created_at', { ascending: false }),
       supabase.from('suppliers').select('*').order('name'),
       supabase.from('products').select('*').order('name'),
       supabase.from('supplier_payments').select('*').order('payment_date', { ascending: false }),
+      supabase.from('supplier_products').select('*').order('product_name'),
     ])
     setPOs(p.data || [])
     setSuppliers(s.data || [])
     setProducts(pr.data || [])
     setPayments(pay.data || [])
+    setSupplierCatalog(sp.data || [])
     setLoading(false)
   }
 
@@ -87,8 +91,15 @@ export default function PurchaseOrders() {
   function updateItem(idx, key, value) {
     const newItems = [...batchForm.items]
     if (key === 'product_id') {
-      const p = products.find(p => p.id === value)
-      newItems[idx] = { ...newItems[idx], product_id: value, product_name: p?.name || '', unit_cost: p?.cost_price || 0, current_stock: p?.stock_qty || 0 }
+      if (value.startsWith('cat:')) {
+        // From supplier catalog
+        const catId = value.replace('cat:', '')
+        const cp = supplierCatalog.find(p => p.id === catId)
+        newItems[idx] = { ...newItems[idx], product_id: value, product_name: cp?.product_name || '', unit_cost: cp?.cost_price || 0, current_stock: '—', image_url: cp?.image_url || '' }
+      } else {
+        const p = products.find(p => p.id === value)
+        newItems[idx] = { ...newItems[idx], product_id: value, product_name: p?.name || '', unit_cost: p?.cost_price || 0, current_stock: p?.stock_qty || 0, image_url: p?.image_url || '' }
+      }
     } else {
       newItems[idx] = { ...newItems[idx], [key]: value }
     }
@@ -111,7 +122,7 @@ export default function PurchaseOrders() {
     const records = validItems.map(item => ({
       supplier_id: batchForm.supplier_id || null,
       supplier_name: batchForm.supplier_name,
-      product_id: item.product_id,
+      product_id: item.product_id?.startsWith('cat:') ? null : (item.product_id || null),
       product_name: item.product_name,
       qty: parseInt(item.qty),
       unit_cost: parseFloat(item.unit_cost),
@@ -328,11 +339,67 @@ export default function PurchaseOrders() {
                   {batchForm.items.map((item, idx) => (
                     <tr key={idx} style={{ borderTop: '1px solid #f5f5f5' }}>
                       <td style={{ padding: 6 }}>
-                        <select value={item.product_id} onChange={e => updateItem(idx, 'product_id', e.target.value)}
-                          style={{ width: '100%', padding: '6px 8px', border: '1px solid #ddd', borderRadius: 6, fontSize: 12, fontFamily: 'inherit', background: '#fff' }}>
-                          <option value="">— Select —</option>
-                          {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                        </select>
+                        {item.product_id ? (
+                          <div style={{ display:'flex', alignItems:'center', gap:6, padding:'4px 8px', border:'1px solid #ddd', borderRadius:6, background:'#fff' }}>
+                            {item.image_url && <img src={item.image_url} style={{width:24,height:24,objectFit:'contain',borderRadius:4}} onError={e=>e.target.style.display='none'} />}
+                            <span style={{flex:1,fontSize:12,color:'#0d1b2a'}}>{item.product_name}</span>
+                            <button onClick={() => updateItem(idx,'product_id','')} style={{background:'none',border:'none',cursor:'pointer',color:'#aaa',padding:0}}><X size={12}/></button>
+                          </div>
+                        ) : (
+                          <div style={{position:'relative'}}>
+                            <input
+                              value={itemSearch[idx]||''}
+                              onChange={e => setItemSearch(p=>({...p,[idx]:e.target.value}))}
+                              placeholder="Search product..."
+                              style={{width:'100%',padding:'6px 8px',border:'1px solid #ddd',borderRadius:6,fontSize:12,fontFamily:'inherit',boxSizing:'border-box'}}
+                              autoFocus={idx===batchForm.items.length-1}
+                            />
+                            {(itemSearch[idx]||'').length > 0 && (() => {
+                              const q = (itemSearch[idx]||'').toLowerCase()
+                              const suppId = batchForm.supplier_id
+                              // Catalog items for this supplier
+                              const catItems = supplierCatalog
+                                .filter(p => (!suppId || p.supplier_id === suppId) && p.product_name?.toLowerCase().includes(q))
+                                .slice(0,8)
+                              // Inventory items
+                              const invItems = products
+                                .filter(p => p.name?.toLowerCase().includes(q))
+                                .slice(0,5)
+                              const total = catItems.length + invItems.length
+                              if (total === 0) return null
+                              return (
+                                <div style={{position:'absolute',top:'100%',left:0,right:0,background:'#fff',border:'1px solid #e0e0e0',borderRadius:8,boxShadow:'0 4px 16px rgba(0,0,0,0.1)',zIndex:999,maxHeight:220,overflowY:'auto'}}>
+                                  {catItems.length > 0 && <div style={{padding:'4px 10px',fontSize:10,fontWeight:700,color:'#FFA500',textTransform:'uppercase',letterSpacing:'0.5px',borderBottom:'1px solid #f5f5f5'}}>Supplier Catalog</div>}
+                                  {catItems.map(p => (
+                                    <div key={'cat:'+p.id} onClick={() => { updateItem(idx,'product_id','cat:'+p.id); setItemSearch(s=>({...s,[idx]:''})) }}
+                                      style={{display:'flex',alignItems:'center',gap:8,padding:'7px 10px',cursor:'pointer',fontSize:12,color:'#0d1b2a',borderBottom:'1px solid #f9f9f9'}}
+                                      onMouseEnter={e=>e.currentTarget.style.background='#FFF8E0'}
+                                      onMouseLeave={e=>e.currentTarget.style.background=''}>
+                                      {p.image_url && <img src={p.image_url} style={{width:22,height:22,objectFit:'contain',borderRadius:4,flexShrink:0}} onError={e=>e.target.style.display='none'} />}
+                                      <div style={{flex:1}}>
+                                        <div>{p.product_name}</div>
+                                        {p.cost_price && <div style={{fontSize:10,color:'#aaa'}}>Cost: MVR {Number(p.cost_price).toFixed(2)}</div>}
+                                      </div>
+                                      {p.sku && <span style={{fontSize:10,color:'#ccc'}}>{p.sku}</span>}
+                                    </div>
+                                  ))}
+                                  {invItems.length > 0 && <div style={{padding:'4px 10px',fontSize:10,fontWeight:700,color:'#378ADD',textTransform:'uppercase',letterSpacing:'0.5px',borderBottom:'1px solid #f5f5f5',marginTop:catItems.length?4:0}}>Inventory</div>}
+                                  {invItems.map(p => (
+                                    <div key={p.id} onClick={() => { updateItem(idx,'product_id',p.id); setItemSearch(s=>({...s,[idx]:''})) }}
+                                      style={{display:'flex',alignItems:'center',gap:8,padding:'7px 10px',cursor:'pointer',fontSize:12,color:'#0d1b2a',borderBottom:'1px solid #f9f9f9'}}
+                                      onMouseEnter={e=>e.currentTarget.style.background='#f0f7ff'}
+                                      onMouseLeave={e=>e.currentTarget.style.background=''}>
+                                      <div style={{flex:1}}>
+                                        <div>{p.name}</div>
+                                        <div style={{fontSize:10,color:'#aaa'}}>Stock: {p.stock_qty}</div>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )
+                            })()}
+                          </div>
+                        )}
                       </td>
                       <td style={{ padding: '6px 10px', textAlign: 'right', color: item.current_stock <= 10 ? '#c62828' : '#888' }}>
                         {item.product_id ? item.current_stock : '—'}
