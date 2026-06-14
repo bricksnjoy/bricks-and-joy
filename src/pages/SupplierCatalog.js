@@ -295,8 +295,8 @@ export default function SupplierCatalog() {
       const relsFile = zip.files['xl/drawings/_rels/drawing1.xml.rels']
       if (relsFile) {
         const txt = await relsFile.async('string')
-        ;[...txt.matchAll(/Id="(rId\d+)"[^>]*Target="[^"]*\/([^"\/]+)"/g)]
-          .forEach(([,id,fname]) => { ridToFile[id] = fname })
+        const relMatches = [...txt.matchAll(/Id="(rId\d+)"[^>]*Target="[^"]*\/([^"\/]+)"/g)]
+        relMatches.forEach(([,id,fname]) => { ridToFile[id] = fname })
       }
 
       // Parse drawing XML using pure regex (namespaces stripped by matching `:row>`, `embed=`)
@@ -449,7 +449,7 @@ export default function SupplierCatalog() {
     toast.success('Template downloaded!')
   }
 
-
+  return (
     <div>
       <style>{`
         .sc-grid { display: grid; grid-template-columns: 260px 1fr; gap: 16px; }
