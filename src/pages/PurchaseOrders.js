@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Button, Input, Select, Table, Modal, Spinner, FormRow, useToast, Toasts, Badge } from '../components/UI'
-import { Plus, Trash2, Package, Truck, X, Info, AlertTriangle, CreditCard, Wallet, CheckCircle } from 'lucide-react'
+import { Plus, Trash2, Package, Truck, X, Info, AlertTriangle, CreditCard, Wallet, CheckCircle, Paperclip, Eye } from 'lucide-react'
 
 const AVATAR_COLORS = ['#7F77DD', '#1D9E75', '#FFA500', '#378ADD', '#E24B4A', '#0F6E56']
 function avatarColor(name = '') {
@@ -43,6 +43,9 @@ export default function PurchaseOrders() {
   const [saving, setSaving] = useState(false)
   const [supplierCatalog, setSupplierCatalog] = useState([])
   const [itemSearch, setItemSearch] = useState({})
+  const [focusedRow, setFocusedRow] = useState(null)
+  const [slipModal, setSlipModal] = useState(null) // PO object
+  const [slipUploading, setSlipUploading] = useState(false)
   const toast = useToast()
 
   useEffect(() => { load() }, [])
@@ -129,6 +132,7 @@ export default function PurchaseOrders() {
       status: 'pending',
       order_date: batchForm.order_date,
       expected_date: batchForm.expected_date || null,
+      image_url: item.image_url || null,
     }))
     
     const { error } = await supabase.from('purchase_orders').insert(records)
@@ -142,14 +146,23 @@ export default function PurchaseOrders() {
   async function updateStatus(id, status) {
     const po = pos.find(p => p.id === id)
     await supabase.from('purchase_orders').update({ status }).eq('id', id)
-    
+
     // If received, add to stock
-    if (status === 'received' && po?.product_id && po?.status !== 'received') {
-      const { data: prod } = await supabase.from('products').select('stock_qty, name').eq('id', po.product_id).single()
-      if (prod) {
-        const newStock = prod.stock_qty + po.qty
-        await supabase.from('products').update({ stock_qty: newStock }).eq('id', po.product_id)
-        toast.success(`Stock updated: ${prod.name} +${po.qty} = ${newStock}`)
+    if (status === 'received' && po?.status !== 'received') {
+      if (po?.product_id) {
+        const { data: prod } = await supabase.from('products').select('stock_qty, name').eq('id', po.product_id).single()
+        if (prod) {
+          const newStock = prod.stock_qty + po.qty
+          await supabase.from('products').update({ stock_qty: newStock }).eq('id', po.product_id)
+          toast.success(`Stock updated: ${prod.name} +${po.qty} = ${newStock}`)
+        }
+      }
+      // Prompt to record payment if not fully paid
+      const paid = payments.filter(p => p.purchase_order_id === id).reduce((s, p) => s + Number(p.amount), 0)
+      const total = Number(po?.total_cost || 0)
+      if (paid < total) {
+        const updatedPO = { ...po, status: 'received' }
+        openPayModal(updatedPO)
       }
     }
     load()
@@ -210,6 +223,22 @@ export default function PurchaseOrders() {
     load()
   }
 
+  async function uploadSlip(file) {
+    if (!file || !slipModal) return
+    setSlipUploading(true)
+    const reader = new FileReader()
+    reader.onload = async () => {
+      const dataUrl = reader.result
+      const { error } = await supabase.from('purchase_orders').update({ slip_url: dataUrl }).eq('id', slipModal.id)
+      setSlipUploading(false)
+      if (error) { toast.error('Failed to save slip'); return }
+      toast.success('Payment slip saved')
+      setSlipModal(prev => ({ ...prev, slip_url: dataUrl }))
+      load()
+    }
+    reader.readAsDataURL(file)
+  }
+
   function paidForPO(poId) {
     return payments.filter(p => p.purchase_order_id === poId).reduce((s, p) => s + Number(p.amount), 0)
   }
@@ -231,7 +260,14 @@ export default function PurchaseOrders() {
     { key: 'supplier_name', label: 'Supplier', render: r => r.supplier_name
       ? <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}><Avatar name={r.supplier_name} /><span style={{ fontWeight: 500, color: '#0d1b2a' }}>{r.supplier_name}</span></div>
       : <span style={{ color: '#aaa' }}>—</span> },
-    { key: 'product_name', label: 'Product' },
+    { key: 'product_name', label: 'Product', render: r => (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        {r.image_url
+          ? <img src={r.image_url} style={{ width: 34, height: 34, objectFit: 'contain', borderRadius: 6, border: '1px solid #f0f0f0', flexShrink: 0 }} onError={e => e.target.style.display='none'} />
+          : <div style={{ width: 34, height: 34, borderRadius: 6, background: '#f5f5f5', flexShrink: 0 }} />}
+        <span style={{ fontWeight: 500 }}>{r.product_name}</span>
+      </div>
+    )},
     { key: 'qty', label: 'Qty', render: r => <strong>{r.qty}</strong> },
     { key: 'unit_cost', label: 'Unit cost', render: r => `MVR ${Number(r.unit_cost).toFixed(2)}` },
     { key: 'total_cost', label: 'Total', render: r => <span style={{ fontWeight: 500 }}>MVR {Number(r.total_cost || 0).toFixed(2)}</span> },
@@ -248,6 +284,12 @@ export default function PurchaseOrders() {
         {payStatusBadge(r)}
         <button className="icon-btn primary" title="Record payment" onClick={() => openPayModal(r)}><CreditCard size={12} /></button>
       </div>
+    )},
+    { key: 'slip', label: 'Slip', render: r => (
+      <button onClick={() => setSlipModal(r)} title="Payment slip" style={{ background: r.slip_url ? '#E1F5EE' : '#fafafa', border: `1px solid ${r.slip_url ? '#1D9E75' : '#e0e0e0'}`, borderRadius: 6, cursor: 'pointer', padding: '5px 8px', display: 'flex', alignItems: 'center', gap: 4, color: r.slip_url ? '#1D9E75' : '#aaa' }}>
+        {r.slip_url ? <Eye size={13} /> : <Paperclip size={13} />}
+        <span style={{ fontSize: 10, fontWeight: 600 }}>{r.slip_url ? 'View' : 'Attach'}</span>
+      </button>
     )},
     { key: 'actions', label: '', render: r => <Button variant="danger" size="sm" onClick={() => del(r.id)}><Trash2 size={13} /></Button> },
   ]
@@ -350,21 +392,21 @@ export default function PurchaseOrders() {
                             <input
                               value={itemSearch[idx]||''}
                               onChange={e => setItemSearch(p=>({...p,[idx]:e.target.value}))}
+                              onFocus={() => setFocusedRow(idx)}
+                              onBlur={() => setTimeout(() => setFocusedRow(f => f === idx ? null : f), 180)}
                               placeholder="Search product..."
                               style={{width:'100%',padding:'6px 8px',border:'1px solid #ddd',borderRadius:6,fontSize:12,fontFamily:'inherit',boxSizing:'border-box'}}
                               autoFocus={idx===batchForm.items.length-1}
                             />
-                            {(itemSearch[idx]||'').length > 0 && (() => {
+                            {(focusedRow === idx || (itemSearch[idx]||'').length > 0) && (() => {
                               const q = (itemSearch[idx]||'').toLowerCase()
                               const suppId = batchForm.supplier_id
-                              // Catalog items for this supplier
                               const catItems = supplierCatalog
-                                .filter(p => (!suppId || p.supplier_id === suppId) && p.product_name?.toLowerCase().includes(q))
-                                .slice(0,8)
-                              // Inventory items
+                                .filter(p => (!suppId || p.supplier_id === suppId) && (!q || p.product_name?.toLowerCase().includes(q)))
+                                .slice(0, q ? 8 : 3)
                               const invItems = products
-                                .filter(p => p.name?.toLowerCase().includes(q))
-                                .slice(0,5)
+                                .filter(p => !q || p.name?.toLowerCase().includes(q))
+                                .slice(0, q ? 5 : 3)
                               const total = catItems.length + invItems.length
                               if (total === 0) return null
                               return (
@@ -534,6 +576,38 @@ export default function PurchaseOrders() {
             </table>
           )}
         </Card>
+      )}
+
+      {/* Slip modal */}
+      {slipModal && (
+        <Modal title="Payment Slip" subtitle={`${slipModal.product_name} — ${slipModal.supplier_name || ''}`} onClose={() => setSlipModal(null)} width={520}>
+          {slipModal.slip_url ? (
+            <div>
+              <img src={slipModal.slip_url} alt="Payment slip" style={{ width: '100%', borderRadius: 10, border: '1px solid #eee', marginBottom: 16, maxHeight: 400, objectFit: 'contain' }} />
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'space-between' }}>
+                <Button variant="ghost" onClick={() => { const a = document.createElement('a'); a.href = slipModal.slip_url; a.download = 'slip.jpg'; a.click() }}>Download</Button>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <label style={{ cursor: 'pointer' }}>
+                    <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => uploadSlip(e.target.files[0])} />
+                    <Button variant="ghost" as="span">Replace</Button>
+                  </label>
+                  <Button variant="danger" onClick={async () => { await supabase.from('purchase_orders').update({ slip_url: null }).eq('id', slipModal.id); toast.success('Slip removed'); setSlipModal(null); load() }}>Remove</Button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <label
+              onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = '#FFA500' }}
+              onDragLeave={e => e.currentTarget.style.borderColor = '#e0e0e0'}
+              onDrop={e => { e.preventDefault(); e.currentTarget.style.borderColor = '#e0e0e0'; uploadSlip(e.dataTransfer.files[0]) }}
+              style={{ display: 'block', border: '2px dashed #e0e0e0', borderRadius: 12, padding: '40px 20px', textAlign: 'center', cursor: 'pointer', transition: 'border-color 0.2s' }}>
+              <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => uploadSlip(e.target.files[0])} />
+              <Paperclip size={32} color="#ccc" style={{ marginBottom: 12 }} />
+              <div style={{ fontSize: 14, fontWeight: 600, color: '#555', marginBottom: 6 }}>{slipUploading ? 'Uploading…' : 'Drag & drop or click to upload'}</div>
+              <div style={{ fontSize: 12, color: '#aaa' }}>Payment receipt, bank slip, or invoice image</div>
+            </label>
+          )}
+        </Modal>
       )}
 
       <Toasts toasts={toast.toasts} />
