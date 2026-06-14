@@ -87,7 +87,7 @@ export default function SupplierCatalog() {
   }
 
   function openAdd() {
-    setForm({ product_name:'', sku:'', category:'', cost_price:'', sell_price:'', unit:'piece', notes:'' })
+    setForm({ product_name:'', sku:'', category:'', cost_price:'', sell_price:'', unit:'piece', notes:'', image_url:'' })
     setEditItem(null)
     setAddModal(true)
   }
@@ -96,7 +96,7 @@ export default function SupplierCatalog() {
     setForm({
       product_name: item.product_name, sku: item.sku||'', category: item.category||'',
       cost_price: item.cost_price||'', sell_price: item.sell_price||'',
-      unit: item.unit||'piece', notes: item.notes||''
+      unit: item.unit||'piece', notes: item.notes||'', image_url: item.image_url||''
     })
     setEditItem(item)
     setAddModal(true)
@@ -121,6 +121,7 @@ export default function SupplierCatalog() {
       unit: form.unit || 'piece',
       notes: form.notes.trim() || null,
       barcode,
+      image_url: form.image_url.trim() || null,
     }
     const { error } = editItem
       ? await supabase.from('supplier_products').update(payload).eq('id', editItem.id)
@@ -236,6 +237,7 @@ export default function SupplierCatalog() {
         sell_price: sell || onlyPrice || '',
         unit: get('unit','uom','unit of measure','sold per') || 'piece',
         notes: get('notes','note','remarks','remark','comment','description') || '',
+        image_url: get('image','image url','photo','photo url','picture','picture url','img','img url') || '',
         _selected: true,
       }
     }).filter(r => r.product_name)
@@ -259,6 +261,7 @@ export default function SupplierCatalog() {
       unit: r.unit || 'piece',
       notes: r.notes || null,
       barcode: genBarcode(r.product_name, activeSupplier.id + r.product_name),
+      image_url: r.image_url || null,
     }))
     const { error } = await supabase.from('supplier_products').insert(records)
     setSaving(false)
@@ -367,7 +370,7 @@ export default function SupplierCatalog() {
                 {comparedGroups.length === 0 ? (
                   <Card><p style={{ textAlign:'center', color:'#ccc', padding:'40px 0', fontSize:13 }}>No products shared across multiple suppliers{search && ` matching "${search}"`}</p></Card>
                 ) : comparedGroups.map(group => {
-                  const prices = group.map(i => Number(i.sell_price || i.cost_price)).filter(p => p > 0)
+                  const prices = group.map(i => Number(i.cost_price || i.sell_price)).filter(p => p > 0)
                   const minP = prices.length ? Math.min(...prices) : 0
                   return (
                     <Card key={group[0].product_name} style={{ marginBottom: 12 }}>
@@ -375,10 +378,10 @@ export default function SupplierCatalog() {
                         <Package size={15} color="#FFA500" />
                         <span style={{ fontSize:14, fontWeight:700, color:'#0d1b2a' }}>{group[0].product_name}</span>
                         <span style={{ fontSize:11, color:'#bbb', background:'#f5f5f5', padding:'2px 8px', borderRadius:99 }}>{group[0].category || 'No category'}</span>
-                        <span style={{ marginLeft:'auto', fontSize:11, fontWeight:700, color:'#1D9E75' }}>Cheapest: MVR {minP.toFixed(2)}</span>
+                        <span style={{ marginLeft:'auto', fontSize:11, fontWeight:700, color:'#1D9E75' }}>Cheapest cost: MVR {minP.toFixed(2)}</span>
                       </div>
-                      {group.sort((a,b) => (Number(a.sell_price||a.cost_price)||Infinity)-(Number(b.sell_price||b.cost_price)||Infinity)).map((item, i) => {
-                        const p = Number(item.sell_price || item.cost_price)
+                      {group.sort((a,b) => (Number(a.cost_price||a.sell_price)||Infinity)-(Number(b.cost_price||b.sell_price)||Infinity)).map((item, i) => {
+                        const p = Number(item.cost_price || item.sell_price)
                         const isMin = p === minP && p > 0
                         const savings = i > 0 && p > 0 && minP > 0 ? ((p - minP) / minP * 100).toFixed(0) : null
                         return (
@@ -388,7 +391,9 @@ export default function SupplierCatalog() {
                               <div style={{ fontSize:13, fontWeight:500, color:'#0d1b2a' }}>{item.supplier_name}</div>
                               {item.sku && <div style={{ fontSize:11, color:'#bbb' }}>SKU: {item.sku}</div>}
                             </div>
+                            {item.image_url && <img src={item.image_url} alt="" style={{ width:36, height:36, objectFit:'cover', borderRadius:6, flexShrink:0 }} onError={e=>e.target.style.display='none'} />}
                             <div style={{ textAlign:'right' }}>
+                              <div style={{ fontSize:11, color:'#bbb', marginBottom:2 }}>Cost price</div>
                               <div style={{ fontSize:15, fontWeight:700, color: priceColor(p, prices) }}>
                                 {p > 0 ? `MVR ${p.toFixed(2)}` : '—'}
                                 {isMin && <span style={{ marginLeft:6, fontSize:10, background:'#E1F5EE', color:'#1D9E75', padding:'1px 6px', borderRadius:99, fontWeight:600 }}>Cheapest</span>}
@@ -435,7 +440,7 @@ export default function SupplierCatalog() {
                   <>
                     <div style={{ display:'grid', gridTemplateColumns:'1fr auto auto auto auto', gap:12, padding:'8px 16px', borderBottom:'2px solid #f0f0f0', fontSize:10, color:'#bbb', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.5px' }}>
                       <div>Product</div>
-                      <div style={{ textAlign:'right', width:80 }}>Sell Price</div>
+                      <div style={{ textAlign:'right', width:130 }}>Cost / Sell Price</div>
                       <div style={{ width:60, textAlign:'center' }}>SKU</div>
                       <div style={{ width:30 }}></div>
                       <div style={{ width:30 }}></div>
@@ -446,7 +451,10 @@ export default function SupplierCatalog() {
                         onMouseLeave={e=>e.currentTarget.style.background=''}>
                         <div>
                           <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                            {!activeSupplier && <Avatar name={item.supplier_name||'?'} size={26} />}
+                            {item.image_url
+                              ? <img src={item.image_url} alt="" style={{ width:34, height:34, objectFit:'cover', borderRadius:7, flexShrink:0 }} onError={e=>{e.target.style.display='none'}} />
+                              : !activeSupplier ? <Avatar name={item.supplier_name||'?'} size={26} /> : null
+                            }
                             <div>
                               <div style={{ fontSize:13, fontWeight:600, color:'#0d1b2a' }}>{item.product_name}</div>
                               <div style={{ fontSize:11, color:'#bbb' }}>
@@ -457,8 +465,11 @@ export default function SupplierCatalog() {
                             </div>
                           </div>
                         </div>
-                        <div style={{ fontSize:13, fontWeight:700, color:'#0d1b2a', width:80, textAlign:'right' }}>
-                          {item.sell_price ? `MVR ${Number(item.sell_price).toFixed(2)}` : item.cost_price ? `MVR ${Number(item.cost_price).toFixed(2)}` : <span style={{color:'#ddd'}}>—</span>}
+                        <div style={{ textAlign:'right', width:130 }}>
+                          {item.cost_price && <div style={{ fontSize:11, color:'#bbb' }}>Cost: MVR {Number(item.cost_price).toFixed(2)}</div>}
+                          <div style={{ fontSize:13, fontWeight:700, color:'#0d1b2a' }}>
+                            {item.sell_price ? `Sell: MVR ${Number(item.sell_price).toFixed(2)}` : item.cost_price ? '' : <span style={{color:'#ddd'}}>—</span>}
+                          </div>
                         </div>
                         <div style={{ width:60, textAlign:'center', fontSize:11, color:'#aaa' }}>{item.sku || '—'}</div>
                         <button className="icon-btn" onClick={() => showBarcode(item)} title="Barcode / QR"><Barcode size={13}/></button>
@@ -503,6 +514,8 @@ export default function SupplierCatalog() {
               </div>
             )}
           </FormRow>
+          <Input label="Image URL (optional)" value={form.image_url} onChange={e => setForm(p=>({...p,image_url:e.target.value}))} placeholder="https://…" style={{ marginBottom:8 }} />
+          {form.image_url && <div style={{ marginBottom:16 }}><img src={form.image_url} alt="preview" style={{ height:60, borderRadius:8, objectFit:'cover' }} onError={e=>e.target.style.display='none'} /></div>}
           <Input label="Notes" value={form.notes} onChange={e => setForm(p=>({...p,notes:e.target.value}))} placeholder="Any notes about this product from this supplier" style={{ marginBottom:20 }} />
           <div style={{ display:'flex', gap:10, justifyContent:'flex-end' }}>
             <Button variant="ghost" onClick={() => setAddModal(false)}>Cancel</Button>
