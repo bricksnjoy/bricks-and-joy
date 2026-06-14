@@ -264,29 +264,84 @@ export default function SupplierCatalog() {
 
     const buf = await file.arrayBuffer()
 
-    // Extract embedded images from xlsx ZIP — positional: image1→row0, image2→row1 …
-    // Excel stores images in xl/media/ numbered in the order they appear top-to-bottom
-    let rowImageMap = {}
-    try {
-      const zip = await JSZip.loadAsync(buf)
-      const mediaFiles = Object.keys(zip.files)
-        .filter(n => /^xl\/media\/image\d+\.(png|jpe?g|gif|webp|bmp)/i.test(n))
-        .sort((a, b) => {
-          const na = parseInt(a.match(/image(\d+)/i)?.[1] || 0)
-          const nb = parseInt(b.match(/image(\d+)/i)?.[1] || 0)
-          return na - nb
-        })
-      await Promise.all(mediaFiles.map(async (path, i) => {
-        const blob = await zip.files[path].async('blob')
-        rowImageMap[i] = URL.createObjectURL(blob)
-      }))
-    } catch (e) {
-      console.warn('Image extraction failed:', e)
-    }
-
     const wb = XLSX.read(buf, { type: 'array' })
     const ws = wb.Sheets[wb.SheetNames[0]]
     const rows = XLSX.utils.sheet_to_json(ws, { defval: '' })
+    // Header row is first row of the sheet (sheetStartRow is 1-indexed)
+    const sheetStartRow = ws['!ref'] ? parseInt(ws['!ref'].match(/\d+/)?.[0] || 1) : 1
+
+    // Extract embedded images, map to data row index via drawing XML
+    let rowImageMap = {}
+    try {
+      const zip = await JSZip.loadAsync(buf)
+
+      // Build filename→blobURL map for all media images
+      const mediaBlobs = {}
+      await Promise.all(
+        Object.keys(zip.files)
+          .filter(n => /^xl\/media\//i.test(n) && !zip.files[n].dir)
+          .map(async n => {
+            const blob = await zip.files[n].async('blob')
+            mediaBlobs[n.split('/').pop()] = URL.createObjectURL(blob)
+          })
+      )
+
+      // Parse drawing rels: rId → filename
+      const ridToFile = {}
+      const relsFile = zip.files['xl/drawings/_rels/drawing1.xml.rels']
+      if (relsFile) {
+        const relsXml = await relsFile.async('string')
+        // Strip namespace prefixes for reliable parsing
+        const clean = relsXml.replace(/<(\/?)\w+:/g, '<$1')
+        const parser = new DOMParser()
+        const doc = parser.parseFromString(clean, 'text/xml')
+        doc.querySelectorAll('Relationship').forEach(el => {
+          const id = el.getAttribute('Id')
+          const target = el.getAttribute('Target') || ''
+          const fname = target.split('/').pop()
+          if (id && fname) ridToFile[id] = fname
+        })
+      }
+
+      // Parse drawing XML: get row anchor + rId for each image
+      const drawFile = zip.files['xl/drawings/drawing1.xml']
+      if (drawFile) {
+        const drawXml = await drawFile.async('string')
+        // Strip namespace prefixes so DOMParser handles it uniformly
+        const clean = drawXml.replace(/<(\/?)\w+:/g, '<$1').replace(/\s\w+:(\w+=)/g, ' $1')
+        const parser = new DOMParser()
+        const doc = parser.parseFromString(clean, 'text/xml')
+        // Each image is inside a twoCellAnchor or oneCellAnchor
+        const anchors = [...doc.querySelectorAll('twoCellAnchor, oneCellAnchor, absoluteAnchor')]
+        anchors.forEach(anchor => {
+          const fromEl = anchor.querySelector('from')
+          const blip = anchor.querySelector('blip')
+          if (!fromEl || !blip) return
+          const xmlRow = parseInt(fromEl.querySelector('row')?.textContent || '-1') // 0-indexed
+          const rId = blip.getAttribute('embed') || blip.getAttribute('r:embed') || ''
+          if (xmlRow < 0 || !rId) return
+          // xmlRow 0 = Excel row 1 (header when sheetStartRow=1), data starts at xmlRow = sheetStartRow
+          const dataIdx = xmlRow - sheetStartRow
+          const fname = ridToFile[rId]
+          if (fname && mediaBlobs[fname] && dataIdx >= 0) {
+            rowImageMap[dataIdx] = mediaBlobs[fname]
+          }
+        })
+      }
+
+      // Fallback: positional if XML parsing gave nothing
+      if (Object.keys(rowImageMap).length === 0) {
+        const ordered = Object.keys(zip.files)
+          .filter(n => /^xl\/media\/image\d+\./i.test(n))
+          .sort((a,b) => parseInt(a.match(/\d+/)?.[0]||0) - parseInt(b.match(/\d+/)?.[0]||0))
+        ordered.forEach((path, i) => {
+          const fname = path.split('/').pop()
+          if (mediaBlobs[fname]) rowImageMap[i] = mediaBlobs[fname]
+        })
+      }
+    } catch (e) {
+      console.warn('Image extraction:', e)
+    }
 
     const mapped = rows.map((row, idx) => {
       const get = (...names) => {
@@ -412,9 +467,11 @@ export default function SupplierCatalog() {
               {suppliers.map(s => (
                 <div key={s.id} onClick={() => { setActiveSupplier(s); setCompareMode(false) }}
                   className={`sc-supplier-item${activeSupplier?.id === s.id ? ' active' : ''}`}>
-                  <Avatar name={s.name} />
+                  <div style={{ width:32, height:32, borderRadius:8, background: avatarColor(s.name)+'22', color: avatarColor(s.name), display:'flex', alignItems:'center', justifyContent:'center', fontSize:13, fontWeight:700, flexShrink:0 }}>
+                    {s.name.charAt(0).toUpperCase()}
+                  </div>
                   <div style={{ minWidth: 0, flex: 1 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: '#0d1b2a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: activeSupplier?.id === s.id ? '#0d1b2a' : '#0d1b2a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</div>
                     <div style={{ fontSize: 11, color: '#bbb' }}>{supplierCatalogCount(s.id)} products</div>
                   </div>
                 </div>
