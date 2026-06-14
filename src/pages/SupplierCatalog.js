@@ -46,6 +46,7 @@ export default function SupplierCatalog() {
   const [importRows, setImportRows] = useState([])
   const [importLoading, setImportLoading] = useState(false)
   const [barcodePreview, setBarcodePreview] = useState(null) // { item, svgUrl, qrUrl }
+  const [selectedIds, setSelectedIds] = useState(new Set())
   const fileRef = useRef()
   const toast = useToast()
 
@@ -141,6 +142,24 @@ export default function SupplierCatalog() {
     load()
   }
 
+  async function deleteSelected() {
+    if (selectedIds.size === 0) return
+    if (!window.confirm(`Delete ${selectedIds.size} product(s)?`)) return
+    await supabase.from('supplier_products').delete().in('id', [...selectedIds])
+    toast.success(`Deleted ${selectedIds.size} products`)
+    setSelectedIds(new Set())
+    load()
+  }
+
+  function toggleSelect(id) {
+    setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+  }
+
+  function toggleSelectAll() {
+    if (selectedIds.size === visibleCatalog.length) setSelectedIds(new Set())
+    else setSelectedIds(new Set(visibleCatalog.map(i => i.id)))
+  }
+
   // ── Barcode preview ──────────────────────────────────────────────────────────
   async function showBarcode(item) {
     const code = item.barcode || genBarcode(item.product_name, item.id)
@@ -210,19 +229,51 @@ export default function SupplierCatalog() {
 
     const buf = await file.arrayBuffer()
 
-    // Extract embedded images from xlsx ZIP (images live in xl/media/)
-    let embeddedImages = [] // array of data URLs, ordered by filename
+    // Extract embedded images from xlsx ZIP, mapped to row numbers via drawing XML
+    // rowImageMap[rowIndex] = objectURL  (0-based, matching json rows)
+    let rowImageMap = {}
     try {
       const zip = await JSZip.loadAsync(buf)
-      const mediaFiles = Object.keys(zip.files)
-        .filter(n => n.startsWith('xl/media/') && !zip.files[n].dir)
-        .sort() // image1.png, image2.png … order matches row order
-      embeddedImages = await Promise.all(
-        mediaFiles.map(async name => {
-          const blob = await zip.files[name].async('blob')
-          return URL.createObjectURL(blob)
-        })
+
+      // Build media filename → object URL
+      const mediaUrls = {}
+      await Promise.all(
+        Object.keys(zip.files)
+          .filter(n => n.startsWith('xl/media/') && !zip.files[n].dir)
+          .map(async n => {
+            const blob = await zip.files[n].async('blob')
+            mediaUrls[n.split('/').pop()] = URL.createObjectURL(blob)
+          })
       )
+
+      // Parse drawing relationships: rId → media filename
+      const relsFile = zip.files['xl/drawings/_rels/drawing1.xml.rels']
+      const ridToFile = {}
+      if (relsFile) {
+        const relsXml = await relsFile.async('string')
+        const matches = [...relsXml.matchAll(/Id="(rId\d+)"[^>]*Target="\.\.\/media\/([^"]+)"/g)]
+        matches.forEach(([,rid,fname]) => { ridToFile[rid] = fname })
+      }
+
+      // Parse drawing XML: rId → row anchor (row is 0-based in XML)
+      const drawFile = zip.files['xl/drawings/drawing1.xml']
+      if (drawFile) {
+        const drawXml = await drawFile.async('string')
+        // Each anchor has <xdr:from><xdr:row>N</xdr:row>…</xdr:from> and <a:blip r:embed="rIdX"/>
+        const anchors = [...drawXml.matchAll(/<xdr:(?:twoCellAnchor|oneCellAnchor)[^>]*>([\s\S]*?)<\/xdr:(?:twoCellAnchor|oneCellAnchor)>/g)]
+        anchors.forEach(([,block]) => {
+          const rowM = block.match(/<xdr:from>[\s\S]*?<xdr:row>(\d+)<\/xdr:row>/)
+          const ridM = block.match(/r:embed="(rId\d+)"/)
+          if (rowM && ridM) {
+            const row = parseInt(rowM[1]) // 0-based Excel row (0 = header)
+            const dataRow = row - 1       // subtract 1 for header row
+            const fname = ridToFile[ridM[1]]
+            if (fname && mediaUrls[fname] && dataRow >= 0) {
+              rowImageMap[dataRow] = mediaUrls[fname]
+            }
+          }
+        })
+      }
     } catch (_) {}
 
     const wb = XLSX.read(buf, { type: 'array' })
@@ -241,9 +292,9 @@ export default function SupplierCatalog() {
       const cost = get('cost','cost price','buying price','purchase price','unit cost','buy price','our price','supplier price')
       const sell = get('delivery price','price','sell price','selling price','sale price','retail price','unit price','mrp','rate')
       const onlyPrice = get('amount','value')
-      // Match image by row index (image col is usually the first column)
+      // Match image by actual row position from drawing XML
       const imageUrl = get('image','image url','photo','photo url','picture','picture url','img','img url')
-        || embeddedImages[idx] || ''
+        || rowImageMap[idx] || ''
       return {
         product_name: productName,
         sku: (() => { const v = get('sku','item code','product code','part no','part number','ref'); return v && /\D/.test(v) ? v : '' })(),
@@ -453,7 +504,17 @@ export default function SupplierCatalog() {
                   </div>
                 ) : (
                   <>
-                    <div style={{ display:'grid', gridTemplateColumns:'1fr auto auto auto auto', gap:12, padding:'8px 16px', borderBottom:'2px solid #f0f0f0', fontSize:10, color:'#bbb', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.5px' }}>
+                    {selectedIds.size > 0 && (
+                      <div style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 16px', background:'#FFF8E1', borderBottom:'1px solid #FAEEDA' }}>
+                        <span style={{ fontSize:13, fontWeight:600, color:'#854F0B' }}>{selectedIds.size} selected</span>
+                        <Button variant="ghost" onClick={deleteSelected} style={{ color:'#E24B4A', fontSize:12, padding:'4px 10px' }}>
+                          <Trash2 size={13} /> Delete selected
+                        </Button>
+                        <button onClick={() => setSelectedIds(new Set())} style={{ marginLeft:'auto', background:'none', border:'none', cursor:'pointer', color:'#aaa', fontSize:12 }}>Clear</button>
+                      </div>
+                    )}
+                    <div style={{ display:'grid', gridTemplateColumns:'32px 1fr auto auto auto auto', gap:12, padding:'8px 16px', borderBottom:'2px solid #f0f0f0', fontSize:10, color:'#bbb', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.5px' }}>
+                      <div><input type="checkbox" checked={selectedIds.size === visibleCatalog.length && visibleCatalog.length > 0} onChange={toggleSelectAll} /></div>
                       <div>Product</div>
                       <div style={{ textAlign:'right', width:130 }}>Cost / Sell Price</div>
                       <div style={{ width:60, textAlign:'center' }}>SKU</div>
@@ -461,9 +522,10 @@ export default function SupplierCatalog() {
                       <div style={{ width:30 }}></div>
                     </div>
                     {visibleCatalog.map(item => (
-                      <div key={item.id} style={{ display:'grid', gridTemplateColumns:'1fr auto auto auto auto', gap:12, alignItems:'center', padding:'11px 16px', borderBottom:'1px solid #f5f5f5', transition:'background 0.1s' }}
-                        onMouseEnter={e=>e.currentTarget.style.background='#fafafa'}
-                        onMouseLeave={e=>e.currentTarget.style.background=''}>
+                      <div key={item.id} style={{ display:'grid', gridTemplateColumns:'32px 1fr auto auto auto auto', gap:12, alignItems:'center', padding:'11px 16px', borderBottom:'1px solid #f5f5f5', transition:'background 0.1s', background: selectedIds.has(item.id) ? '#FFF8E1' : '' }}
+                        onMouseEnter={e=>{ if(!selectedIds.has(item.id)) e.currentTarget.style.background='#fafafa' }}
+                        onMouseLeave={e=>{ if(!selectedIds.has(item.id)) e.currentTarget.style.background='' }}>
+                        <input type="checkbox" checked={selectedIds.has(item.id)} onChange={() => toggleSelect(item.id)} onClick={e=>e.stopPropagation()} />
                         <div>
                           <div style={{ display:'flex', alignItems:'center', gap:8 }}>
                             {item.image_url
