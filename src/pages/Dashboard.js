@@ -277,31 +277,6 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Recent customers */}
-          <div className="panel">
-            <div className="panel-header">
-              <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-                <div style={{ background: '#EEEDFE', borderRadius: 9, padding: '6px 7px', display: 'flex' }}><Users size={14} color="#7F77DD" /></div>
-                <span style={{ fontWeight: 700, fontSize: 14, color: '#0d1b2a' }}>Customers</span>
-              </div>
-              <span style={{ fontSize: 11, color: '#bbb', fontWeight: 600 }}>{recentCustomers.length} recent</span>
-            </div>
-            <div>
-              {recentCustomers.length === 0 ? (
-                <div style={{ padding: '14px 18px', color: '#ccc', fontSize: 13 }}>No customers yet</div>
-              ) : recentCustomers.map((c, i) => (
-                <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 18px', borderBottom: '1px solid #f5f5f5' }}>
-                  <div style={{ width: 34, height: 34, borderRadius: 10, background: AVATAR_COLORS[i % AVATAR_COLORS.length] + '18', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 800, color: AVATAR_COLORS[i % AVATAR_COLORS.length], flexShrink: 0 }}>
-                    {c.name.charAt(0).toUpperCase()}
-                  </div>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: '#0d1b2a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</div>
-                    <div style={{ fontSize: 11, color: '#bbb' }}>{c.email || c.phone || '—'}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
         </div>
       </div>
 
