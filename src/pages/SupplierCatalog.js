@@ -230,7 +230,7 @@ export default function SupplierCatalog() {
       const onlyPrice = get('amount','value')
       return {
         product_name: productName,
-        sku: get('sku','code','item code','product code','ref','barcode','part no','part number'),
+        sku: (() => { const v = get('sku','item code','product code','part no','part number','ref'); return v && /\D/.test(v) ? v : '' })(),
         category: get('category','cat','type','group','dept','department'),
         cost_price: cost || '',
         sell_price: sell || onlyPrice || '',
