@@ -180,45 +180,73 @@ export default function PurchaseOrders() {
     load()
   }
 
-  async function updateStatus(id, status) {
-    const po = pos.find(p => p.id === id)
-    await supabase.from('purchase_orders').update({ status }).eq('id', id)
+  async function updateBatchStatus(group, newStatus) {
+    const ids = group.rows.map(r => r.id)
+    const wasReceived = group.rows[0]?.status === 'received'
+    await supabase.from('purchase_orders').update({ status: newStatus }).in('id', ids)
 
-    // If received, add to stock
-    if (status === 'received' && po?.status !== 'received') {
-      if (po?.product_id) {
-        const { data: prod } = await supabase.from('products').select('stock_qty, name').eq('id', po.product_id).single()
-        if (prod) {
-          const newStock = prod.stock_qty + po.qty
-          await supabase.from('products').update({ stock_qty: newStock }).eq('id', po.product_id)
-          toast.success(`Stock updated: ${prod.name} +${po.qty} = ${newStock}`)
+    if (newStatus === 'received' && !wasReceived) {
+      const productRows = group.rows.filter(r => r.cost_type !== 'extra')
+      for (const row of productRows) {
+        if (row.product_id) {
+          // Linked inventory product — just add stock
+          const { data: prod } = await supabase.from('products').select('id, stock_qty, name').eq('id', row.product_id).single()
+          if (prod) {
+            await supabase.from('products').update({ stock_qty: prod.stock_qty + row.qty }).eq('id', row.product_id)
+            toast.success(`${prod.name}: +${row.qty} units in stock`)
+          }
+        } else if (row.product_name) {
+          // Catalog item — find matching inventory product by name (case-insensitive), or create
+          const { data: existing } = await supabase.from('products').select('id, stock_qty, name').ilike('name', row.product_name).maybeSingle()
+          if (existing) {
+            await supabase.from('products').update({ stock_qty: existing.stock_qty + row.qty }).eq('id', existing.id)
+            toast.success(`${existing.name}: +${row.qty} added to existing stock`)
+          } else {
+            await supabase.from('products').insert({
+              name: row.product_name,
+              stock_qty: row.qty,
+              cost_price: row.unit_cost || 0,
+              sell_price: parseFloat(((row.unit_cost || 0) * 1.3).toFixed(2)),
+              image_url: row.image_url || null,
+              low_stock_threshold: 10,
+            })
+            toast.success(`${row.product_name}: added to inventory`)
+          }
         }
       }
-      // Prompt to record payment if not fully paid
-      const paid = payments.filter(p => p.purchase_order_id === id).reduce((s, p) => s + Number(p.amount), 0)
-      const total = Number(po?.total_cost || 0)
-      if (paid < total) {
-        const updatedPO = { ...po, status: 'received' }
-        openPayModal(updatedPO)
-      }
+      // Prompt payment if unpaid
+      const paid = paidForGroup(group)
+      if (paid < group.total) openGroupPayModal(group)
     }
     load()
+  }
+
+  async function delGroup(group) {
+    if (!window.confirm('Delete this order? This will delete all line items including fees.')) return
+    await supabase.from('purchase_orders').delete().in('id', group.rows.map(r => r.id))
+    toast.success('Order deleted')
+    load()
+  }
+
+  function paidForGroup(group) {
+    const ids = new Set(group.rows.map(r => r.id))
+    return payments.filter(p => ids.has(p.purchase_order_id)).reduce((s, p) => s + Number(p.amount), 0)
+  }
+
+  function openGroupPayModal(group) {
+    const anchor = group.rows.find(r => r.cost_type !== 'extra') || group.rows[0]
+    const paid = paidForGroup(group)
+    const outstanding = Math.max(0, group.total - paid)
+    setPayForm({ amount: outstanding.toFixed(2), payment_date: new Date().toISOString().split('T')[0], payment_method: 'Bank Transfer', reference: '', notes: '' })
+    setPayModal({ ...anchor, total_cost: group.total, _groupTotal: group.total, _groupPaid: paid })
   }
 
   async function markAllReceived() {
-    if (!window.confirm('Mark all pending orders as received? This will add all quantities to stock.')) return
-    const pending = pos.filter(p => p.status === 'pending' || p.status === 'ordered')
-    for (const po of pending) {
-      await updateStatus(po.id, 'received')
+    if (!window.confirm('Mark all pending orders as received? This will update stock.')) return
+    for (const g of poGroups.filter(g => g.rows[0]?.status === 'pending' || g.rows[0]?.status === 'ordered')) {
+      await updateBatchStatus(g, 'received')
     }
-    toast.success(`${pending.length} items received and added to stock`)
-  }
-
-  async function del(id) {
-    if (!window.confirm('Delete this purchase order?')) return
-    await supabase.from('purchase_orders').delete().eq('id', id)
-    toast.success('Deleted')
-    load()
+    toast.success('All orders received and stock updated')
   }
 
   async function saveSupplier() {
@@ -234,13 +262,6 @@ export default function PurchaseOrders() {
   }
 
   const sf = k => e => setSupplierForm(prev => ({ ...prev, [k]: e.target.value }))
-
-  function openPayModal(po) {
-    const paid = payments.filter(p => p.purchase_order_id === po.id).reduce((s, p) => s + Number(p.amount), 0)
-    const outstanding = Math.max(0, Number(po.total_cost || 0) - paid)
-    setPayForm({ amount: outstanding.toFixed(2), payment_date: new Date().toISOString().split('T')[0], payment_method: 'Bank Transfer', reference: '', notes: '' })
-    setPayModal(po)
-  }
 
   async function recordPayment() {
     if (!payForm.amount || Number(payForm.amount) <= 0) { toast.error('Enter a valid amount'); return }
@@ -266,7 +287,8 @@ export default function PurchaseOrders() {
     const reader = new FileReader()
     reader.onload = async () => {
       const dataUrl = reader.result
-      const { error } = await supabase.from('purchase_orders').update({ slip_url: dataUrl }).eq('id', slipModal.id)
+      // Store slip on the anchor row ID
+      const { error } = await supabase.from('purchase_orders').update({ slip_url: dataUrl }).eq('id', slipModal._anchorId || slipModal.id)
       setSlipUploading(false)
       if (error) { toast.error('Failed to save slip'); return }
       toast.success('Payment slip saved')
@@ -276,15 +298,11 @@ export default function PurchaseOrders() {
     reader.readAsDataURL(file)
   }
 
-  function paidForPO(poId) {
-    return payments.filter(p => p.purchase_order_id === poId).reduce((s, p) => s + Number(p.amount), 0)
-  }
-
-  function payStatusBadge(po) {
-    const total = Number(po.total_cost || 0)
-    const paid = paidForPO(po.id)
+  function payStatusBadgeForGroup(group) {
+    const total = group.total
+    const paid = paidForGroup(group)
     if (paid <= 0) return <span style={{ fontSize: 11, fontWeight: 600, color: '#E24B4A', background: '#fef2f2', padding: '2px 8px', borderRadius: 99 }}>Unpaid</span>
-    if (paid >= total) return <span style={{ fontSize: 11, fontWeight: 600, color: '#1D9E75', background: '#E1F5EE', padding: '2px 8px', borderRadius: 99 }}>Paid</span>
+    if (paid >= total - 0.01) return <span style={{ fontSize: 11, fontWeight: 600, color: '#1D9E75', background: '#E1F5EE', padding: '2px 8px', borderRadius: 99 }}>Paid</span>
     return <span style={{ fontSize: 11, fontWeight: 600, color: '#f57f17', background: '#FFF8E1', padding: '2px 8px', borderRadius: 99 }}>Partial</span>
   }
 
@@ -294,47 +312,6 @@ export default function PurchaseOrders() {
   const batchCostsTotal = (batchForm.extraCosts || []).reduce((s, c) => s + parseFloat(c.amount || 0), 0)
   const batchTotal = batchItemsTotal + batchCostsTotal
   const lowStockProducts = products.filter(p => p.stock_qty <= (p.low_stock_threshold || 10))
-
-  const columns = [
-    { key: 'supplier_name', label: 'Supplier', render: r => r.supplier_name
-      ? <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}><Avatar name={r.supplier_name} /><span style={{ fontWeight: 500, color: '#0d1b2a' }}>{r.supplier_name}</span></div>
-      : <span style={{ color: '#aaa' }}>—</span> },
-    { key: 'product_name', label: 'Product', render: r => (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        {r.cost_type === 'extra'
-          ? <div style={{ width: 34, height: 34, borderRadius: 6, background: '#FFF3D6', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><CreditCard size={15} color="#FFA500" /></div>
-          : r.image_url
-            ? <img src={r.image_url} style={{ width: 34, height: 34, objectFit: 'contain', borderRadius: 6, border: '1px solid #f0f0f0', flexShrink: 0 }} onError={e => e.target.style.display='none'} />
-            : <div style={{ width: 34, height: 34, borderRadius: 6, background: '#f5f5f5', flexShrink: 0 }} />}
-        <span style={{ fontWeight: 500 }}>{r.product_name}</span>
-        {r.cost_type === 'extra' && <span style={{ fontSize: 10, fontWeight: 700, color: '#FFA500', background: '#FFF3D6', padding: '2px 7px', borderRadius: 99 }}>FEE</span>}
-      </div>
-    )},
-    { key: 'qty', label: 'Qty', render: r => <strong>{r.qty}</strong> },
-    { key: 'unit_cost', label: 'Unit cost', render: r => `MVR ${Number(r.unit_cost).toFixed(2)}` },
-    { key: 'total_cost', label: 'Total', render: r => <span style={{ fontWeight: 500 }}>MVR {Number(r.total_cost || 0).toFixed(2)}</span> },
-    { key: 'order_date', label: 'Ordered', render: r => <span style={{ color: '#888', fontSize: 12 }}>{r.order_date}</span> },
-    { key: 'expected_date', label: 'Expected', render: r => <span style={{ color: '#888', fontSize: 12 }}>{r.expected_date || '—'}</span> },
-    { key: 'status', label: 'Status', render: r => (
-      <select value={r.status} onChange={e => updateStatus(r.id, e.target.value)}
-        style={{ border: 'none', background: 'transparent', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>
-        {STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-      </select>
-    )},
-    { key: 'payment', label: 'Payment', render: r => (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        {payStatusBadge(r)}
-        <button className="icon-btn primary" title="Record payment" onClick={() => openPayModal(r)}><CreditCard size={12} /></button>
-      </div>
-    )},
-    { key: 'slip', label: 'Slip', render: r => (
-      <button onClick={() => setSlipModal(r)} title="Payment slip" style={{ background: r.slip_url ? '#E1F5EE' : '#fafafa', border: `1px solid ${r.slip_url ? '#1D9E75' : '#e0e0e0'}`, borderRadius: 6, cursor: 'pointer', padding: '5px 8px', display: 'flex', alignItems: 'center', gap: 4, color: r.slip_url ? '#1D9E75' : '#aaa' }}>
-        {r.slip_url ? <Eye size={13} /> : <Paperclip size={13} />}
-        <span style={{ fontSize: 10, fontWeight: 600 }}>{r.slip_url ? 'View' : 'Attach'}</span>
-      </button>
-    )},
-    { key: 'actions', label: '', render: r => <Button variant="danger" size="sm" onClick={() => del(r.id)}><Trash2 size={13} /></Button> },
-  ]
 
   // Group line items that belong to the same batch order
   const poGroups = (() => {
@@ -347,9 +324,9 @@ export default function PurchaseOrders() {
     })
     return order.map(key => {
       const rows = map[key]
-      // products first, fees last
       rows.sort((a, b) => (a.cost_type === 'extra' ? 1 : 0) - (b.cost_type === 'extra' ? 1 : 0))
-      return { key, rows, total: rows.reduce((s, r) => s + Number(r.total_cost || 0), 0) }
+      const anchor = rows.find(r => r.cost_type !== 'extra') || rows[0]
+      return { key, rows, anchor, total: rows.reduce((s, r) => s + Number(r.total_cost || 0), 0) }
     })
   })()
 
@@ -405,50 +382,100 @@ export default function PurchaseOrders() {
             </Button>
           </div>
         )}
-        {loading ? <Spinner /> : pos.length === 0 ? (
-          <Table columns={columns} data={[]} emptyMessage="No purchase orders yet. Click 'Batch order' to create one." />
+        {loading ? <Spinner /> : poGroups.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '56px 0', color: '#c4c4c4', fontSize: 14 }}>
+            <Package size={36} color="#e0e0e0" style={{ marginBottom: 12 }} />
+            <div style={{ fontWeight: 500 }}>No purchase orders yet. Click 'Batch order' to create one.</div>
+          </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
             <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr>
-                  {columns.map(col => (
-                    <th key={col.key} style={{ textAlign: 'left', padding: '8px 12px', fontSize: 10, color: '#bbb', borderBottom: '2px solid #f0f0f0', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.6px', whiteSpace: 'nowrap' }}>{col.label}</th>
+                  {['Supplier','Products','Qty','Total','Ordered','Expected','Status','Payment','Slip',''].map(h => (
+                    <th key={h} style={{ textAlign: 'left', padding: '8px 12px', fontSize: 10, color: '#bbb', borderBottom: '2px solid #f0f0f0', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.6px', whiteSpace: 'nowrap' }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {poGroups.map(g => {
-                  const multi = g.rows.length > 1
+                  const { anchor, rows } = g
+                  const productRows = rows.filter(r => r.cost_type !== 'extra')
+                  const feeRows = rows.filter(r => r.cost_type === 'extra')
+                  const totalQty = productRows.reduce((s, r) => s + Number(r.qty || 0), 0)
+                  const slipUrl = rows.find(r => r.slip_url)?.slip_url || null
+                  const slipAnchorId = rows.find(r => r.slip_url)?.id || anchor.id
+
                   return (
-                    <React.Fragment key={g.key}>
-                      {g.rows.map((row, ri) => (
-                        <tr key={row.id} style={{
-                          borderBottom: (multi && ri < g.rows.length - 1) ? '1px solid #f7f7f7' : '1px solid #f0f0f0',
-                          background: multi ? '#fcfbf8' : '#fff',
-                          boxShadow: multi && ri === 0 ? 'inset 3px 0 0 #FFD27F' : (multi ? 'inset 3px 0 0 #FFE9C2' : 'none'),
-                        }}>
-                          {columns.map(col => {
-                            // For grouped rows, only show supplier on the first row
-                            if (col.key === 'supplier_name' && multi && ri > 0) {
-                              return <td key={col.key} style={{ padding: '11px 12px', color: '#ccc', verticalAlign: 'middle', paddingLeft: 24 }}>↳</td>
-                            }
-                            return (
-                              <td key={col.key} style={{ padding: '11px 12px', color: '#333', verticalAlign: 'middle' }}>
-                                {col.render ? col.render(row) : row[col.key]}
-                              </td>
-                            )
-                          })}
-                        </tr>
-                      ))}
-                      {multi && (
-                        <tr style={{ background: '#faf7f1', borderBottom: '2px solid #efe9df' }}>
-                          <td colSpan={4} style={{ padding: '7px 12px', textAlign: 'right', fontWeight: 700, color: '#999', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.4px' }}>Order total</td>
-                          <td style={{ padding: '7px 12px', fontWeight: 800, color: '#0d1b2a' }}>MVR {g.total.toFixed(2)}</td>
-                          <td colSpan={columns.length - 5}></td>
-                        </tr>
-                      )}
-                    </React.Fragment>
+                    <tr key={g.key} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                      {/* Supplier */}
+                      <td style={{ padding: '12px 12px', verticalAlign: 'middle' }}>
+                        {anchor.supplier_name
+                          ? <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}><Avatar name={anchor.supplier_name} /><span style={{ fontWeight: 500, color: '#0d1b2a' }}>{anchor.supplier_name}</span></div>
+                          : <span style={{ color: '#aaa' }}>—</span>}
+                      </td>
+                      {/* Products + fees summary */}
+                      <td style={{ padding: '12px 12px', verticalAlign: 'middle', maxWidth: 260 }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          {productRows.map(r => (
+                            <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                              {r.image_url
+                                ? <img src={r.image_url} style={{ width: 32, height: 32, objectFit: 'contain', borderRadius: 6, border: '1px solid #f0f0f0', flexShrink: 0 }} onError={e => e.target.style.display='none'} />
+                                : <div style={{ width: 32, height: 32, borderRadius: 6, background: '#f5f5f5', flexShrink: 0 }} />}
+                              <span style={{ fontWeight: 500, color: '#0d1b2a' }}>{r.product_name}</span>
+                              <span style={{ color: '#aaa', fontSize: 11 }}>×{r.qty}</span>
+                            </div>
+                          ))}
+                          {feeRows.length > 0 && (
+                            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 2 }}>
+                              {feeRows.map(f => (
+                                <span key={f.id} style={{ fontSize: 10, fontWeight: 600, color: '#b8740a', background: '#FFF3D6', padding: '2px 7px', borderRadius: 99 }}>
+                                  {f.product_name} MVR {Number(f.unit_cost).toFixed(2)}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                      {/* Total qty */}
+                      <td style={{ padding: '12px 12px', verticalAlign: 'middle' }}>
+                        <strong>{totalQty}</strong>
+                      </td>
+                      {/* Total cost */}
+                      <td style={{ padding: '12px 12px', verticalAlign: 'middle', fontWeight: 700, color: '#0d1b2a' }}>
+                        MVR {g.total.toFixed(2)}
+                      </td>
+                      {/* Dates */}
+                      <td style={{ padding: '12px 12px', verticalAlign: 'middle', color: '#888', fontSize: 12 }}>{anchor.order_date}</td>
+                      <td style={{ padding: '12px 12px', verticalAlign: 'middle', color: '#888', fontSize: 12 }}>{anchor.expected_date || '—'}</td>
+                      {/* Status — updates all rows */}
+                      <td style={{ padding: '12px 12px', verticalAlign: 'middle' }}>
+                        <select value={anchor.status} onChange={e => updateBatchStatus(g, e.target.value)}
+                          style={{ border: 'none', background: 'transparent', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>
+                          {STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                        </select>
+                      </td>
+                      {/* Payment — for whole batch */}
+                      <td style={{ padding: '12px 12px', verticalAlign: 'middle' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          {payStatusBadgeForGroup(g)}
+                          <button className="icon-btn primary" title="Record payment" onClick={() => openGroupPayModal(g)}><CreditCard size={12} /></button>
+                        </div>
+                      </td>
+                      {/* Slip — one per batch */}
+                      <td style={{ padding: '12px 12px', verticalAlign: 'middle' }}>
+                        <button
+                          onClick={() => setSlipModal({ ...anchor, slip_url: slipUrl, _anchorId: slipAnchorId })}
+                          style={{ background: slipUrl ? '#E1F5EE' : '#fafafa', border: `1px solid ${slipUrl ? '#1D9E75' : '#e0e0e0'}`, borderRadius: 6, cursor: 'pointer', padding: '5px 8px', display: 'flex', alignItems: 'center', gap: 4, color: slipUrl ? '#1D9E75' : '#aaa' }}>
+                          {slipUrl ? <Eye size={13} /> : <Paperclip size={13} />}
+                          <span style={{ fontSize: 10, fontWeight: 600 }}>{slipUrl ? 'View' : 'Attach'}</span>
+                        </button>
+                      </td>
+                      {/* Delete */}
+                      <td style={{ padding: '12px 12px', verticalAlign: 'middle' }}>
+                        <Button variant="danger" size="sm" onClick={() => delGroup(g)}><Trash2 size={13} /></Button>
+                      </td>
+                    </tr>
                   )
                 })}
               </tbody>
@@ -511,10 +538,9 @@ export default function PurchaseOrders() {
                               const suppId = batchForm.supplier_id
                               const catItems = supplierCatalog
                                 .filter(p => (!suppId || p.supplier_id === suppId) && (!q || p.product_name?.toLowerCase().includes(q)))
-                                .slice(0, q ? 8 : 3)
                               const invItems = products
                                 .filter(p => !q || p.name?.toLowerCase().includes(q))
-                                .slice(0, q ? 5 : 3)
+                                .slice(0, q ? 20 : 5)
                               const total = catItems.length + invItems.length
                               if (total === 0) return null
                               return (
@@ -674,16 +700,19 @@ export default function PurchaseOrders() {
         </Modal>
       )}
       {/* Payment modal */}
-      {payModal && (
-        <Modal title="Record Payment" subtitle={`${payModal.supplier_name || 'Supplier'} — MVR ${Number(payModal.total_cost || 0).toFixed(2)} total`} onClose={() => setPayModal(null)} width={480}>
+      {payModal && (() => {
+        const modalTotal = payModal._groupTotal || Number(payModal.total_cost || 0)
+        const modalPaid = payModal._groupPaid ?? payments.filter(p => p.purchase_order_id === payModal.id).reduce((s, p) => s + Number(p.amount), 0)
+        return (
+        <Modal title="Record Payment" subtitle={`${payModal.supplier_name || 'Supplier'} — MVR ${modalTotal.toFixed(2)} total`} onClose={() => setPayModal(null)} width={480}>
           <div style={{ background: '#f8f7f4', borderRadius: 10, padding: '12px 16px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
               <div style={{ fontSize: 11, color: '#bbb', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 2 }}>Outstanding Balance</div>
-              <div style={{ fontSize: 20, fontWeight: 700, color: '#E24B4A' }}>MVR {Math.max(0, Number(payModal.total_cost || 0) - paidForPO(payModal.id)).toFixed(2)}</div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: '#E24B4A' }}>MVR {Math.max(0, modalTotal - modalPaid).toFixed(2)}</div>
             </div>
             <div style={{ textAlign: 'right' }}>
               <div style={{ fontSize: 11, color: '#bbb', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 2 }}>Already Paid</div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: '#1D9E75' }}>MVR {paidForPO(payModal.id).toFixed(2)}</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: '#1D9E75' }}>MVR {modalPaid.toFixed(2)}</div>
             </div>
           </div>
           <FormRow>
@@ -699,7 +728,8 @@ export default function PurchaseOrders() {
             <Button onClick={recordPayment}><CreditCard size={13} /> Record Payment</Button>
           </div>
         </Modal>
-      )}
+        )
+      })()}
 
       {/* Payments history panel */}
       {payments.length > 0 && (
