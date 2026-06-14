@@ -39,7 +39,7 @@ export default function SupplierCatalog() {
   const [compareMode, setCompareMode] = useState(false)
   const [addModal, setAddModal] = useState(false)
   const [editItem, setEditItem] = useState(null)
-  const [form, setForm] = useState({ product_name:'', sku:'', category:'', price:'', unit:'', notes:'' })
+  const [form, setForm] = useState({ product_name:'', sku:'', category:'', cost_price:'', sell_price:'', unit:'piece', notes:'' })
   const [saving, setSaving] = useState(false)
   const [importModal, setImportModal] = useState(false)
   const [importRows, setImportRows] = useState([])
@@ -79,14 +79,25 @@ export default function SupplierCatalog() {
   const singleItems = Object.values(grouped).filter(g => g.length === 1).map(g => g[0])
 
   // ── Add / Edit ───────────────────────────────────────────────────────────────
+  function genSKU(productName, supplierName) {
+    const prefix = (supplierName || 'SUP').replace(/[^a-zA-Z]/g, '').slice(0, 3).toUpperCase()
+    const suffix = (productName || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 4).toUpperCase()
+    const num = Math.floor(Math.random() * 900 + 100)
+    return `${prefix}-${suffix}${num}`
+  }
+
   function openAdd() {
-    setForm({ product_name:'', sku:'', category:'', price:'', unit:'piece', notes:'' })
+    setForm({ product_name:'', sku:'', category:'', cost_price:'', sell_price:'', unit:'piece', notes:'' })
     setEditItem(null)
     setAddModal(true)
   }
 
   function openEdit(item) {
-    setForm({ product_name: item.product_name, sku: item.sku||'', category: item.category||'', price: item.price||'', unit: item.unit||'piece', notes: item.notes||'' })
+    setForm({
+      product_name: item.product_name, sku: item.sku||'', category: item.category||'',
+      cost_price: item.cost_price||'', sell_price: item.sell_price||'',
+      unit: item.unit||'piece', notes: item.notes||''
+    })
     setEditItem(item)
     setAddModal(true)
   }
@@ -97,26 +108,26 @@ export default function SupplierCatalog() {
     if (!supplierId) { toast.error('Select a supplier first'); return }
     const supplier = suppliers.find(s => s.id === supplierId)
     const barcode = editItem?.barcode || genBarcode(form.product_name, supplierId)
+    const sku = form.sku.trim() || genSKU(form.product_name, supplier?.name)
     setSaving(true)
     const payload = {
       supplier_id: supplierId,
       supplier_name: supplier?.name || '',
       product_name: form.product_name.trim(),
-      sku: form.sku.trim() || null,
+      sku,
       category: form.category.trim() || null,
-      price: form.price ? parseFloat(form.price) : null,
+      cost_price: form.cost_price ? parseFloat(form.cost_price) : null,
+      sell_price: form.sell_price ? parseFloat(form.sell_price) : null,
       unit: form.unit || 'piece',
       notes: form.notes.trim() || null,
       barcode,
     }
-    if (editItem) {
-      await supabase.from('supplier_products').update(payload).eq('id', editItem.id)
-      toast.success('Updated!')
-    } else {
-      await supabase.from('supplier_products').insert(payload)
-      toast.success('Product added to catalog!')
-    }
+    const { error } = editItem
+      ? await supabase.from('supplier_products').update(payload).eq('id', editItem.id)
+      : await supabase.from('supplier_products').insert(payload)
     setSaving(false)
+    if (error) { toast.error('Failed to save: ' + error.message); return }
+    toast.success(editItem ? 'Updated!' : 'Product added to catalog!')
     setAddModal(false)
     load()
   }
@@ -171,7 +182,7 @@ export default function SupplierCatalog() {
         <div class="name">${preview.item.product_name}</div>
         <div class="supplier">${preview.item.supplier_name || ''}</div>
         <div class="footer">
-          <div class="price">${preview.item.price ? 'MVR ' + Number(preview.item.price).toFixed(2) : 'No price'}</div>
+          <div class="price">${preview.item.sell_price ? 'MVR ' + Number(preview.item.sell_price).toFixed(2) : 'No price'}</div>
           <div class="code">${preview.code}</div>
         </div>
       </div>
@@ -203,22 +214,28 @@ export default function SupplierCatalog() {
     const rows = XLSX.utils.sheet_to_json(ws, { defval: '' })
 
     // Try to auto-map columns (flexible headers)
-    const mapped = rows.map(row => {
-      const keys = Object.keys(row).map(k => k.toLowerCase().trim())
+    const mapped = rows.map((row, idx) => {
       const get = (...names) => {
         for (const n of names) {
           const k = Object.keys(row).find(k => k.toLowerCase().trim() === n)
-          if (k && row[k]) return String(row[k]).trim()
+          if (k && row[k] !== '' && row[k] !== undefined) return String(row[k]).trim()
         }
         return ''
       }
+      const productName = get('product name','product','name','item','description','desc','item name','product title','title')
+      // cost = what you paid; sell = what you charge customers
+      const cost = get('cost','cost price','buying price','purchase price','unit cost','buy price','our price','supplier price')
+      const sell = get('price','sell price','selling price','sale price','retail price','unit price','mrp','rate')
+      // if only one price column exists, treat it as sell price
+      const onlyPrice = get('amount','value')
       return {
-        product_name: get('product name','product','name','item','description','desc','item name'),
-        sku: get('sku','code','item code','product code','ref'),
-        category: get('category','cat','type','group'),
-        price: get('price','unit price','cost','cost price','unit cost','rate','amount'),
-        unit: get('unit','uom','unit of measure') || 'piece',
-        notes: get('notes','note','remarks','remark','comment'),
+        product_name: productName,
+        sku: get('sku','code','item code','product code','ref','barcode','part no','part number'),
+        category: get('category','cat','type','group','dept','department'),
+        cost_price: cost || '',
+        sell_price: sell || onlyPrice || '',
+        unit: get('unit','uom','unit of measure','sold per') || 'piece',
+        notes: get('notes','note','remarks','remark','comment','description') || '',
         _selected: true,
       }
     }).filter(r => r.product_name)
@@ -235,9 +252,10 @@ export default function SupplierCatalog() {
       supplier_id: activeSupplier.id,
       supplier_name: activeSupplier.name,
       product_name: r.product_name,
-      sku: r.sku || null,
+      sku: r.sku || genSKU(r.product_name, activeSupplier.name),
       category: r.category || null,
-      price: r.price ? parseFloat(r.price) : null,
+      cost_price: r.cost_price ? parseFloat(r.cost_price) : null,
+      sell_price: r.sell_price ? parseFloat(r.sell_price) : null,
       unit: r.unit || 'piece',
       notes: r.notes || null,
       barcode: genBarcode(r.product_name, activeSupplier.id + r.product_name),
@@ -245,7 +263,7 @@ export default function SupplierCatalog() {
     const { error } = await supabase.from('supplier_products').insert(records)
     setSaving(false)
     if (error) { toast.error('Import failed: ' + error.message); return }
-    toast.success(`Imported ${records.length} products!`)
+    toast.success(`Imported ${records.length} products with barcodes & SKUs!`)
     setImportModal(false)
     setImportRows([])
     load()
@@ -349,7 +367,7 @@ export default function SupplierCatalog() {
                 {comparedGroups.length === 0 ? (
                   <Card><p style={{ textAlign:'center', color:'#ccc', padding:'40px 0', fontSize:13 }}>No products shared across multiple suppliers{search && ` matching "${search}"`}</p></Card>
                 ) : comparedGroups.map(group => {
-                  const prices = group.map(i => Number(i.price)).filter(p => p > 0)
+                  const prices = group.map(i => Number(i.sell_price || i.cost_price)).filter(p => p > 0)
                   const minP = prices.length ? Math.min(...prices) : 0
                   return (
                     <Card key={group[0].product_name} style={{ marginBottom: 12 }}>
@@ -359,8 +377,8 @@ export default function SupplierCatalog() {
                         <span style={{ fontSize:11, color:'#bbb', background:'#f5f5f5', padding:'2px 8px', borderRadius:99 }}>{group[0].category || 'No category'}</span>
                         <span style={{ marginLeft:'auto', fontSize:11, fontWeight:700, color:'#1D9E75' }}>Cheapest: MVR {minP.toFixed(2)}</span>
                       </div>
-                      {group.sort((a,b) => (Number(a.price)||Infinity)-(Number(b.price)||Infinity)).map((item, i) => {
-                        const p = Number(item.price)
+                      {group.sort((a,b) => (Number(a.sell_price||a.cost_price)||Infinity)-(Number(b.sell_price||b.cost_price)||Infinity)).map((item, i) => {
+                        const p = Number(item.sell_price || item.cost_price)
                         const isMin = p === minP && p > 0
                         const savings = i > 0 && p > 0 && minP > 0 ? ((p - minP) / minP * 100).toFixed(0) : null
                         return (
@@ -394,7 +412,7 @@ export default function SupplierCatalog() {
                           <div style={{ fontSize:13, fontWeight:500, color:'#0d1b2a' }}>{item.product_name}</div>
                           <div style={{ fontSize:11, color:'#bbb' }}>{item.supplier_name}</div>
                         </div>
-                        <div style={{ fontSize:13, fontWeight:700, color:'#0d1b2a' }}>{item.price ? `MVR ${Number(item.price).toFixed(2)}` : '—'}</div>
+                        <div style={{ fontSize:13, fontWeight:700, color:'#0d1b2a' }}>{(item.sell_price||item.cost_price) ? `MVR ${Number(item.sell_price||item.cost_price).toFixed(2)}` : '—'}</div>
                         <button className="icon-btn" onClick={() => showBarcode(item)}><Barcode size={13}/></button>
                         <button className="icon-btn" onClick={() => openEdit(item)}><Edit2 size={13}/></button>
                       </div>
@@ -417,7 +435,7 @@ export default function SupplierCatalog() {
                   <>
                     <div style={{ display:'grid', gridTemplateColumns:'1fr auto auto auto auto', gap:12, padding:'8px 16px', borderBottom:'2px solid #f0f0f0', fontSize:10, color:'#bbb', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.5px' }}>
                       <div>Product</div>
-                      <div style={{ textAlign:'right', width:80 }}>Price</div>
+                      <div style={{ textAlign:'right', width:80 }}>Sell Price</div>
                       <div style={{ width:60, textAlign:'center' }}>SKU</div>
                       <div style={{ width:30 }}></div>
                       <div style={{ width:30 }}></div>
@@ -440,7 +458,7 @@ export default function SupplierCatalog() {
                           </div>
                         </div>
                         <div style={{ fontSize:13, fontWeight:700, color:'#0d1b2a', width:80, textAlign:'right' }}>
-                          {item.price ? `MVR ${Number(item.price).toFixed(2)}` : <span style={{color:'#ddd'}}>—</span>}
+                          {item.sell_price ? `MVR ${Number(item.sell_price).toFixed(2)}` : item.cost_price ? `MVR ${Number(item.cost_price).toFixed(2)}` : <span style={{color:'#ddd'}}>—</span>}
                         </div>
                         <div style={{ width:60, textAlign:'center', fontSize:11, color:'#aaa' }}>{item.sku || '—'}</div>
                         <button className="icon-btn" onClick={() => showBarcode(item)} title="Barcode / QR"><Barcode size={13}/></button>
@@ -467,13 +485,23 @@ export default function SupplierCatalog() {
             <Input label="Product name *" value={form.product_name} onChange={e => setForm(p=>({...p,product_name:e.target.value}))} placeholder="e.g. LEGO Classic Bricks" style={{ gridColumn:'span 2' }} />
           </FormRow>
           <FormRow>
-            <Input label="SKU / Item code" value={form.sku} onChange={e => setForm(p=>({...p,sku:e.target.value}))} placeholder="SUP-001" />
+            <Input label="SKU (auto-generated if blank)" value={form.sku} onChange={e => setForm(p=>({...p,sku:e.target.value}))} placeholder="Leave blank to auto-generate" />
             <Input label="Category" value={form.category} onChange={e => setForm(p=>({...p,category:e.target.value}))} placeholder="e.g. Building & Blocks" />
           </FormRow>
           <FormRow>
-            <Input label="Price (MVR)" type="number" min="0" step="0.01" value={form.price} onChange={e => setForm(p=>({...p,price:e.target.value}))} placeholder="0.00" />
+            <Input label="Cost price — what you paid (MVR)" type="number" min="0" step="0.01" value={form.cost_price} onChange={e => setForm(p=>({...p,cost_price:e.target.value}))} placeholder="0.00" />
+            <Input label="Sell price — what you charge (MVR)" type="number" min="0" step="0.01" value={form.sell_price} onChange={e => setForm(p=>({...p,sell_price:e.target.value}))} placeholder="0.00" />
+          </FormRow>
+          <FormRow>
             <Select label="Unit" value={form.unit} onChange={e => setForm(p=>({...p,unit:e.target.value}))}
               options={['piece','box','set','pack','dozen','kg','litre']} />
+            {form.cost_price && form.sell_price && (
+              <div style={{ display:'flex', alignItems:'flex-end', paddingBottom:2 }}>
+                <div style={{ background:'#E1F5EE', borderRadius:9, padding:'9px 14px', fontSize:12, color:'#1D9E75', fontWeight:600 }}>
+                  Margin: MVR {(parseFloat(form.sell_price||0)-parseFloat(form.cost_price||0)).toFixed(2)} ({form.cost_price>0?((parseFloat(form.sell_price||0)-parseFloat(form.cost_price||0))/parseFloat(form.cost_price)*100).toFixed(0):0}%)
+                </div>
+              </div>
+            )}
           </FormRow>
           <Input label="Notes" value={form.notes} onChange={e => setForm(p=>({...p,notes:e.target.value}))} placeholder="Any notes about this product from this supplier" style={{ marginBottom:20 }} />
           <div style={{ display:'flex', gap:10, justifyContent:'flex-end' }}>
@@ -534,7 +562,7 @@ export default function SupplierCatalog() {
                       <th style={{ padding:'8px 10px', textAlign:'left', fontWeight:600, color:'#999', fontSize:11, textTransform:'uppercase', width:32 }}>
                         <input type="checkbox" checked={importRows.every(r=>r._selected)} onChange={e => setImportRows(rows => rows.map(r=>({...r,_selected:e.target.checked})))} />
                       </th>
-                      {['Product Name','SKU','Category','Price','Unit','Notes'].map(h=>(
+                      {['Product Name','SKU','Category','Cost Price','Sell Price','Unit','Notes'].map(h=>(
                         <th key={h} style={{ padding:'8px 10px', textAlign:'left', fontWeight:600, color:'#999', fontSize:11, textTransform:'uppercase' }}>{h}</th>
                       ))}
                     </tr>
@@ -545,7 +573,7 @@ export default function SupplierCatalog() {
                         <td style={{ padding:'8px 10px' }}>
                           <input type="checkbox" checked={!!row._selected} onChange={e => setImportRows(rows => rows.map((r,j) => j===i ? {...r,_selected:e.target.checked} : r))} />
                         </td>
-                        {['product_name','sku','category','price','unit','notes'].map(k=>(
+                        {['product_name','sku','category','cost_price','sell_price','unit','notes'].map(k=>(
                           <td key={k} style={{ padding:'7px 10px' }}>
                             <input value={row[k]||''} onChange={e => setImportRows(rows => rows.map((r,j) => j===i ? {...r,[k]:e.target.value} : r))}
                               style={{ width:'100%', border:'none', background:'transparent', fontSize:12, fontFamily:'inherit', outline:'none', color:'#0d1b2a' }} />
