@@ -139,6 +139,8 @@ export default function PurchaseOrders() {
     if (validItems.length === 0) { toast.error('Add at least one product'); return }
     setSaving(true)
 
+    const batchId = (window.crypto?.randomUUID?.() || `b${Date.now()}${Math.random().toString(36).slice(2, 8)}`)
+
     const records = validItems.map(item => ({
       supplier_id: batchForm.supplier_id || null,
       supplier_name: batchForm.supplier_name,
@@ -150,6 +152,7 @@ export default function PurchaseOrders() {
       order_date: batchForm.order_date,
       expected_date: batchForm.expected_date || null,
       image_url: item.image_url || null,
+      batch_id: batchId,
     }))
 
     // Extra costs become their own line items (freight, fees, etc.)
@@ -166,6 +169,7 @@ export default function PurchaseOrders() {
         order_date: batchForm.order_date,
         expected_date: batchForm.expected_date || null,
         cost_type: 'extra',
+        batch_id: batchId,
       }))
 
     const { error } = await supabase.from('purchase_orders').insert([...records, ...costRecords])
@@ -332,6 +336,23 @@ export default function PurchaseOrders() {
     { key: 'actions', label: '', render: r => <Button variant="danger" size="sm" onClick={() => del(r.id)}><Trash2 size={13} /></Button> },
   ]
 
+  // Group line items that belong to the same batch order
+  const poGroups = (() => {
+    const map = {}
+    const order = []
+    pos.forEach(po => {
+      const key = po.batch_id || po.id
+      if (!map[key]) { map[key] = []; order.push(key) }
+      map[key].push(po)
+    })
+    return order.map(key => {
+      const rows = map[key]
+      // products first, fees last
+      rows.sort((a, b) => (a.cost_type === 'extra' ? 1 : 0) - (b.cost_type === 'extra' ? 1 : 0))
+      return { key, rows, total: rows.reduce((s, r) => s + Number(r.total_cost || 0), 0) }
+    })
+  })()
+
   return (
     <div>
       <PageHeader
@@ -384,7 +405,56 @@ export default function PurchaseOrders() {
             </Button>
           </div>
         )}
-        {loading ? <Spinner /> : <Table columns={columns} data={pos} emptyMessage="No purchase orders yet. Click 'Batch order' to create one." />}
+        {loading ? <Spinner /> : pos.length === 0 ? (
+          <Table columns={columns} data={[]} emptyMessage="No purchase orders yet. Click 'Batch order' to create one." />
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead>
+                <tr>
+                  {columns.map(col => (
+                    <th key={col.key} style={{ textAlign: 'left', padding: '8px 12px', fontSize: 10, color: '#bbb', borderBottom: '2px solid #f0f0f0', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.6px', whiteSpace: 'nowrap' }}>{col.label}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {poGroups.map(g => {
+                  const multi = g.rows.length > 1
+                  return (
+                    <React.Fragment key={g.key}>
+                      {g.rows.map((row, ri) => (
+                        <tr key={row.id} style={{
+                          borderBottom: (multi && ri < g.rows.length - 1) ? '1px solid #f7f7f7' : '1px solid #f0f0f0',
+                          background: multi ? '#fcfbf8' : '#fff',
+                          boxShadow: multi && ri === 0 ? 'inset 3px 0 0 #FFD27F' : (multi ? 'inset 3px 0 0 #FFE9C2' : 'none'),
+                        }}>
+                          {columns.map(col => {
+                            // For grouped rows, only show supplier on the first row
+                            if (col.key === 'supplier_name' && multi && ri > 0) {
+                              return <td key={col.key} style={{ padding: '11px 12px', color: '#ccc', verticalAlign: 'middle', paddingLeft: 24 }}>↳</td>
+                            }
+                            return (
+                              <td key={col.key} style={{ padding: '11px 12px', color: '#333', verticalAlign: 'middle' }}>
+                                {col.render ? col.render(row) : row[col.key]}
+                              </td>
+                            )
+                          })}
+                        </tr>
+                      ))}
+                      {multi && (
+                        <tr style={{ background: '#faf7f1', borderBottom: '2px solid #efe9df' }}>
+                          <td colSpan={4} style={{ padding: '7px 12px', textAlign: 'right', fontWeight: 700, color: '#999', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.4px' }}>Order total</td>
+                          <td style={{ padding: '7px 12px', fontWeight: 800, color: '#0d1b2a' }}>MVR {g.total.toFixed(2)}</td>
+                          <td colSpan={columns.length - 5}></td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Card>
 
       {/* Batch order modal */}

@@ -110,11 +110,14 @@ export default function Accounting() {
   })
   purchaseOrders.filter(po => po.status === 'received').forEach(po => {
     const amt = Number(po.total_cost || 0)
+    const isCost = po.cost_type === 'extra'
     journal.push({
       date: po.order_date, ref: `PO-${po.id?.slice(0, 6)}`,
-      desc: `Purchase: ${po.product_name} ×${po.qty} from ${po.supplier_name || 'Supplier'}`,
+      desc: isCost
+        ? `Import cost: ${po.product_name} (${po.supplier_name || 'Supplier'})`
+        : `Purchase: ${po.product_name} ×${po.qty} from ${po.supplier_name || 'Supplier'}`,
       entries: [
-        { account: 'Inventory', debit: amt, credit: 0 },
+        { account: isCost ? 'Import & Handling Costs' : 'Inventory', debit: amt, credit: 0 },
         { account: 'Cash / Accounts Payable', debit: 0, credit: amt },
       ]
     })
@@ -613,8 +616,10 @@ export default function Accounting() {
       {activeTab === 'cashflow' && (() => {
         const cashIn = delivered.reduce((s, o) => s + Number(o.total_price || 0), 0)
         const cashOutExpenses = expenses.filter(e => inPeriod(e.expense_date)).reduce((s, e) => s + Number(e.amount || 0), 0)
-        const cashOutPurchases = purchaseOrders.filter(po => po.status === 'received' && inPeriod(po.order_date)).reduce((s, po) => s + Number(po.total_cost || 0), 0)
-        const operatingCashFlow = cashIn - cashOutExpenses
+        const receivedPOs = purchaseOrders.filter(po => po.status === 'received' && inPeriod(po.order_date))
+        const cashOutPurchases = receivedPOs.filter(po => po.cost_type !== 'extra').reduce((s, po) => s + Number(po.total_cost || 0), 0)
+        const cashOutImportCosts = receivedPOs.filter(po => po.cost_type === 'extra').reduce((s, po) => s + Number(po.total_cost || 0), 0)
+        const operatingCashFlow = cashIn - cashOutExpenses - cashOutImportCosts
         const investingCashFlow = -cashOutPurchases
         const netCashFlow = operatingCashFlow + investingCashFlow
 
@@ -635,6 +640,7 @@ export default function Accounting() {
                 <tr><td style={{ fontWeight: 700, color: '#0d1b2a' }}>OPERATING ACTIVITIES</td><td></td></tr>
                 <tr><td style={{ paddingLeft: 24 }}>Cash received from customers</td><td style={{ textAlign: 'right', color: '#1D9E75', fontWeight: 500 }}>{fmt(cashIn)}</td></tr>
                 <tr><td style={{ paddingLeft: 24 }}>Cash paid for expenses</td><td style={{ textAlign: 'right', color: '#c62828', fontWeight: 500 }}>({fmt(cashOutExpenses)})</td></tr>
+                {cashOutImportCosts > 0 && <tr><td style={{ paddingLeft: 24 }}>Import &amp; handling costs</td><td style={{ textAlign: 'right', color: '#c62828', fontWeight: 500 }}>({fmt(cashOutImportCosts)})</td></tr>}
                 <tr style={{ borderTop: '1px solid #eee' }}><td style={{ fontWeight: 700 }}>Net Operating Cash Flow</td><td style={{ textAlign: 'right', fontWeight: 700, color: operatingCashFlow >= 0 ? '#1D9E75' : '#c62828' }}>{fmt(operatingCashFlow)}</td></tr>
                 <tr><td style={{ fontWeight: 700, color: '#0d1b2a', paddingTop: 20 }}>INVESTING ACTIVITIES</td><td></td></tr>
                 <tr><td style={{ paddingLeft: 24 }}>Purchase of inventory</td><td style={{ textAlign: 'right', color: '#c62828', fontWeight: 500 }}>({fmt(cashOutPurchases)})</td></tr>
@@ -680,8 +686,10 @@ export default function Accounting() {
             amount: Number(e.amount || 0), direction: 'out', status: 'done', payment: 'paid'
           })),
           ...purchaseOrders.filter(po => inPeriod(po.order_date)).map(po => ({
-            date: po.order_date, type: 'purchase', ref: `PO-${po.id?.slice(0,6)}`,
-            description: `Purchase: ${po.product_name} ×${po.qty} from ${po.supplier_name || 'Supplier'}`,
+            date: po.order_date, type: po.cost_type === 'extra' ? 'cost' : 'purchase', ref: `PO-${po.id?.slice(0,6)}`,
+            description: po.cost_type === 'extra'
+              ? `Import cost: ${po.product_name} — ${po.supplier_name || 'Supplier'}`
+              : `Purchase: ${po.product_name} ×${po.qty} from ${po.supplier_name || 'Supplier'}`,
             amount: Number(po.total_cost || 0), direction: 'out', status: po.status, payment: po.status === 'received' ? 'paid' : 'pending'
           })),
         ].sort((a,b) => new Date(b.date) - new Date(a.date))
@@ -721,8 +729,8 @@ export default function Accounting() {
                           <td style={{ padding: '9px 12px', fontWeight: 500, maxWidth: 260 }}>{t.description}</td>
                           <td style={{ padding: '9px 12px' }}>
                             <span style={{ padding: '2px 8px', borderRadius: 99, fontSize: 11, fontWeight: 600,
-                              background: t.type==='sale' ? '#E1F5EE' : t.type==='expense' ? '#FCEBEB' : '#EEF4FF',
-                              color: t.type==='sale' ? '#1D9E75' : t.type==='expense' ? '#c62828' : '#378ADD' }}>
+                              background: t.type==='sale' ? '#E1F5EE' : t.type==='expense' ? '#FCEBEB' : t.type==='cost' ? '#FFF3D6' : '#EEF4FF',
+                              color: t.type==='sale' ? '#1D9E75' : t.type==='expense' ? '#c62828' : t.type==='cost' ? '#b8740a' : '#378ADD' }}>
                               {t.type}
                             </span>
                           </td>
