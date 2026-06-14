@@ -9,7 +9,7 @@ const EMAILJS_PUBLIC_KEY = 'kLZVT1yzwlXV3hua6'
 const BNJ_EMAIL = 'bricknjoy@gmail.com'
 
 function getContacts() { try { return JSON.parse(localStorage.getItem('bj_email_contacts') || '[]') } catch { return [] } }
-function saveContacts(c) { localStorage.setItem('bj_email_contacts', JSON.stringify(c)) }
+function saveContacts(c) { try { localStorage.setItem('bj_email_contacts', JSON.stringify(c)) } catch(e) { console.error('localStorage save failed', e) } }
 
 async function sendEmailJS(to, subject, message, replyTo = BNJ_EMAIL) {
   const res = await fetch(`https://api.emailjs.com/api/v1.0/email/send`, {
@@ -49,7 +49,7 @@ export default function EmailCenter() {
   const tasks = (() => { try { return JSON.parse(localStorage.getItem('bj_tasks') || '[]') } catch { return [] } })()
   const deliveryStaff = (() => { try { return JSON.parse(localStorage.getItem('deliveryStaff') || '[]') } catch { return [] } })()
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load(); setContacts(getContacts()) }, [])
 
   async function load() {
     setLoading(true)
@@ -85,12 +85,14 @@ export default function EmailCenter() {
 
   // Save contact
   function saveContact() {
-    if (!contactForm.name || !contactForm.email) return
+    if (!contactForm.name.trim()) { toast.error('Name is required'); return }
+    if (!contactForm.email.trim()) { toast.error('Email is required'); return }
+    const trimmed = { ...contactForm, name: contactForm.name.trim(), email: contactForm.email.trim() }
     let updated
     if (editContact !== null) {
-      updated = contacts.map((c, i) => i === editContact ? contactForm : c)
+      updated = contacts.map((c, i) => i === editContact ? trimmed : c)
     } else {
-      updated = [...contacts, contactForm]
+      updated = [...contacts, trimmed]
     }
     saveContacts(updated)
     setContacts(updated)
@@ -394,22 +396,29 @@ Please complete this by the due date.
 
       {/* Contact modal */}
       {contactModal && (
-        <Modal title={editContact !== null ? 'Edit contact' : 'Add contact'} onClose={() => setContactModal(false)} width={480}>
+        <Modal title={editContact !== null ? 'Edit contact' : 'Add contact'} subtitle="Name and email are required" onClose={() => { setContactModal(false); setEditContact(null); setContactForm({ name: '', email: '', role: '', phone: '' }) }} width={480}>
           {[
-            { label: 'Name *', key: 'name', placeholder: 'e.g. Ahmed Izyan' },
-            { label: 'Email *', key: 'email', placeholder: 'email@example.com' },
+            { label: 'Name', key: 'name', placeholder: 'e.g. Ahmed Izyan', required: true },
+            { label: 'Email', key: 'email', placeholder: 'email@example.com', required: true },
             { label: 'Role', key: 'role', placeholder: 'e.g. Delivery, Supplier, Staff' },
             { label: 'Phone', key: 'phone', placeholder: '+960 xxx xxxx' },
           ].map(field => (
-            <div key={field.key} style={{ marginBottom: 12 }}>
-              <label style={{ fontSize: 12, color: '#666', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.4px', display: 'block', marginBottom: 5 }}>{field.label}</label>
-              <input value={contactForm[field.key]} onChange={e => setContactForm(p => ({ ...p, [field.key]: e.target.value }))} placeholder={field.placeholder}
-                style={{ width: '100%', padding: '9px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
+            <div key={field.key} style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 11, color: '#888', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6 }}>
+                {field.label}
+                {field.required && <span style={{ color: '#FFA500' }}>*</span>}
+              </label>
+              <input
+                value={contactForm[field.key] || ''}
+                onChange={e => setContactForm(p => ({ ...p, [field.key]: e.target.value }))}
+                placeholder={field.placeholder}
+                style={{ width: '100%', padding: '10px 13px', border: `1px solid ${field.required && !contactForm[field.key] ? '#ffd0a0' : '#e0e0e0'}`, borderRadius: 9, fontSize: 13, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box', transition: 'border 0.15s' }}
+              />
             </div>
           ))}
-          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 16 }}>
-            <Button variant="ghost" onClick={() => setContactModal(false)}>Cancel</Button>
-            <Button onClick={saveContact} disabled={!contactForm.name || !contactForm.email}>Save contact</Button>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 18 }}>
+            <Button variant="ghost" onClick={() => { setContactModal(false); setEditContact(null); setContactForm({ name: '', email: '', role: '', phone: '' }) }}>Cancel</Button>
+            <Button onClick={saveContact}>Save contact</Button>
           </div>
         </Modal>
       )}
