@@ -199,8 +199,8 @@ export default function App() {
         style={{ width: 234, background: '#fff', borderRight: '1px solid #f0f0f0', display: 'flex', flexDirection: 'column', flexShrink: 0, overflowY: 'auto', position: 'relative', boxShadow: '2px 0 12px rgba(0,0,0,0.04)' }}>
 
         {/* Logo */}
-        <div style={{ padding: '22px 18px 18px', borderBottom: '1px solid #f5f5f5', display: 'flex', justifyContent: 'center' }}>
-          <img src="/logo.png" alt="Brick's & Joy" style={{ width: 64, height: 64, objectFit: 'contain', filter: 'drop-shadow(0 4px 10px rgba(255,165,0,0.28))' }} />
+        <div style={{ padding: '20px 16px 16px', borderBottom: '1px solid #f5f5f5', display: 'flex', justifyContent: 'center' }}>
+          <img src="/logo-full.png" alt="Brick's & Joy" style={{ width: '90%', maxWidth: 190, height: 'auto', objectFit: 'contain', filter: 'drop-shadow(0 4px 10px rgba(255,165,0,0.22))' }} />
         </div>
 
         {/* Nav */}

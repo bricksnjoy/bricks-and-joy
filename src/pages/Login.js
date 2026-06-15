@@ -79,8 +79,8 @@ export default function Login() {
       <div style={{ width: '100%', maxWidth: 420, position: 'relative', zIndex: 1 }}>
         {/* Logo */}
         <div style={{ textAlign: 'center', marginBottom: 34 }}>
-          <img src="/logo.png" alt="Brick's & Joy" style={{ width: 116, height: 116, objectFit: 'contain', display: 'block', margin: '0 auto 12px', filter: 'drop-shadow(0 10px 22px rgba(255,165,0,0.35))', animation: 'popIn 0.6s ease both, bob 3s 0.6s ease-in-out infinite' }} />
-          <p style={{ color: '#29b6f6', fontSize: 11, margin: '6px 0 0', textTransform: 'uppercase', letterSpacing: '1.8px', fontWeight: 700 }}>Toy Company · Business Manager</p>
+          <img src="/logo-full.png" alt="Brick's & Joy" style={{ width: 260, height: 'auto', display: 'block', margin: '0 auto 10px', filter: 'drop-shadow(0 10px 22px rgba(255,165,0,0.25))', animation: 'popIn 0.6s ease both, bob 3s 0.6s ease-in-out infinite' }} />
+          <p style={{ color: '#29b6f6', fontSize: 11, margin: '6px 0 0', textTransform: 'uppercase', letterSpacing: '1.8px', fontWeight: 700 }}>Brick's &amp; Joy · Business Manager</p>
         </div>
 
         {/* Card */}
