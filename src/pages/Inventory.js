@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Button, Input, Select, Table, Modal, Badge, StockBadge, Spinner, FormRow, useToast, Toasts } from '../components/UI'
-import { Plus, Trash2, Edit2, Upload, X, Package, Eye, Barcode, Download, Printer, Camera, LayoutGrid, List, MoreVertical, ShoppingBag, Percent, Minus } from 'lucide-react'
+import { Plus, Trash2, Edit2, Upload, X, Package, Eye, Barcode, Download, Printer, Camera, LayoutGrid, List, MoreVertical, ShoppingBag, Percent, Minus, RotateCcw } from 'lucide-react'
 
 // Custom line-art icons matching the toy/store brand
 const BrickIcon = ({ size = 14, color = '#FFA500' }) => (
@@ -963,14 +963,15 @@ function ProductGrid({ products, onView, onEdit, onBarcode, onDelete, onToggle, 
         {products.map(p => (
           <ProductCard key={p.id} p={p} onView={onView} onEdit={onEdit} onBarcode={onBarcode} onDelete={onDelete} onToggle={onToggle} onOrder={onOrder}
             selectMode={selectMode} isSelected={selected?.has(p.id)} onToggleSelect={onToggleSelect}
-            menuOpen={openMenuId === p.id} onMenuToggle={() => setOpenMenuId(openMenuId === p.id ? null : p.id)} onHover={() => { if (openMenuId && openMenuId !== p.id) setOpenMenuId(null) }} />
+            menuOpen={openMenuId === p.id} onMenuToggle={() => setOpenMenuId(openMenuId === p.id ? null : p.id)} onHover={() => { if (openMenuId && openMenuId !== p.id) setOpenMenuId(null) }}
+            onRestore={onToggle} />
         ))}
       </div>
     </>
   )
 }
 
-function ProductCard({ p, onView, onEdit, onBarcode, onDelete, onOrder, selectMode, isSelected, onToggleSelect, menuOpen, onMenuToggle, onHover }) {
+function ProductCard({ p, onView, onEdit, onBarcode, onDelete, onOrder, selectMode, isSelected, onToggleSelect, menuOpen, onMenuToggle, onHover, onRestore }) {
   const margin = p.sell_price > 0 ? Math.round((p.sell_price - p.cost_price) / p.sell_price * 100) : 0
   const low = p.stock_qty > 0 && p.stock_qty <= (p.low_stock_threshold || 10)
   const out = p.stock_qty <= 0
@@ -997,8 +998,13 @@ function ProductCard({ p, onView, onEdit, onBarcode, onDelete, onOrder, selectMo
           <span className="meta-chip"><Percent size={12} color={margin >= 40 ? '#1D9E75' : margin >= 20 ? '#f57f17' : '#E24B4A'} style={{ flexShrink:0 }} /><span style={{ color: margin >= 40 ? '#1D9E75' : margin >= 20 ? '#f57f17' : '#E24B4A' }}>{margin}%</span></span>
         </div>
 
-        {p.discontinued && (
-          <div style={{ position: 'absolute', top: 14, left: 14, background: 'rgba(102,102,102,0.92)', color: '#fff', fontSize: 10, fontWeight: 700, padding: '4px 10px', borderRadius: 999, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Retired</div>
+        {p.discontinued && !selectMode && (
+          <button onClick={e => { e.stopPropagation(); onRestore(p) }} title="Restore to active"
+            style={{ position: 'absolute', top: 14, left: 14, background: 'rgba(102,102,102,0.92)', color: '#fff', fontSize: 10, fontWeight: 700, padding: '5px 11px', borderRadius: 999, textTransform: 'uppercase', letterSpacing: '0.5px', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}
+            onMouseEnter={e => { e.currentTarget.style.background = '#1D9E75' }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(102,102,102,0.92)' }}>
+            <RotateCcw size={11} /> Restore
+          </button>
         )}
 
         {/* slide-out kebab — stays open until toggled again or another card hovered */}
@@ -1028,10 +1034,15 @@ function ProductCard({ p, onView, onEdit, onBarcode, onDelete, onOrder, selectMo
           <div style={{ fontSize: 18, fontWeight: 700, color: '#0d1b2a', letterSpacing: '-0.3px' }}>
             MVR {Number(p.sell_price).toFixed(2)}
           </div>
-          <button className="prod-order" disabled={out || selectMode} onClick={() => onOrder(p)}
-            style={{ padding: '9px 12px', borderRadius: 999, fontSize: 16 }} title={out ? 'Out of stock' : 'Order'}>
-            <ShoppingBag size={16} />
-          </button>
+          {p.discontinued
+            ? <button onClick={() => onRestore(p)} disabled={selectMode}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 999, border: 'none', background: '#1D9E75', color: '#fff', fontSize: 13, fontWeight: 700, fontFamily: 'inherit', cursor: 'pointer' }}>
+                <RotateCcw size={14} /> Restore
+              </button>
+            : <button className="prod-order" disabled={out || selectMode} onClick={() => onOrder(p)}
+                style={{ padding: '9px 12px', borderRadius: 999, fontSize: 16 }} title={out ? 'Out of stock' : 'Order'}>
+                <ShoppingBag size={16} />
+              </button>}
         </div>
       </div>
     </div>
