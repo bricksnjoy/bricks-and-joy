@@ -33,21 +33,60 @@ export default function Login() {
     }
   }
 
+  // decorative floating toy bricks
+  const bricks = [
+    { c: '#FFA500', s: 46, top: '12%', left: '8%', d: 0, dur: 7 },
+    { c: '#378ADD', s: 34, top: '70%', left: '12%', d: 1.2, dur: 8 },
+    { c: '#1D9E75', s: 28, top: '24%', left: '85%', d: 0.6, dur: 6.5 },
+    { c: '#E24B4A', s: 40, top: '78%', left: '82%', d: 1.8, dur: 9 },
+    { c: '#FFC04D', s: 24, top: '46%', left: '90%', d: 0.3, dur: 7.5 },
+    { c: '#7fd3ff', s: 30, top: '88%', left: '45%', d: 2.1, dur: 8.5 },
+  ]
+
   return (
     <div style={{
       minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-      background: 'linear-gradient(135deg, #fff8f0 0%, #e8f4fd 100%)', fontFamily: "'Poppins', sans-serif", padding: "16px"
+      background: 'linear-gradient(135deg, #fff8f0 0%, #e8f4fd 100%)', fontFamily: "'Poppins', sans-serif", padding: '16px',
+      position: 'relative', overflow: 'hidden'
     }}>
-      <div style={{ width: '100%', maxWidth: 420 }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800;900&display=swap');
+        @keyframes float { 0%,100%{ transform: translateY(0) rotate(0deg); } 50%{ transform: translateY(-26px) rotate(8deg); } }
+        @keyframes popIn { 0%{ opacity:0; transform: scale(0.6) translateY(20px);} 60%{ transform: scale(1.06);} 100%{ opacity:1; transform: scale(1) translateY(0);} }
+        @keyframes bob { 0%,100%{ transform: translateY(0);} 50%{ transform: translateY(-7px);} }
+        @keyframes slideUp { from{ opacity:0; transform: translateY(16px);} to{ opacity:1; transform: translateY(0);} }
+        .bnj-card { animation: slideUp 0.5s 0.15s ease both; }
+        .bnj-input { width:100%; padding:11px 13px; border:1.5px solid #e6e6e6; border-radius:10px; font-size:14px; font-family:inherit; box-sizing:border-box; outline:none; transition: all 0.18s; background:#fafafa; }
+        .bnj-input:focus { border-color:#FFA500; background:#fff; box-shadow:0 0 0 3px rgba(255,165,0,0.12); }
+        .bnj-btn { background: linear-gradient(135deg,#FFB733,#FF9500); color:#fff; border:none; border-radius:10px; padding:13px; font-size:14.5px; font-weight:700; cursor:pointer; font-family:inherit; margin-top:6px; box-shadow:0 6px 16px rgba(255,149,0,0.32); transition: transform 0.15s, box-shadow 0.15s; }
+        .bnj-btn:hover:not(:disabled) { transform: translateY(-2px); box-shadow:0 10px 22px rgba(255,149,0,0.42); }
+        .bnj-btn:active:not(:disabled) { transform: translateY(0); }
+      `}</style>
+
+      {/* Floating decorative bricks */}
+      {bricks.map((b, i) => (
+        <svg key={i} width={b.s} height={b.s * 1.0} viewBox="0 0 40 40" aria-hidden="true"
+          style={{ position: 'absolute', top: b.top, left: b.left, opacity: 0.5, filter: 'drop-shadow(0 6px 10px rgba(0,0,0,0.08))', animation: `float ${b.dur}s ease-in-out ${b.d}s infinite`, pointerEvents: 'none' }}>
+          <rect x="4" y="12" width="32" height="24" rx="3" fill={b.c} />
+          <ellipse cx="13" cy="12" rx="6" ry="4" fill={b.c} />
+          <ellipse cx="27" cy="12" rx="6" ry="4" fill={b.c} />
+          <ellipse cx="13" cy="11" rx="6" ry="4" fill="rgba(255,255,255,0.35)" />
+          <ellipse cx="27" cy="11" rx="6" ry="4" fill="rgba(255,255,255,0.35)" />
+          <rect x="4" y="12" width="32" height="7" rx="3" fill="rgba(255,255,255,0.22)" />
+        </svg>
+      ))}
+
+      <div style={{ width: '100%', maxWidth: 420, position: 'relative', zIndex: 1 }}>
         {/* Logo */}
-        <div style={{ textAlign: 'center', marginBottom: 40 }}>
-          <img src="/logo.png" alt="Brick's & Joy" style={{ width: 100, height: 100, objectFit: 'contain', display: 'block', margin: '0 auto 12px' }} />
-          <h1 style={{ fontSize: 26, fontWeight: 800, margin: 0, color: '#0d1b2a', letterSpacing: '-0.5px' }}>Brick's & Joy</h1>
-          <p style={{ color: '#29b6f6', fontSize: 11, margin: '4px 0 0', textTransform: 'uppercase', letterSpacing: '1.5px', fontWeight: 700 }}>Toy Company · Business Manager</p>
+        <div style={{ textAlign: 'center', marginBottom: 34 }}>
+          <img src="/logo.png" alt="Brick's & Joy icon" style={{ width: 92, height: 92, objectFit: 'contain', display: 'block', margin: '0 auto 14px', filter: 'drop-shadow(0 8px 18px rgba(255,165,0,0.35))', animation: 'popIn 0.6s ease both, bob 3s 0.6s ease-in-out infinite' }} />
+          <img src="/wordmark.svg" alt="Brick's & Joy" style={{ width: 230, height: 'auto', display: 'block', margin: '0 auto', animation: 'popIn 0.6s 0.15s ease both' }}
+            onError={e => { e.target.style.display = 'none' }} />
+          <p style={{ color: '#29b6f6', fontSize: 11, margin: '8px 0 0', textTransform: 'uppercase', letterSpacing: '1.8px', fontWeight: 700 }}>Toy Company · Business Manager</p>
         </div>
 
         {/* Card */}
-        <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #eee', padding: '32px 28px', boxShadow: '0 4px 24px rgba(0,0,0,0.06)' }}>
+        <div className="bnj-card" style={{ background: '#fff', borderRadius: 18, border: '1px solid #f0f0f0', padding: '32px 28px', boxShadow: '0 12px 40px rgba(13,27,42,0.10)' }}>
           <h2 style={{ fontSize: 18, fontWeight: 600, margin: '0 0 24px', color: '#0d1b2a' }}>
             {mode === 'login' ? 'Sign in to your account' : 'Create an account'}
           </h2>
@@ -56,19 +95,16 @@ export default function Login() {
             {mode === 'signup' && (
               <div>
                 <label style={{ fontSize: 12, color: '#666', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.4px', display: 'block', marginBottom: 5 }}>Full name</label>
-                <input value={name} onChange={e => setName(e.target.value)} placeholder="Your name" required
-                  style={{ width: '100%', padding: '10px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 14, fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none' }} />
+                <input className="bnj-input" value={name} onChange={e => setName(e.target.value)} placeholder="Your name" required />
               </div>
             )}
             <div>
               <label style={{ fontSize: 12, color: '#666', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.4px', display: 'block', marginBottom: 5 }}>Email</label>
-              <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" required
-                style={{ width: '100%', padding: '10px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 14, fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none' }} />
+              <input className="bnj-input" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" required />
             </div>
             <div>
               <label style={{ fontSize: 12, color: '#666', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.4px', display: 'block', marginBottom: 5 }}>Password</label>
-              <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" required
-                style={{ width: '100%', padding: '10px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 14, fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none' }} />
+              <input className="bnj-input" type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" required />
             </div>
 
             {error && (
@@ -77,11 +113,7 @@ export default function Login() {
               </div>
             )}
 
-            <button type="submit" disabled={loading} style={{
-              background: '#FFA500', color: '#fff', border: 'none', borderRadius: 8,
-              padding: '12px', fontSize: 14, fontWeight: 600, cursor: loading ? 'wait' : 'pointer',
-              fontFamily: 'inherit', marginTop: 4, opacity: loading ? 0.7 : 1
-            }}>
+            <button type="submit" disabled={loading} className="bnj-btn" style={{ cursor: loading ? 'wait' : 'pointer', opacity: loading ? 0.7 : 1 }}>
               {loading ? 'Please wait…' : mode === 'login' ? 'Sign in' : 'Create account'}
             </button>
           </form>

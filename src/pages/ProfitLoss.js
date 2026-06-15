@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Spinner } from '../components/UI'
 import { FileText, BookOpen, Calendar, Download, TrendingUp, TrendingDown, Receipt, CheckCircle, AlertTriangle, Info } from 'lucide-react'
 
-const MVR_RATE = 15.4
+const MVR_RATE = 15.42
 
 export default function Accounting() {
   const [orders, setOrders] = useState([])

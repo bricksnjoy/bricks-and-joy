@@ -17,39 +17,61 @@ import EmailCenter from './pages/EmailCenter'
 import {
   LayoutDashboard, ShoppingCart, Package, Users,
   DollarSign, BarChart2, Truck, ChevronDown, ChevronRight,
-  LogOut, Building2, FileText, Menu, CalendarDays, Mail, X, Tag, BookOpen
+  LogOut, Building2, FileText, Menu, CalendarDays, Mail, Tag, BookOpen,
+  GripVertical, Check, Settings2
 } from 'lucide-react'
 
-const NAV = [
-  {
-    section: null,
-    items: [
-      { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    ]
-  },
-  {
-    section: 'POS & Inventory',
-    items: [
-      { id: 'orders', label: 'Orders', icon: ShoppingCart },
-      { id: 'inventory', label: 'Inventory', icon: Package },
-      { id: 'categories', label: 'Categories', icon: Tag },
-      { id: 'purchase-orders', label: 'Purchase Orders', icon: Truck },
-      { id: 'supplier-catalog', label: 'Supplier Catalog', icon: BookOpen },
-      { id: 'customers', label: 'Customers', icon: Users },
-      { id: 'tasks', label: 'Tasks & Calendar', icon: CalendarDays },
-      { id: 'email', label: 'Email Center', icon: Mail },
-    ]
-  },
-  {
-    section: 'Accounting',
-    items: [
-      { id: 'profit-loss', label: 'Financial Reports', icon: FileText },
-      { id: 'costs', label: 'Cost Management', icon: DollarSign },
-      { id: 'vendors', label: 'Vendors', icon: Building2 },
-      { id: 'statistics', label: 'Analytics', icon: BarChart2 },
-    ]
-  },
+// Catalog of every page. The sidebar layout (sections + order) is built from
+// DEFAULT_NAV but can be reorganized by the user and is persisted to localStorage.
+const ITEMS = {
+  dashboard:          { label: 'Dashboard',         icon: LayoutDashboard, render: <Dashboard /> },
+  orders:             { label: 'Orders',            icon: ShoppingCart,    render: <Orders /> },
+  customers:          { label: 'Customers',         icon: Users,           render: <Customers /> },
+  tasks:              { label: 'Tasks & Calendar',  icon: CalendarDays,    render: <TasksCalendar /> },
+  email:              { label: 'Email Center',      icon: Mail,            render: <EmailCenter /> },
+  inventory:          { label: 'Inventory',         icon: Package,         render: <Inventory /> },
+  categories:         { label: 'Categories',        icon: Tag,             render: <Categories /> },
+  'purchase-orders':  { label: 'Purchase Orders',   icon: Truck,           render: <PurchaseOrders /> },
+  'supplier-catalog': { label: 'Supplier Catalog',  icon: BookOpen,        render: <SupplierCatalog /> },
+  'profit-loss':      { label: 'Financial Reports', icon: FileText,        render: <ProfitLoss /> },
+  costs:              { label: 'Cost Management',    icon: DollarSign,      render: <CostManagement /> },
+  vendors:            { label: 'Vendors',           icon: Building2,       render: <Vendors /> },
+  statistics:         { label: 'Analytics',         icon: BarChart2,       render: <Statistics /> },
+}
+
+const DEFAULT_NAV = [
+  { id: 'main',       section: null,             items: ['dashboard'] },
+  { id: 'pos',        section: 'Point of Sale',  items: ['orders', 'customers', 'tasks', 'email'] },
+  { id: 'inventory',  section: 'Inventory',      items: ['inventory', 'categories', 'purchase-orders', 'supplier-catalog'] },
+  { id: 'accounting', section: 'Accounting',     items: ['profit-loss', 'costs', 'vendors', 'statistics'] },
 ]
+
+const NAV_KEY = 'bnj_nav_layout_v1'
+
+// Merge a saved layout with defaults so newly added pages always appear and
+// removed pages are dropped.
+function normalizeNav(saved) {
+  if (!Array.isArray(saved) || !saved.length) return DEFAULT_NAV
+  const known = new Set(Object.keys(ITEMS))
+  const seen = new Set()
+  const next = saved
+    .filter(s => s && Array.isArray(s.items))
+    .map(s => ({
+      ...s,
+      items: s.items.filter(i => { if (known.has(i) && !seen.has(i)) { seen.add(i); return true } return false })
+    }))
+  // append any item not present anywhere into its default section (or the last)
+  for (const def of DEFAULT_NAV) {
+    for (const i of def.items) {
+      if (seen.has(i)) continue
+      seen.add(i)
+      let target = next.find(s => s.id === def.id)
+      if (!target) { target = { ...def, items: [] }; next.push(target) }
+      target.items.push(i)
+    }
+  }
+  return next.filter(s => s.items.length || s.section)
+}
 
 export default function App() {
   const [session, setSession] = useState(null)
@@ -57,6 +79,11 @@ export default function App() {
   const [page, setPage] = useState('dashboard')
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [collapsed, setCollapsed] = useState({})
+  const [editMode, setEditMode] = useState(false)
+  const [nav, setNav] = useState(() => {
+    try { return normalizeNav(JSON.parse(localStorage.getItem(NAV_KEY))) } catch { return DEFAULT_NAV }
+  })
+  const [drag, setDrag] = useState(null) // { type:'item'|'section', id }
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -66,49 +93,66 @@ export default function App() {
     return () => subscription.unsubscribe()
   }, [])
 
+  function persist(next) {
+    setNav(next)
+    try { localStorage.setItem(NAV_KEY, JSON.stringify(next)) } catch {}
+  }
+
   if (loading) return (
     <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Poppins, sans-serif', background: '#f8f7f4' }}>
       <div style={{ textAlign: 'center' }}>
-        <img src="/logo.png" alt="Brick's & Joy" style={{ width: 64, height: 64, objectFit: 'contain', marginBottom: 20, filter: 'drop-shadow(0 4px 12px rgba(255,165,0,0.3))' }} onError={e => e.target.style.display='none'} />
+        <img src="/logo.png" alt="Brick's & Joy" style={{ width: 64, height: 64, objectFit: 'contain', marginBottom: 20, filter: 'drop-shadow(0 4px 12px rgba(255,165,0,0.3))', animation: 'bob 1.6s ease-in-out infinite' }} onError={e => e.target.style.display='none'} />
         <div style={{ width: 30, height: 30, border: '3px solid #f0ece6', borderTopColor: '#FFA500', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto' }} />
-        <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
+        <style>{`@keyframes spin { to { transform: rotate(360deg) } } @keyframes bob { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }`}</style>
       </div>
     </div>
   )
   if (!session) return <Login />
 
   function navigate(id) {
+    if (editMode) return
     setPage(id)
     setSidebarOpen(false)
   }
 
   function toggleSection(section) {
+    if (editMode) return
     setCollapsed(p => ({ ...p, [section]: !p[section] }))
   }
 
-  const pages = {
-    dashboard: <Dashboard />,
-    orders: <Orders />,
-    inventory: <Inventory />,
-    'purchase-orders': <PurchaseOrders />,
-    customers: <Customers />,
-    tasks: <TasksCalendar />,
-    email: <EmailCenter />,
-    categories: <Categories />,
-    'supplier-catalog': <SupplierCatalog />,
-    'profit-loss': <ProfitLoss />,
-    costs: <CostManagement />,
-    vendors: <Vendors />,
-    statistics: <Statistics />,
+  // --- drag & drop reorder ---
+  function moveItem(dragId, overSectionId, overItemId) {
+    let next = nav.map(s => ({ ...s, items: s.items.filter(i => i !== dragId) }))
+    const sIdx = next.findIndex(s => s.id === overSectionId)
+    if (sIdx < 0) return
+    const items = [...next[sIdx].items]
+    let at = items.length
+    if (overItemId && overItemId !== dragId) {
+      const oi = items.indexOf(overItemId)
+      if (oi >= 0) at = oi
+    }
+    items.splice(at, 0, dragId)
+    next[sIdx] = { ...next[sIdx], items }
+    persist(next)
   }
 
-  const allItems = NAV.flatMap(g => g.items)
-  const currentItem = allItems.find(i => i.id === page)
+  function moveSection(dragId, overId) {
+    if (dragId === overId) return
+    const next = [...nav]
+    const from = next.findIndex(s => s.id === dragId)
+    const to = next.findIndex(s => s.id === overId)
+    if (from < 0 || to < 0) return
+    const [m] = next.splice(from, 1)
+    next.splice(to, 0, m)
+    persist(next)
+  }
+
+  const currentItem = ITEMS[page]
 
   return (
     <div style={{ display: 'flex', height: '100vh', fontFamily: "'Poppins', sans-serif", background: '#f8f7f4', overflow: 'hidden' }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800;900&display=swap');
         * { box-sizing: border-box; }
         ::-webkit-scrollbar { width: 5px; height: 5px; }
         ::-webkit-scrollbar-track { background: transparent; }
@@ -116,20 +160,26 @@ export default function App() {
         ::-webkit-scrollbar-thumb:hover { background: #ccc; }
         @keyframes spin { to { transform: rotate(360deg) } }
         @keyframes fadeSlideUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes wobble { 0%,100%{transform:rotate(-1.2deg)} 50%{transform:rotate(1.2deg)} }
 
         .nav-item {
           display: flex; align-items: center; gap: 10px; padding: 9px 12px;
           border-radius: 10px; cursor: pointer; font-size: 13px; font-weight: 500;
           color: #667; transition: all 0.15s; border: none; background: none;
           width: 100%; text-align: left; font-family: inherit; letter-spacing: 0;
+          position: relative;
         }
-        .nav-item:hover { background: #f5f4f1; color: #0d1b2a; }
+        .nav-item:hover { background: #f5f4f1; color: #0d1b2a; transform: translateX(2px); }
         .nav-item.active {
           background: linear-gradient(135deg, #FFA500, #ff8c00);
           color: #fff; font-weight: 700;
           box-shadow: 0 3px 10px rgba(255,165,0,0.3);
         }
         .nav-item.active svg { color: #fff !important; }
+        .nav-item.editing { cursor: grab; background: #fbfaf8; border: 1px dashed #e4ddd2; animation: wobble 0.4s ease-in-out infinite; }
+        .nav-item.dragging { opacity: 0.4; }
+        .sec-header.editing { cursor: grab; }
+        .sec-header.editing:hover { background: #f5f4f1; }
 
         .sidebar-overlay { display: none; position: fixed; inset: 0; background: rgba(13,27,42,0.4); z-index: 99; backdrop-filter: blur(2px); }
         @media (max-width: 768px) {
@@ -141,7 +191,6 @@ export default function App() {
         .page-content { animation: fadeSlideUp 0.25s ease both; }
       `}</style>
 
-      {/* Sidebar overlay (mobile) */}
       <div className={`sidebar-overlay ${sidebarOpen ? 'open' : ''}`} onClick={() => setSidebarOpen(false)} />
 
       {/* Sidebar */}
@@ -149,51 +198,78 @@ export default function App() {
         style={{ width: 234, background: '#fff', borderRight: '1px solid #f0f0f0', display: 'flex', flexDirection: 'column', flexShrink: 0, overflowY: 'auto', position: 'relative', boxShadow: '2px 0 12px rgba(0,0,0,0.04)' }}>
 
         {/* Logo */}
-        <div style={{ padding: '20px 18px 16px', borderBottom: '1px solid #f5f5f5' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
-            <img src="/logo.png" alt="Brick's & Joy" style={{ width: 38, height: 38, objectFit: 'contain', flexShrink: 0, filter: 'drop-shadow(0 2px 6px rgba(255,165,0,0.25))' }}
-              onError={e => { e.target.style.display = 'none' }} />
-            <div>
-              <div style={{ fontSize: 14, fontWeight: 800, color: '#0d1b2a', letterSpacing: '-0.3px', lineHeight: 1.2 }}>Brick's & Joy</div>
-              <div style={{ fontSize: 10, color: '#FFA500', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1.2px', marginTop: 2 }}>Business Manager</div>
-            </div>
-          </div>
+        <div style={{ padding: '22px 18px 18px', borderBottom: '1px solid #f5f5f5', display: 'flex', justifyContent: 'center' }}>
+          <img src="/wordmark.svg" alt="Brick's & Joy" style={{ width: 168, height: 78, objectFit: 'contain' }}
+            onError={e => { e.target.onerror = null; e.target.src = '/logo.png'; e.target.style.height = '52px'; e.target.style.width = 'auto' }} />
         </div>
 
         {/* Nav */}
         <nav style={{ padding: '10px 10px', flex: 1 }}>
-          {NAV.map((group, gi) => (
-            <div key={gi} style={{ marginBottom: group.section ? 6 : 2 }}>
+          {nav.map((group) => (
+            <div key={group.id} style={{ marginBottom: group.section ? 6 : 2 }}
+              onDragOver={editMode ? (e => { e.preventDefault() }) : undefined}
+              onDrop={editMode && drag?.type === 'item' ? (e => { e.preventDefault(); moveItem(drag.id, group.id, null); setDrag(null) }) : undefined}
+            >
               {group.section && (
-                <button onClick={() => toggleSection(group.section)}
-                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '6px 8px', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', marginBottom: 2, borderRadius: 8 }}>
-                  <span style={{ fontSize: 10, fontWeight: 700, color: '#ccc', textTransform: 'uppercase', letterSpacing: '1px' }}>{group.section}</span>
-                  {collapsed[group.section]
+                <button className={`sec-header ${editMode ? 'editing' : ''}`}
+                  draggable={editMode}
+                  onDragStart={editMode ? (e => { setDrag({ type: 'section', id: group.id }); e.dataTransfer.effectAllowed = 'move' }) : undefined}
+                  onDragOver={editMode && drag?.type === 'section' ? (e => { e.preventDefault() }) : undefined}
+                  onDrop={editMode && drag?.type === 'section' ? (e => { e.preventDefault(); e.stopPropagation(); moveSection(drag.id, group.id); setDrag(null) }) : undefined}
+                  onClick={() => toggleSection(group.section)}
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '6px 8px', background: 'none', border: 'none', cursor: editMode ? 'grab' : 'pointer', fontFamily: 'inherit', marginBottom: 2, borderRadius: 8 }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 700, color: editMode ? '#FFA500' : '#ccc', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                    {editMode && <GripVertical size={11} color="#FFA500" />}
+                    {group.section}
+                  </span>
+                  {!editMode && (collapsed[group.section]
                     ? <ChevronRight size={11} color="#ccc" />
-                    : <ChevronDown size={11} color="#ccc" />}
+                    : <ChevronDown size={11} color="#ccc" />)}
                 </button>
               )}
-              {!collapsed[group.section] && group.items.map(item => (
-                <button key={item.id} className={`nav-item ${page === item.id ? 'active' : ''}`} onClick={() => navigate(item.id)}>
-                  <item.icon size={15} color={page === item.id ? '#fff' : '#aaa'} style={{ flexShrink: 0 }} />
-                  {item.label}
-                </button>
-              ))}
+              {(editMode || !collapsed[group.section]) && group.items.map(id => {
+                const item = ITEMS[id]
+                if (!item) return null
+                return (
+                  <button key={id}
+                    className={`nav-item ${page === id && !editMode ? 'active' : ''} ${editMode ? 'editing' : ''} ${drag?.id === id ? 'dragging' : ''}`}
+                    draggable={editMode}
+                    onDragStart={editMode ? (e => { setDrag({ type: 'item', id }); e.dataTransfer.effectAllowed = 'move' }) : undefined}
+                    onDragOver={editMode && drag?.type === 'item' ? (e => { e.preventDefault() }) : undefined}
+                    onDrop={editMode && drag?.type === 'item' ? (e => { e.preventDefault(); e.stopPropagation(); moveItem(drag.id, group.id, id); setDrag(null) }) : undefined}
+                    onClick={() => navigate(id)}>
+                    {editMode && <GripVertical size={13} color="#d8cdbb" style={{ flexShrink: 0 }} />}
+                    <item.icon size={15} color={page === id && !editMode ? '#fff' : '#aaa'} style={{ flexShrink: 0 }} />
+                    {item.label}
+                  </button>
+                )
+              })}
             </div>
           ))}
         </nav>
 
-        {/* Sign out */}
-        <div style={{ padding: '10px', borderTop: '1px solid #f5f5f5' }}>
-          <button className="nav-item" onClick={() => supabase.auth.signOut()} style={{ color: '#e74c3c', gap: 10 }}>
-            <LogOut size={14} color="#e74c3c" /> Sign out
+        {/* Reorganize + Sign out */}
+        <div style={{ padding: '10px', borderTop: '1px solid #f5f5f5', display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <button className="nav-item" onClick={() => { setEditMode(m => !m); setDrag(null) }}
+            style={{ color: editMode ? '#1D9E75' : '#667', fontWeight: editMode ? 700 : 500 }}>
+            {editMode ? <Check size={15} color="#1D9E75" /> : <Settings2 size={15} color="#aaa" />}
+            {editMode ? 'Done organizing' : 'Reorganize menu'}
           </button>
+          {editMode && (
+            <button className="nav-item" onClick={() => persist(DEFAULT_NAV)} style={{ color: '#999', fontSize: 12, paddingLeft: 12 }}>
+              Reset to default
+            </button>
+          )}
+          {!editMode && (
+            <button className="nav-item" onClick={() => supabase.auth.signOut()} style={{ color: '#e74c3c', gap: 10 }}>
+              <LogOut size={14} color="#e74c3c" /> Sign out
+            </button>
+          )}
         </div>
       </div>
 
       {/* Main content */}
       <div className="main-content" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', marginLeft: 0 }}>
-        {/* Top bar */}
         <div style={{
           background: '#fff', borderBottom: '1px solid #f0f0f0', padding: '13px 22px',
           display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0,
@@ -211,9 +287,8 @@ export default function App() {
           </span>
         </div>
 
-        {/* Page */}
         <div key={page} className="page-content" style={{ flex: 1, overflowY: 'auto', padding: '22px 26px' }}>
-          {pages[page] || <Dashboard />}
+          {ITEMS[page]?.render || <Dashboard />}
         </div>
       </div>
     </div>

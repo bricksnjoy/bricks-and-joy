@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Button, Input, Select, Table, Modal, Spinner, FormRow, useToast, Toasts, Badge } from '../components/UI'
 import { Plus, Trash2, Gift, FlaskConical, Megaphone, Instagram, Users, Package, Truck, User, Store, Lightbulb, Undo2, FileText, ArrowLeftRight, Tag, PieChart, Filter } from 'lucide-react'
 
-const MVR_RATE = 15.4 // 1 USD = 15.4 MVR (update as needed)
+const MVR_RATE = 15.42 // 1 USD = 15.42 MVR (update as needed)
 
 const COST_CATEGORIES = [
   { value: 'Giveaway', label: 'Giveaway', icon: Gift },
