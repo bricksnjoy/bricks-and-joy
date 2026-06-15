@@ -183,34 +183,32 @@ export default function PurchaseOrders() {
   async function updateBatchStatus(group, newStatus) {
     const ids = group.rows.map(r => r.id)
     const wasReceived = group.rows[0]?.status === 'received'
-    await supabase.from('purchase_orders').update({ status: newStatus }).in('id', ids)
+    const { error: statusErr } = await supabase.from('purchase_orders').update({ status: newStatus }).in('id', ids)
+    if (statusErr) { toast.error('Failed to update status'); return }
 
     if (newStatus === 'received' && !wasReceived) {
       const productRows = group.rows.filter(r => r.cost_type !== 'extra')
       for (const row of productRows) {
         if (row.product_id) {
-          // Linked inventory product — just add stock
+          // Linked inventory product — add stock
           const { data: prod } = await supabase.from('products').select('id, stock_qty, name').eq('id', row.product_id).single()
           if (prod) {
-            await supabase.from('products').update({ stock_qty: prod.stock_qty + row.qty }).eq('id', row.product_id)
-            toast.success(`${prod.name}: +${row.qty} units in stock`)
+            await supabase.from('products').update({ stock_qty: (prod.stock_qty || 0) + Number(row.qty) }).eq('id', prod.id)
+            toast.success(`${prod.name}: +${row.qty} units`)
           }
         } else if (row.product_name) {
-          // Catalog item — find matching inventory product by name (case-insensitive), or create
-          const { data: existing } = await supabase.from('products').select('id, stock_qty, name').ilike('name', row.product_name).maybeSingle()
+          // Catalog item — find by name or create in inventory
+          const { data: found } = await supabase.from('products').select('id, stock_qty, name').ilike('name', row.product_name).limit(1)
+          const existing = found && found[0]
           if (existing) {
-            await supabase.from('products').update({ stock_qty: existing.stock_qty + row.qty }).eq('id', existing.id)
+            await supabase.from('products').update({ stock_qty: (existing.stock_qty || 0) + Number(row.qty) }).eq('id', existing.id)
             toast.success(`${existing.name}: +${row.qty} added to existing stock`)
           } else {
-            await supabase.from('products').insert({
-              name: row.product_name,
-              stock_qty: row.qty,
-              cost_price: row.unit_cost || 0,
-              sell_price: parseFloat(((row.unit_cost || 0) * 1.3).toFixed(2)),
-              image_url: row.image_url || null,
-              low_stock_threshold: 10,
-            })
-            toast.success(`${row.product_name}: added to inventory`)
+            const newProd = { name: row.product_name, stock_qty: Number(row.qty), cost_price: row.unit_cost || 0, low_stock_threshold: 10 }
+            if (row.image_url) newProd.image_url = row.image_url
+            const { error: insErr } = await supabase.from('products').insert(newProd)
+            if (insErr) toast.error(`Could not add ${row.product_name} to inventory: ${insErr.message}`)
+            else toast.success(`${row.product_name}: created in inventory`)
           }
         }
       }
