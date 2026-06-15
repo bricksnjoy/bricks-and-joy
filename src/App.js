@@ -18,7 +18,7 @@ import {
   LayoutDashboard, ShoppingCart, Package, Users,
   DollarSign, BarChart2, Truck, ChevronDown, ChevronRight,
   LogOut, Building2, FileText, Menu, CalendarDays, Mail, Tag, BookOpen,
-  GripVertical, Check, Settings2
+  GripVertical, Check, Settings2, MoreVertical
 } from 'lucide-react'
 
 // Catalog of every page. The sidebar layout (sections + order) is built from
@@ -84,6 +84,7 @@ export default function App() {
     try { return normalizeNav(JSON.parse(localStorage.getItem(NAV_KEY))) } catch { return DEFAULT_NAV }
   })
   const [drag, setDrag] = useState(null) // { type:'item'|'section', id }
+  const [menuOpen, setMenuOpen] = useState(false)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -247,22 +248,41 @@ export default function App() {
           ))}
         </nav>
 
-        {/* Reorganize + Sign out */}
-        <div style={{ padding: '10px', borderTop: '1px solid #f5f5f5', display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <button className="nav-item" onClick={() => { setEditMode(m => !m); setDrag(null) }}
-            style={{ color: editMode ? '#1D9E75' : '#667', fontWeight: editMode ? 700 : 500 }}>
-            {editMode ? <Check size={15} color="#1D9E75" /> : <Settings2 size={15} color="#aaa" />}
-            {editMode ? 'Done organizing' : 'Reorganize menu'}
-          </button>
-          {editMode && (
-            <button className="nav-item" onClick={() => persist(DEFAULT_NAV)} style={{ color: '#999', fontSize: 12, paddingLeft: 12 }}>
-              Reset to default
-            </button>
+        {/* Footer: Sign out + kebab menu */}
+        <div style={{ padding: '10px', borderTop: '1px solid #f5f5f5', position: 'relative' }}>
+          {editMode ? (
+            <>
+              <button className="nav-item" onClick={() => { setEditMode(false); setDrag(null) }}
+                style={{ color: '#1D9E75', fontWeight: 700 }}>
+                <Check size={15} color="#1D9E75" /> Done organizing
+              </button>
+              <button className="nav-item" onClick={() => persist(DEFAULT_NAV)} style={{ color: '#999', fontSize: 12, paddingLeft: 12 }}>
+                Reset to default
+              </button>
+            </>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <button className="nav-item" onClick={() => supabase.auth.signOut()} style={{ color: '#e74c3c', gap: 10, flex: 1 }}>
+                <LogOut size={14} color="#e74c3c" /> Sign out
+              </button>
+              <button onClick={() => setMenuOpen(o => !o)} title="More"
+                style={{ background: menuOpen ? '#f5f4f1' : 'none', border: 'none', cursor: 'pointer', padding: '8px', borderRadius: 9, display: 'flex', flexShrink: 0, transition: 'background 0.15s' }}>
+                <MoreVertical size={17} color="#888" />
+              </button>
+            </div>
           )}
-          {!editMode && (
-            <button className="nav-item" onClick={() => supabase.auth.signOut()} style={{ color: '#e74c3c', gap: 10 }}>
-              <LogOut size={14} color="#e74c3c" /> Sign out
-            </button>
+
+          {/* Popover */}
+          {menuOpen && !editMode && (
+            <>
+              <div onClick={() => setMenuOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 40 }} />
+              <div style={{ position: 'absolute', right: 10, bottom: 56, zIndex: 41, background: '#fff', borderRadius: 12, border: '1px solid #eee', boxShadow: '0 8px 26px rgba(13,27,42,0.16)', padding: 6, minWidth: 180, animation: 'fadeSlideUp 0.16s ease both' }}>
+                <button className="nav-item" onClick={() => { setEditMode(true); setMenuOpen(false); setDrag(null) }}
+                  style={{ color: '#0d1b2a', fontWeight: 600 }}>
+                  <Settings2 size={15} color="#FFA500" /> Reorganize menu
+                </button>
+              </div>
+            </>
           )}
         </div>
       </div>
