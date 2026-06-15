@@ -186,7 +186,7 @@ export default function PurchaseOrders() {
     const ids = group.rows.map(r => r.id)
     const { data: currentRows, error: fetchErr } = await supabase
       .from('purchase_orders')
-      .select('id, product_id, product_name, qty, unit_cost, image_url, cost_type, stock_added')
+      .select('id, product_id, product_name, qty, unit_cost, total_cost, image_url, cost_type, stock_added')
       .in('id', ids)
     if (fetchErr) { toast.error('Failed to load order lines'); return 0 }
 
@@ -196,6 +196,10 @@ export default function PurchaseOrders() {
     let synced = 0
     for (const row of productRows) {
       let ok = false
+      // Unit cost, falling back to total ÷ qty if unit_cost wasn't stored
+      const unitCost = Number(row.unit_cost) > 0
+        ? Number(row.unit_cost)
+        : (Number(row.qty) > 0 ? Number(row.total_cost || 0) / Number(row.qty) : 0)
       if (row.product_id) {
         const { data: prod, error: prodErr } = await supabase.from('products').select('id, stock_qty, name').eq('id', row.product_id).single()
         if (!prodErr && prod) {
@@ -205,23 +209,29 @@ export default function PurchaseOrders() {
         }
       }
       if (!ok && row.product_name) {
-        const { data: found } = await supabase.from('products').select('id, stock_qty, name').ilike('name', row.product_name).limit(1)
+        const { data: found } = await supabase.from('products').select('id, stock_qty, name, cost_price').ilike('name', row.product_name).limit(1)
         const existing = found?.[0]
         if (existing) {
-          await supabase.from('products').update({ stock_qty: (existing.stock_qty || 0) + Number(row.qty) }).eq('id', existing.id)
+          const upd = { stock_qty: (existing.stock_qty || 0) + Number(row.qty) }
+          // Record cost from this purchase if not already set
+          if ((!existing.cost_price || Number(existing.cost_price) === 0) && unitCost > 0) {
+            upd.cost_price = unitCost
+          }
+          await supabase.from('products').update(upd).eq('id', existing.id)
           toast.success(`${existing.name}: +${row.qty} added to stock`)
           ok = true
         } else {
           // Pull extra details from matching catalog item if we have it
           const cat = supplierCatalog.find(c => c.product_name?.toLowerCase() === row.product_name?.toLowerCase())
+          const cost = unitCost || Number(cat?.cost_price) || 0
           const { error: insErr } = await supabase.from('products').insert({
             name: row.product_name,
             category: cat?.category || 'Building & Blocks',
-            age_range: '3–5',
+            age_range: 'All ages',
             stock_qty: Number(row.qty),
-            low_stock_threshold: 10,
-            cost_price: Number(row.unit_cost) || 0,
-            sell_price: cat?.sell_price || parseFloat(((Number(row.unit_cost) || 0) * 1.3).toFixed(2)),
+            low_stock_threshold: 1,
+            cost_price: cost,
+            sell_price: cat?.sell_price || parseFloat((cost * 1.3).toFixed(2)),
             sku: cat?.sku || null,
             barcode: cat?.barcode || null,
             photo_url: row.image_url || cat?.image_url || null,
