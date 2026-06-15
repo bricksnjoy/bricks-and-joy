@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Button, Input, Select, Table, Modal, Badge, StockBadge, Spinner, FormRow, useToast, Toasts } from '../components/UI'
-import { Plus, Trash2, Edit2, Upload, X, Package, Eye, Barcode, Download, Printer, Camera, LayoutGrid, List, MoreVertical, ShoppingBag, Blocks, Baby, Percent, Minus } from 'lucide-react'
+import { Plus, Trash2, Edit2, Upload, X, Package, Eye, Barcode, Download, Printer, Camera, LayoutGrid, List, MoreVertical, ShoppingBag, Cake, Percent, Minus, CheckSquare, Square, AlertTriangle } from 'lucide-react'
 import JsBarcode from 'jsbarcode'
 import QRCode from 'qrcode'
 import BarcodeScanner from '../components/BarcodeScanner'
@@ -399,15 +399,83 @@ export default function Inventory() {
   const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
   const margin = form.sell_price > 0 ? Math.round((form.sell_price - form.cost_price) / form.sell_price * 100) : 0
 
-  const [showDiscontinued, setShowDiscontinued] = useState(false)
+  const [stockFilter, setStockFilter] = useState('active') // 'active' | 'retired' | 'lowstock' | 'cleared'
   const [view, setView] = useState(() => localStorage.getItem('bnj_inv_view') || 'grid')
+  const [selectMode, setSelectMode] = useState(false)
+  const [selected, setSelected] = useState(new Set())
+  const [bulkPrintQty, setBulkPrintQty] = useState(1)
+  const [bulkMenu, setBulkMenu] = useState(false)
   function changeView(v) { setView(v); localStorage.setItem('bnj_inv_view', v) }
+  function toggleSelect(id) { setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n }) }
+  function selectAll() { setSelected(new Set(filtered.map(p => p.id))) }
+  function clearSelect() { setSelected(new Set()) }
+
+  async function bulkDelete() {
+    if (!selected.size) return
+    if (!window.confirm(`Delete ${selected.size} product(s)?`)) return
+    for (const id of selected) { await supabase.from('products').delete().eq('id', id) }
+    toast.success(`Deleted ${selected.size} product(s)`)
+    setSelected(new Set()); setSelectMode(false); load()
+  }
+
+  async function bulkRetire() {
+    if (!selected.size) return
+    for (const id of selected) { await supabase.from('products').update({ discontinued: true }).eq('id', id) }
+    toast.success(`Retired ${selected.size} product(s)`)
+    setSelected(new Set()); setSelectMode(false); load()
+  }
+
+  async function bulkPrint() {
+    const selProds = products.filter(p => selected.has(p.id) && p.barcode)
+    if (!selProds.length) { toast.error('No selected products have barcodes'); return }
+    const logoUrl = window.location.origin + '/logo.png'
+    const repeat = Math.max(1, parseInt(bulkPrintQty) || 1)
+    const allLabels = selProds.flatMap(p => Array.from({ length: repeat }, () => p))
+    const labelSvgs = await Promise.all(allLabels.map(async p => {
+      try {
+        const tempSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+        document.body.appendChild(tempSvg)
+        JsBarcode(tempSvg, p.barcode, { format: 'CODE128', width: 1.5, height: 50, displayValue: true, fontSize: 10, margin: 5 })
+        const svgData = new XMLSerializer().serializeToString(tempSvg)
+        document.body.removeChild(tempSvg)
+        return { name: p.name, price: p.sell_price, barcode: p.barcode, svg: svgData }
+      } catch { return null }
+    }))
+    const labels = labelSvgs.filter(Boolean)
+    const w = window.open('', '_blank')
+    w.document.write(`<html><head><title>Labels</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>* { margin:0; padding:0; box-sizing:border-box; } body { font-family:'Poppins',Arial,sans-serif; background:#f8f7f4; padding:12px; }
+    .grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+    .label { background:#fff; border:1px solid #eee; border-radius:10px; overflow:hidden; break-inside:avoid; }
+    .lt { display:flex; justify-content:space-between; align-items:center; padding:5px 8px; border-bottom:1px solid #f0f0f0; }
+    .lt img { height:22px; width:22px; object-fit:contain; }
+    .lt span { font-size:7px; color:#FFA500; text-transform:uppercase; letter-spacing:0.8px; font-weight:600; }
+    .lb { padding:6px 8px 8px; text-align:center; }
+    .lb img { max-width:100%; height:40px; display:block; margin:0 auto; }
+    .ln { font-size:9px; font-weight:600; color:#0d1b2a; margin:4px 0; }
+    .lf { display:flex; justify-content:space-between; align-items:center; }
+    .lp { background:#0d1b2a; color:#FFA500; font-size:9px; font-weight:600; padding:2px 7px; border-radius:5px; }
+    .lc { font-size:6px; color:#ccc; font-family:monospace; }
+    @media print { body { background:none; } }
+    </style></head><body><div class="grid">
+    ${labels.map(l => `<div class="label">
+      <div class="lt"><img src="${logoUrl}" onerror="this.style.display='none'" /><span>Brick's &amp; Joy</span></div>
+      <div class="lb"><img src="data:image/svg+xml;base64,${btoa(l.svg)}" /><div class="ln">${l.name}</div>
+      <div class="lf"><div class="lp">MVR ${Number(l.price).toFixed(2)}</div><div class="lc">${l.barcode}</div></div></div></div>`).join('')}
+    </div><script>window.onload=()=>window.print()</script></body></html>`)
+    w.document.close()
+  }
 
   const filtered = products.filter(p => {
     const ms = p.name.toLowerCase().includes(search.toLowerCase()) || (p.brand || '').toLowerCase().includes(search.toLowerCase()) || (p.sku || '').toLowerCase().includes(search.toLowerCase()) || (p.barcode || '').includes(search)
     const mc = filterCat === 'all' || p.category === filterCat
-    const md = showDiscontinued ? p.discontinued : !p.discontinued
-    return ms && mc && md
+    let ms2 = true
+    if (stockFilter === 'active') ms2 = !p.discontinued
+    else if (stockFilter === 'retired') ms2 = p.discontinued
+    else if (stockFilter === 'lowstock') ms2 = !p.discontinued && p.stock_qty > 0 && p.stock_qty <= (p.low_stock_threshold || 10)
+    else if (stockFilter === 'cleared') ms2 = !p.discontinued && p.stock_qty <= 0
+    return ms && mc && ms2
   })
 
   const columns = [
@@ -461,38 +529,67 @@ export default function Inventory() {
       `}</style>
       <PageHeader title="Inventory" subtitle={`${products.length} products`}
         action={
-          <div style={{ display: 'flex', gap: 8 }}>
-            <Button variant="ghost" onClick={startScanner} title="Scan barcode">
-              <Camera size={15} /> Scan
-            </Button>
-            <Button variant="ghost" onClick={printAllBarcodes} title="Print all barcodes">
-              <Printer size={15} /> Print all
-            </Button>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <div style={{ position: 'relative' }}>
+              <button onClick={() => { setSelectMode(m => { if(m){setSelected(new Set());setBulkMenu(false)} return !m }) }}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', border: '1px solid #ddd', borderRadius: 8, background: selectMode ? '#0d1b2a' : '#fff', color: selectMode ? '#fff' : '#555', cursor: 'pointer', fontSize: 13, fontWeight: 600, fontFamily: 'inherit' }}>
+                {selectMode ? <CheckSquare size={15} color="#FFA500" /> : <Square size={15} />} Select
+              </button>
+            </div>
+            {selectMode && (
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center', background: '#f8f7f4', borderRadius: 10, padding: '4px 10px' }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: '#0d1b2a', minWidth: 60 }}>{selected.size} selected</span>
+                <button onClick={selectAll} style={{ fontSize: 11, padding: '4px 8px', border: '1px solid #ddd', borderRadius: 6, background: '#fff', cursor: 'pointer', fontFamily: 'inherit' }}>All</button>
+                <button onClick={clearSelect} style={{ fontSize: 11, padding: '4px 8px', border: '1px solid #ddd', borderRadius: 6, background: '#fff', cursor: 'pointer', fontFamily: 'inherit' }}>None</button>
+                <div style={{ width: 1, height: 20, background: '#ddd' }} />
+                <button onClick={bulkRetire} disabled={!selected.size} style={{ fontSize: 11, padding: '4px 10px', border: '1px solid #ddd', borderRadius: 6, background: '#fff', color: '#666', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600 }}>Retire</button>
+                <button onClick={bulkDelete} disabled={!selected.size} style={{ fontSize: 11, padding: '4px 10px', border: 'none', borderRadius: 6, background: '#E24B4A', color: '#fff', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600 }}>Delete</button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <input type="number" min="1" value={bulkPrintQty} onChange={e => setBulkPrintQty(e.target.value)}
+                    style={{ width: 44, padding: '4px 6px', border: '1px solid #ddd', borderRadius: 6, fontSize: 12, fontFamily: 'inherit', textAlign: 'center', outline: 'none' }} />
+                  <button onClick={bulkPrint} disabled={!selected.size} style={{ fontSize: 11, padding: '4px 10px', border: 'none', borderRadius: 6, background: '#FFA500', color: '#fff', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600 }}>Print labels</button>
+                </div>
+              </div>
+            )}
+            <Button variant="ghost" onClick={printAllBarcodes}><Printer size={15} /> Print all</Button>
             <Button onClick={openAdd}><Plus size={15} /> Add product</Button>
           </div>
         } />
 
       <Card>
+        {/* Filter tabs */}
+        <div style={{ display: 'flex', background: '#f5f5f5', borderRadius: 10, padding: 3, gap: 2, marginBottom: 14, width: 'fit-content' }}>
+          {[
+            { key: 'active', label: 'Active', count: products.filter(p => !p.discontinued).length, color: '#1D9E75' },
+            { key: 'retired', label: 'Retired', count: products.filter(p => p.discontinued).length, color: '#888' },
+            { key: 'lowstock', label: 'Low Stock', count: products.filter(p => !p.discontinued && p.stock_qty > 0 && p.stock_qty <= (p.low_stock_threshold || 10)).length, color: '#FFA500' },
+            { key: 'cleared', label: 'Cleared Out', count: products.filter(p => !p.discontinued && p.stock_qty <= 0).length, color: '#E24B4A' },
+          ].map(tab => (
+            <button key={tab.key} onClick={() => { setStockFilter(tab.key); setSelected(new Set()) }}
+              style={{ padding: '7px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                fontSize: 12.5, fontWeight: stockFilter === tab.key ? 700 : 500,
+                background: stockFilter === tab.key ? (tab.key === 'active' ? '#1D9E75' : tab.key === 'retired' ? '#666' : tab.key === 'lowstock' ? '#FFA500' : '#E24B4A') : 'transparent',
+                color: stockFilter === tab.key ? '#fff' : '#888',
+                transition: 'all 0.15s', display: 'flex', alignItems: 'center', gap: 6 }}>
+              {tab.label}
+              <span style={{ fontSize: 11, fontWeight: 700, background: 'rgba(0,0,0,0.15)', borderRadius: 99, padding: '1px 6px' }}>{tab.count}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* Search row */}
         <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name, barcode, SKU…"
-            style={{ padding: '9px 14px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', width: 240, outline: 'none' }} />
+          <div style={{ position: 'relative' }}>
+            <Camera size={15} color="#aaa" style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', cursor: 'pointer' }}
+              onClick={startScanner} />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name, barcode, SKU…"
+              style={{ padding: '9px 14px 9px 34px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', width: 252, outline: 'none' }} />
+          </div>
           <select value={filterCat} onChange={e => setFilterCat(e.target.value)}
             style={{ padding: '9px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', background: '#fff', cursor: 'pointer' }}>
             <option value="all">All categories</option>
             {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
-          <div style={{ display: 'flex', gap: 0, border: '1px solid #ddd', borderRadius: 8, overflow: 'hidden' }}>
-            <button onClick={() => setShowDiscontinued(false)}
-              style={{ padding: '7px 14px', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', transition: 'all 0.15s',
-                background: !showDiscontinued ? '#1D9E75' : '#fff', color: !showDiscontinued ? '#fff' : '#999' }}>
-              Active ({products.filter(p=>!p.discontinued).length})
-            </button>
-            <button onClick={() => setShowDiscontinued(true)}
-              style={{ padding: '7px 14px', border: 'none', borderLeft: '1px solid #ddd', cursor: 'pointer', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', transition: 'all 0.15s',
-                background: showDiscontinued ? '#666' : '#fff', color: showDiscontinued ? '#fff' : '#999' }}>
-              Discontinued ({products.filter(p=>p.discontinued).length})
-            </button>
-          </div>
           <div style={{ display: 'flex', gap: 0, border: '1px solid #ddd', borderRadius: 8, overflow: 'hidden', marginLeft: 'auto' }}>
             <button onClick={() => changeView('grid')} title="Grid view"
               style={{ padding: '7px 11px', border: 'none', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', background: view === 'grid' ? '#0d1b2a' : '#fff' }}>
@@ -504,11 +601,13 @@ export default function Inventory() {
             </button>
           </div>
         </div>
+
         {loading ? <Spinner /> : view === 'list'
-          ? <Table columns={columns} data={filtered} emptyMessage={showDiscontinued ? 'No discontinued products.' : 'No products yet.'} />
+          ? <Table columns={columns} data={filtered} emptyMessage="No products found." />
           : (filtered.length === 0
-              ? <div style={{ textAlign: 'center', padding: '60px 20px', color: '#bbb' }}>{showDiscontinued ? 'No discontinued products.' : 'No products yet.'}</div>
-              : <ProductGrid products={filtered} onView={openView} onEdit={openEdit} onBarcode={openBarcode} onDelete={del} onToggle={toggleDiscontinued} onOrder={openOrder} />
+              ? <div style={{ textAlign: 'center', padding: '60px 20px', color: '#bbb' }}>No products found.</div>
+              : <ProductGrid products={filtered} onView={openView} onEdit={openEdit} onBarcode={openBarcode} onDelete={del} onToggle={toggleDiscontinued} onOrder={openOrder}
+                  selectMode={selectMode} selected={selected} onToggleSelect={toggleSelect} />
           )}
       </Card>
 
@@ -812,13 +911,13 @@ export default function Inventory() {
 }
 
 // ── Apple-style product grid ──────────────────────────────
-function ProductGrid({ products, onView, onEdit, onBarcode, onDelete, onToggle, onOrder }) {
+function ProductGrid({ products, onView, onEdit, onBarcode, onDelete, onToggle, onOrder, selectMode, selected, onToggleSelect }) {
   return (
     <>
       <style>{`
         @keyframes cardIn { from { opacity:0; transform: translateY(14px); } to { opacity:1; transform: translateY(0); } }
         .inv-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(372px, 1fr)); gap: 34px 28px; }
-        .prod-card { animation: cardIn 0.35s ease both; }
+        .prod-card { animation: cardIn 0.35s ease both; position:relative; }
         .prod-tile {
           position: relative; width: 100%; aspect-ratio: 372 / 443; min-height: 443px; border-radius: 22px; overflow: hidden;
           background: linear-gradient(160deg, #f6f6f8 0%, #e9e9ed 100%);
@@ -831,65 +930,79 @@ function ProductGrid({ products, onView, onEdit, onBarcode, onDelete, onToggle, 
           box-shadow: inset 0 1.5px 0 rgba(255,255,255,0.95), inset 0 -3px 8px rgba(0,0,0,0.07),
                       inset 0 0 0 1px rgba(0,0,0,0.04), 0 16px 34px rgba(13,27,42,0.16);
         }
+        .prod-tile-sel { outline: 3px solid #FFA500 !important; outline-offset: 2px; }
         .prod-tile img { width:100%; height:100%; object-fit: cover; display:block; }
-        /* slide-out kebab menu */
+        /* slide-out kebab */
         .kebab-wrap { position:absolute; top:12px; right:12px; display:flex; align-items:center; gap:7px; }
         .kebab-tray { display:flex; align-items:center; gap:7px; max-width:0; opacity:0; overflow:hidden; transition: max-width 0.32s cubic-bezier(.2,.7,.3,1), opacity 0.22s; }
-        .kebab-tray.open { max-width:140px; opacity:1; }
+        .kebab-tray.open { max-width:160px; opacity:1; }
         .prod-act {
           width:34px; height:34px; border-radius:11px; border:none; cursor:pointer; display:flex; align-items:center; justify-content:center; flex-shrink:0;
           background: rgba(255,255,255,0.92); backdrop-filter: blur(6px); box-shadow: 0 2px 8px rgba(0,0,0,0.14); transition: transform 0.15s, background 0.15s;
         }
         .prod-act:hover { transform: scale(1.1); }
-        .prod-order { display:flex; align-items:center; justify-content:center; gap:8px; background: linear-gradient(135deg,#FFB733,#FF8A00); color:#fff; border:none; border-radius:999px; padding:11px 26px; font-size:14px; font-weight:700; cursor:pointer; font-family:inherit; box-shadow:0 5px 14px rgba(255,138,0,0.34); transition: transform .15s, box-shadow .15s; }
-        .prod-order:hover { transform: translateY(-2px); box-shadow:0 9px 20px rgba(255,138,0,0.44); }
-        .prod-order:disabled { background:#d8d4cd; box-shadow:none; cursor:not-allowed; }
-        .meta-chip { display:inline-flex; align-items:center; gap:4px; font-size:12px; font-weight:700; color:#5a6472; }
+        /* meta row bottom */
+        .meta-row { position:absolute; bottom:12px; left:12px; right:12px; display:flex; gap:8px; }
+        .meta-chip { display:inline-flex; align-items:center; gap:4px; font-size:11.5px; font-weight:700; color:#4a5568; background:rgba(255,255,255,0.88); backdrop-filter:blur(6px); padding:5px 10px; border-radius:999px; box-shadow:0 2px 6px rgba(0,0,0,0.08); }
+        /* select checkbox */
+        .sel-chk { position:absolute; top:14px; left:14px; z-index:2; width:26px; height:26px; border-radius:8px; border:2px solid rgba(255,255,255,0.9); background:rgba(255,255,255,0.85); backdrop-filter:blur(4px); cursor:pointer; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 6px rgba(0,0,0,0.12); }
+        .sel-chk.checked { background:#FFA500; border-color:#FFA500; }
       `}</style>
       <div className="inv-grid">
         {products.map(p => (
-          <ProductCard key={p.id} p={p} onView={onView} onEdit={onEdit} onBarcode={onBarcode} onDelete={onDelete} onToggle={onToggle} onOrder={onOrder} />
+          <ProductCard key={p.id} p={p} onView={onView} onEdit={onEdit} onBarcode={onBarcode} onDelete={onDelete} onToggle={onToggle} onOrder={onOrder}
+            selectMode={selectMode} isSelected={selected?.has(p.id)} onToggleSelect={onToggleSelect} />
         ))}
       </div>
     </>
   )
 }
 
-function ProductCard({ p, onView, onEdit, onBarcode, onDelete, onOrder }) {
+function ProductCard({ p, onView, onEdit, onBarcode, onDelete, onOrder, selectMode, isSelected, onToggleSelect }) {
   const [menu, setMenu] = useState(false)
   const margin = p.sell_price > 0 ? Math.round((p.sell_price - p.cost_price) / p.sell_price * 100) : 0
-  const low = p.stock_qty <= (p.low_stock_threshold || 0)
+  const low = p.stock_qty > 0 && p.stock_qty <= (p.low_stock_threshold || 10)
   const out = p.stock_qty <= 0
   const isNew = (p.tags || '').toLowerCase().split(',').map(t => t.trim()).includes('new')
   return (
     <div className="prod-card">
-      <div className="prod-tile" onClick={() => onView(p)}>
+      <div className={`prod-tile ${isSelected ? 'prod-tile-sel' : ''}`}
+        onClick={() => selectMode ? onToggleSelect(p.id) : onView(p)}>
         {p.photo_url
           ? <img src={p.photo_url} alt={p.name} />
           : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Package size={56} color="#cfcfd6" /></div>}
 
-        {/* meta row top-left, like the LEGO card */}
-        <div style={{ position: 'absolute', left: 14, top: 14, display: 'flex', gap: 12, background: 'rgba(255,255,255,0.85)', backdropFilter: 'blur(6px)', padding: '6px 12px', borderRadius: 999, boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
-          {p.pieces ? <span className="meta-chip"><Blocks size={14} color="#FFA500" /> {p.pieces}</span> : null}
-          <span className="meta-chip"><Baby size={14} color="#378ADD" /> {p.age_range}</span>
-          <span className="meta-chip" style={{ color: margin >= 40 ? '#1D9E75' : margin >= 20 ? '#f57f17' : '#E24B4A' }}><Percent size={13} /> {margin}%</span>
+        {/* select checkbox */}
+        {selectMode && (
+          <div className={`sel-chk ${isSelected ? 'checked' : ''}`} onClick={e => { e.stopPropagation(); onToggleSelect(p.id) }}>
+            {isSelected && <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2.5 7L6 10.5L11.5 3.5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+          </div>
+        )}
+
+        {/* meta chips bottom */}
+        <div className="meta-row">
+          {p.pieces ? <span className="meta-chip">🧱 {p.pieces}</span> : null}
+          <span className="meta-chip"><Cake size={13} color="#378ADD" /> {p.age_range}</span>
+          <span className="meta-chip"><Percent size={12} color={margin >= 40 ? '#1D9E75' : margin >= 20 ? '#f57f17' : '#E24B4A'} style={{ flexShrink:0 }} /><span style={{ color: margin >= 40 ? '#1D9E75' : margin >= 20 ? '#f57f17' : '#E24B4A' }}>{margin}%</span></span>
         </div>
 
         {p.discontinued && (
-          <div style={{ position: 'absolute', left: 14, bottom: 14, background: 'rgba(102,102,102,0.92)', color: '#fff', fontSize: 10, fontWeight: 700, padding: '4px 10px', borderRadius: 999, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Discontinued</div>
+          <div style={{ position: 'absolute', top: 14, left: 14, background: 'rgba(102,102,102,0.92)', color: '#fff', fontSize: 10, fontWeight: 700, padding: '4px 10px', borderRadius: 999, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Retired</div>
         )}
 
         {/* slide-out kebab */}
-        <div className="kebab-wrap" onClick={e => e.stopPropagation()} onMouseLeave={() => setMenu(false)}>
-          <div className={`kebab-tray ${menu ? 'open' : ''}`}>
-            <button className="prod-act" title="Barcode" onClick={() => onBarcode(p)}><Barcode size={16} color="#FFA500" /></button>
-            <button className="prod-act" title="Edit" onClick={() => onEdit(p)}><Edit2 size={16} color="#0d1b2a" /></button>
-            <button className="prod-act" title="Delete" onClick={() => onDelete(p.id)}><Trash2 size={16} color="#E24B4A" /></button>
+        {!selectMode && (
+          <div className="kebab-wrap" onClick={e => e.stopPropagation()} onMouseLeave={() => setMenu(false)}>
+            <div className={`kebab-tray ${menu ? 'open' : ''}`}>
+              <button className="prod-act" title="Barcode" onClick={() => onBarcode(p)}><Barcode size={15} color="#FFA500" /></button>
+              <button className="prod-act" title="Edit" onClick={() => onEdit(p)}><Edit2 size={15} color="#0d1b2a" /></button>
+              <button className="prod-act" title="Delete" onClick={() => onDelete(p.id)}><Trash2 size={15} color="#E24B4A" /></button>
+            </div>
+            <button className="prod-act" onClick={() => setMenu(m => !m)}>
+              {menu ? <X size={15} color="#0d1b2a" /> : <MoreVertical size={15} color="#0d1b2a" />}
+            </button>
           </div>
-          <button className="prod-act" title="Options" onClick={() => setMenu(m => !m)}>
-            {menu ? <X size={16} color="#0d1b2a" /> : <MoreVertical size={16} color="#0d1b2a" />}
-          </button>
-        </div>
+        )}
       </div>
 
       {/* info under picture */}
@@ -897,16 +1010,17 @@ function ProductCard({ p, onView, onEdit, onBarcode, onDelete, onOrder }) {
         {isNew && <div style={{ fontSize: 12, fontWeight: 700, color: '#FFA500', marginBottom: 2 }}>New</div>}
         <div style={{ fontSize: 19, fontWeight: 700, color: '#0d1b2a', letterSpacing: '-0.3px', lineHeight: 1.2 }}>{p.name}</div>
         <div style={{ fontSize: 12, color: '#aaa', marginTop: 4, fontWeight: 600 }}>{p.category}</div>
-        <div style={{ fontSize: 12.5, color: out ? '#E24B4A' : low ? '#f57f17' : '#1D9E75', marginTop: 6, fontWeight: 700 }}>
-          {out ? 'Out of stock' : `${p.stock_qty} in stock`}
-        </div>
-        <div style={{ fontSize: 20, fontWeight: 800, color: '#0d1b2a', marginTop: 8, letterSpacing: '-0.4px' }}>
-          MVR {Number(p.sell_price).toFixed(2)}
-        </div>
-        <div style={{ marginTop: 14 }}>
-          <button className="prod-order" disabled={out} onClick={() => onOrder(p)}>
-            <ShoppingBag size={16} /> Order
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 10 }}>
+          <div style={{ fontSize: 22, fontWeight: 800, color: '#0d1b2a', letterSpacing: '-0.5px' }}>
+            MVR {Number(p.sell_price).toFixed(2)}
+          </div>
+          <button className="prod-order" disabled={out || selectMode} onClick={() => onOrder(p)}
+            style={{ padding: '10px 13px', borderRadius: 999, fontSize: 16 }} title={out ? 'Out of stock' : 'Order'}>
+            <ShoppingBag size={17} />
           </button>
+        </div>
+        <div style={{ fontSize: 12, color: out ? '#E24B4A' : low ? '#f57f17' : '#1D9E75', marginTop: 6, fontWeight: 700 }}>
+          {out ? 'Cleared out' : low ? `⚠ ${p.stock_qty} left` : `${p.stock_qty} in stock`}
         </div>
       </div>
     </div>
