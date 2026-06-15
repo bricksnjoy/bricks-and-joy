@@ -224,10 +224,17 @@ export default function PurchaseOrders() {
           // Pull extra details from matching catalog item if we have it
           const cat = supplierCatalog.find(c => c.product_name?.toLowerCase() === row.product_name?.toLowerCase())
           const cost = unitCost || Number(cat?.cost_price) || 0
-          const { error: insErr } = await supabase.from('products').insert({
+          const insertPayload = {
             name: row.product_name,
             category: cat?.category || 'Building & Blocks',
-            age_range: 'All ages',
+            age_range: cat?.age_range || 'All ages',
+            brand: cat?.brand || null,
+            pieces: cat?.pieces ?? null,
+            sizes: cat?.sizes || null,
+            weight: cat?.weight || null,
+            dimensions: cat?.dimensions || null,
+            description: cat?.description || null,
+            tags: cat?.tags || null,
             stock_qty: Number(row.qty),
             low_stock_threshold: 1,
             cost_price: cost,
@@ -235,7 +242,15 @@ export default function PurchaseOrders() {
             sku: cat?.sku || null,
             barcode: cat?.barcode || null,
             photo_url: row.image_url || cat?.image_url || null,
-          })
+          }
+          let { error: insErr } = await supabase.from('products').insert(insertPayload)
+          // Drop columns the products table may not have yet, then retry
+          while (insErr && /column .* does not exist|could not find/i.test(insErr.message || '')) {
+            const col = (insErr.message.match(/column "?([a-z_]+)"?/i) || [])[1]
+            if (!col || !(col in insertPayload)) break
+            delete insertPayload[col]
+            const retry = await supabase.from('products').insert(insertPayload); insErr = retry.error
+          }
           if (insErr) { toast.error(`Could not add ${row.product_name}: ${insErr.message}`) }
           else { toast.success(`${row.product_name}: created in inventory`); ok = true }
         }
