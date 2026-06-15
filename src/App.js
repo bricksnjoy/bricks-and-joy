@@ -199,8 +199,7 @@ export default function App() {
 
         {/* Logo */}
         <div style={{ padding: '22px 18px 18px', borderBottom: '1px solid #f5f5f5', display: 'flex', justifyContent: 'center' }}>
-          <img src="/wordmark.svg" alt="Brick's & Joy" style={{ width: 168, height: 78, objectFit: 'contain' }}
-            onError={e => { e.target.onerror = null; e.target.src = '/logo.png'; e.target.style.height = '52px'; e.target.style.width = 'auto' }} />
+          <img src="/logo.png" alt="Brick's & Joy" style={{ width: 64, height: 64, objectFit: 'contain', filter: 'drop-shadow(0 4px 10px rgba(255,165,0,0.28))' }} />
         </div>
 
         {/* Nav */}
