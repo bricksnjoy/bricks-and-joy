@@ -182,37 +182,49 @@ export default function PurchaseOrders() {
 
   async function updateBatchStatus(group, newStatus) {
     const ids = group.rows.map(r => r.id)
-    const wasReceived = group.rows[0]?.status === 'received'
+
+    // Always read current status from DB — never trust stale React state
+    const { data: currentRows, error: fetchErr } = await supabase
+      .from('purchase_orders')
+      .select('id, status, product_id, product_name, qty, unit_cost, image_url, cost_type')
+      .in('id', ids)
+    if (fetchErr) { toast.error('Failed to load order'); return }
+
+    const wasAlreadyReceived = currentRows?.some(r => r.status === 'received')
+
     const { error: statusErr } = await supabase.from('purchase_orders').update({ status: newStatus }).in('id', ids)
     if (statusErr) { toast.error('Failed to update status'); return }
 
-    if (newStatus === 'received' && !wasReceived) {
-      const productRows = group.rows.filter(r => r.cost_type !== 'extra')
+    if (newStatus === 'received' && !wasAlreadyReceived) {
+      const productRows = (currentRows || []).filter(r => r.cost_type !== 'extra')
       for (const row of productRows) {
         if (row.product_id) {
-          // Linked inventory product — add stock
-          const { data: prod } = await supabase.from('products').select('id, stock_qty, name').eq('id', row.product_id).single()
-          if (prod) {
-            await supabase.from('products').update({ stock_qty: (prod.stock_qty || 0) + Number(row.qty) }).eq('id', prod.id)
-            toast.success(`${prod.name}: +${row.qty} units`)
-          }
+          // Linked inventory product — add stock directly
+          const { data: prod, error: prodErr } = await supabase.from('products').select('id, stock_qty, name').eq('id', row.product_id).single()
+          if (prodErr || !prod) { toast.error(`Could not find product ${row.product_name}`); continue }
+          await supabase.from('products').update({ stock_qty: (prod.stock_qty || 0) + Number(row.qty) }).eq('id', prod.id)
+          toast.success(`${prod.name}: +${row.qty} units in stock`)
         } else if (row.product_name) {
-          // Catalog item — find by name or create in inventory
+          // Catalog item — match by name in inventory or create new
           const { data: found } = await supabase.from('products').select('id, stock_qty, name').ilike('name', row.product_name).limit(1)
-          const existing = found && found[0]
+          const existing = found?.[0]
           if (existing) {
             await supabase.from('products').update({ stock_qty: (existing.stock_qty || 0) + Number(row.qty) }).eq('id', existing.id)
-            toast.success(`${existing.name}: +${row.qty} added to existing stock`)
+            toast.success(`${existing.name}: +${row.qty} added to stock`)
           } else {
-            const newProd = { name: row.product_name, stock_qty: Number(row.qty), cost_price: row.unit_cost || 0, low_stock_threshold: 10 }
-            if (row.image_url) newProd.image_url = row.image_url
-            const { error: insErr } = await supabase.from('products').insert(newProd)
-            if (insErr) toast.error(`Could not add ${row.product_name} to inventory: ${insErr.message}`)
+            const { error: insErr } = await supabase.from('products').insert({
+              name: row.product_name,
+              stock_qty: Number(row.qty),
+              cost_price: Number(row.unit_cost) || 0,
+              low_stock_threshold: 10,
+              ...(row.image_url ? { image_url: row.image_url } : {})
+            })
+            if (insErr) toast.error(`Could not add ${row.product_name}: ${insErr.message}`)
             else toast.success(`${row.product_name}: created in inventory`)
           }
         }
       }
-      // Prompt payment if unpaid
+      // Prompt payment if still unpaid
       const paid = paidForGroup(group)
       if (paid < group.total) openGroupPayModal(group)
     }
