@@ -180,54 +180,72 @@ export default function PurchaseOrders() {
     load()
   }
 
-  async function updateBatchStatus(group, newStatus) {
+  // Idempotent: adds each product line to inventory once, marking stock_added=true.
+  // Returns number of lines synced.
+  async function syncGroupToStock(group) {
     const ids = group.rows.map(r => r.id)
-
-    // Always read current status from DB — never trust stale React state
     const { data: currentRows, error: fetchErr } = await supabase
       .from('purchase_orders')
-      .select('id, status, product_id, product_name, qty, unit_cost, image_url, cost_type')
+      .select('id, product_id, product_name, qty, unit_cost, image_url, cost_type, stock_added')
       .in('id', ids)
-    if (fetchErr) { toast.error('Failed to load order'); return }
+    if (fetchErr) { toast.error('Failed to load order lines'); return 0 }
 
-    const wasAlreadyReceived = currentRows?.some(r => r.status === 'received')
+    const productRows = (currentRows || []).filter(r => r.cost_type !== 'extra' && !r.stock_added)
+    if (productRows.length === 0) { toast.error('Already added to stock'); return 0 }
 
+    let synced = 0
+    for (const row of productRows) {
+      let ok = false
+      if (row.product_id) {
+        const { data: prod, error: prodErr } = await supabase.from('products').select('id, stock_qty, name').eq('id', row.product_id).single()
+        if (!prodErr && prod) {
+          await supabase.from('products').update({ stock_qty: (prod.stock_qty || 0) + Number(row.qty) }).eq('id', prod.id)
+          toast.success(`${prod.name}: +${row.qty} units in stock`)
+          ok = true
+        }
+      }
+      if (!ok && row.product_name) {
+        const { data: found } = await supabase.from('products').select('id, stock_qty, name').ilike('name', row.product_name).limit(1)
+        const existing = found?.[0]
+        if (existing) {
+          await supabase.from('products').update({ stock_qty: (existing.stock_qty || 0) + Number(row.qty) }).eq('id', existing.id)
+          toast.success(`${existing.name}: +${row.qty} added to stock`)
+          ok = true
+        } else {
+          const { error: insErr } = await supabase.from('products').insert({
+            name: row.product_name,
+            stock_qty: Number(row.qty),
+            cost_price: Number(row.unit_cost) || 0,
+            low_stock_threshold: 10,
+            ...(row.image_url ? { image_url: row.image_url } : {})
+          })
+          if (insErr) { toast.error(`Could not add ${row.product_name}: ${insErr.message}`) }
+          else { toast.success(`${row.product_name}: created in inventory`); ok = true }
+        }
+      }
+      if (ok) {
+        await supabase.from('purchase_orders').update({ stock_added: true }).eq('id', row.id)
+        synced++
+      }
+    }
+    return synced
+  }
+
+  async function updateBatchStatus(group, newStatus) {
+    const ids = group.rows.map(r => r.id)
     const { error: statusErr } = await supabase.from('purchase_orders').update({ status: newStatus }).in('id', ids)
     if (statusErr) { toast.error('Failed to update status'); return }
 
-    if (newStatus === 'received' && !wasAlreadyReceived) {
-      const productRows = (currentRows || []).filter(r => r.cost_type !== 'extra')
-      for (const row of productRows) {
-        if (row.product_id) {
-          // Linked inventory product — add stock directly
-          const { data: prod, error: prodErr } = await supabase.from('products').select('id, stock_qty, name').eq('id', row.product_id).single()
-          if (prodErr || !prod) { toast.error(`Could not find product ${row.product_name}`); continue }
-          await supabase.from('products').update({ stock_qty: (prod.stock_qty || 0) + Number(row.qty) }).eq('id', prod.id)
-          toast.success(`${prod.name}: +${row.qty} units in stock`)
-        } else if (row.product_name) {
-          // Catalog item — match by name in inventory or create new
-          const { data: found } = await supabase.from('products').select('id, stock_qty, name').ilike('name', row.product_name).limit(1)
-          const existing = found?.[0]
-          if (existing) {
-            await supabase.from('products').update({ stock_qty: (existing.stock_qty || 0) + Number(row.qty) }).eq('id', existing.id)
-            toast.success(`${existing.name}: +${row.qty} added to stock`)
-          } else {
-            const { error: insErr } = await supabase.from('products').insert({
-              name: row.product_name,
-              stock_qty: Number(row.qty),
-              cost_price: Number(row.unit_cost) || 0,
-              low_stock_threshold: 10,
-              ...(row.image_url ? { image_url: row.image_url } : {})
-            })
-            if (insErr) toast.error(`Could not add ${row.product_name}: ${insErr.message}`)
-            else toast.success(`${row.product_name}: created in inventory`)
-          }
-        }
-      }
-      // Prompt payment if still unpaid
+    if (newStatus === 'received') {
+      await syncGroupToStock(group)
       const paid = paidForGroup(group)
       if (paid < group.total) openGroupPayModal(group)
     }
+    load()
+  }
+
+  async function manualSyncStock(group) {
+    await syncGroupToStock(group)
     load()
   }
 
@@ -415,6 +433,7 @@ export default function PurchaseOrders() {
                   const totalQty = productRows.reduce((s, r) => s + Number(r.qty || 0), 0)
                   const slipUrl = rows.find(r => r.slip_url)?.slip_url || null
                   const slipAnchorId = rows.find(r => r.slip_url)?.id || anchor.id
+                  const needsStockSync = anchor.status === 'received' && productRows.some(r => !r.stock_added)
 
                   return (
                     <tr key={g.key} style={{ borderBottom: '1px solid #f0f0f0' }}>
@@ -464,6 +483,12 @@ export default function PurchaseOrders() {
                           style={{ border: 'none', background: 'transparent', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>
                           {STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
                         </select>
+                        {needsStockSync && (
+                          <button onClick={() => manualSyncStock(g)} title="Add these items to inventory"
+                            style={{ display: 'block', marginTop: 4, background: '#FFF3D6', color: '#b8740a', border: '1px solid #f0d9a8', borderRadius: 6, cursor: 'pointer', padding: '3px 8px', fontSize: 10, fontWeight: 700, fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
+                            <Truck size={11} style={{ verticalAlign: '-1px' }} /> Add to stock
+                          </button>
+                        )}
                       </td>
                       {/* Payment — for whole batch */}
                       <td style={{ padding: '12px 12px', verticalAlign: 'middle' }}>
