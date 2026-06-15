@@ -673,10 +673,10 @@ function ProductGrid({ products, onView, onEdit, onBarcode, onDelete, onToggle }
     <>
       <style>{`
         @keyframes cardIn { from { opacity:0; transform: translateY(14px); } to { opacity:1; transform: translateY(0); } }
-        .inv-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(216px, 1fr)); gap: 26px 22px; }
+        .inv-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(372px, 1fr)); gap: 32px 28px; }
         .prod-card { animation: cardIn 0.35s ease both; }
         .prod-tile {
-          position: relative; width: 100%; aspect-ratio: 372 / 443; border-radius: 22px; overflow: hidden;
+          position: relative; width: 100%; aspect-ratio: 372 / 443; min-height: 443px; border-radius: 22px; overflow: hidden;
           background: linear-gradient(160deg, #f6f6f8 0%, #e9e9ed 100%);
           box-shadow: inset 0 1.5px 0 rgba(255,255,255,0.95), inset 0 -3px 8px rgba(0,0,0,0.07),
                       inset 0 0 0 1px rgba(0,0,0,0.04), 0 2px 6px rgba(0,0,0,0.05);
