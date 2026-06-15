@@ -1,14 +1,14 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Button, Input, Select, Table, Modal, Badge, StockBadge, Spinner, FormRow, useToast, Toasts } from '../components/UI'
-import { Plus, Trash2, Edit2, Upload, X, Package, Eye, Barcode, Download, Printer, Camera, LayoutGrid, List } from 'lucide-react'
+import { Plus, Trash2, Edit2, Upload, X, Package, Eye, Barcode, Download, Printer, Camera, LayoutGrid, List, MoreVertical, ShoppingBag, Blocks, Baby, Percent, Minus } from 'lucide-react'
 import JsBarcode from 'jsbarcode'
 import QRCode from 'qrcode'
 import BarcodeScanner from '../components/BarcodeScanner'
 
 const CATEGORIES = ['Building & Blocks','Action Figures','Dolls & Plush','Board Games','Outdoor & Sports','Educational','Vehicles & RC','Arts & Crafts','Puzzles','Other']
 const AGE_RANGES = ['0–2','3–5','6–8','9–12','12+','All ages']
-const EMPTY = { name:'', category:'Building & Blocks', age_range:'3–5', brand:'', sku:'', barcode:'', stock_qty:0, low_stock_threshold:10, cost_price:0, sell_price:0, description:'', sizes:'', weight:'', dimensions:'', tags:'', photo_url:'', discontinued:false }
+const EMPTY = { name:'', category:'Building & Blocks', age_range:'3–5', brand:'', sku:'', barcode:'', pieces:'', stock_qty:0, low_stock_threshold:10, cost_price:0, sell_price:0, description:'', sizes:'', weight:'', dimensions:'', tags:'', photo_url:'', discontinued:false }
 
 // Generate a unique barcode number
 function genBarcode(name, id) {
@@ -21,6 +21,10 @@ function genBarcode(name, id) {
 export default function Inventory() {
   const [products, setProducts] = useState([])
   const [suppliers, setSuppliers] = useState([])
+  const [customers, setCustomers] = useState([])
+  const [orderModal, setOrderModal] = useState(null)
+  const [orderForm, setOrderForm] = useState({ qty: 1, unit_price: 0, customer_id: '', customer_name: '', payment_status: 'unpaid', channel: 'Retail store' })
+  const [placingOrder, setPlacingOrder] = useState(false)
   const [loading, setLoading] = useState(true)
   const [modal, setModal] = useState(null)
   const [viewModal, setViewModal] = useState(null)
@@ -65,12 +69,14 @@ export default function Inventory() {
 
   async function load() {
     setLoading(true)
-    const [p, s] = await Promise.all([
+    const [p, s, c] = await Promise.all([
       supabase.from('products').select('*, suppliers(name)').order('created_at', { ascending: false }),
-      supabase.from('suppliers').select('id, name')
+      supabase.from('suppliers').select('id, name'),
+      supabase.from('customers').select('id, name').order('name'),
     ])
     setProducts(p.data || [])
     setSuppliers(s.data || [])
+    setCustomers(c.data || [])
     setLoading(false)
   }
 
@@ -126,14 +132,60 @@ export default function Inventory() {
     const barcode = form.barcode || genBarcode(form.name, form.id || Date.now())
     // Strip nested relation data that Supabase rejects on update
     const { suppliers: _s, supplier_name: _sn, ...cleanForm } = form
-    const payload = { ...cleanForm, barcode, stock_qty: parseInt(form.stock_qty) || 0, cost_price: parseFloat(form.cost_price) || 0, sell_price: parseFloat(form.sell_price) || 0, low_stock_threshold: parseInt(form.low_stock_threshold) || 10 }
-    const { error } = modal === 'add'
-      ? await supabase.from('products').insert(payload)
-      : await supabase.from('products').update(payload).eq('id', form.id)
+    const payload = { ...cleanForm, barcode, pieces: form.pieces === '' || form.pieces == null ? null : parseInt(form.pieces) || null, stock_qty: parseInt(form.stock_qty) || 0, cost_price: parseFloat(form.cost_price) || 0, sell_price: parseFloat(form.sell_price) || 0, low_stock_threshold: parseInt(form.low_stock_threshold) || 10 }
+    const doSave = pl => modal === 'add'
+      ? supabase.from('products').insert(pl)
+      : supabase.from('products').update(pl).eq('id', form.id)
+    let { error } = await doSave(payload)
+    // Gracefully handle DBs that don't yet have the optional `pieces` column
+    if (error && /pieces/i.test(error.message || '')) {
+      const { pieces: _drop, ...noPieces } = payload
+      const retry = await doSave(noPieces)
+      error = retry.error
+      if (!error) toast.info('Saved. Add a "pieces" column in Supabase to store piece counts.')
+    }
     setSaving(false)
     if (error) { toast.error('Failed to save: ' + error.message); return }
     toast.success(modal === 'add' ? 'Product added!' : 'Updated!')
     setModal(null); load()
+  }
+
+  function openOrder(p) {
+    setOrderForm({ qty: 1, unit_price: Number(p.sell_price) || 0, customer_id: '', customer_name: '', payment_status: 'unpaid', channel: 'Retail store' })
+    setOrderModal(p)
+  }
+
+  async function createOrder() {
+    const p = orderModal
+    const qty = parseInt(orderForm.qty) || 1
+    const unit = parseFloat(orderForm.unit_price) || 0
+    if (qty < 1) { toast.error('Quantity must be at least 1'); return }
+    setPlacingOrder(true)
+    const cust = customers.find(c => c.id === orderForm.customer_id)
+    const payload = {
+      customer_id: orderForm.customer_id || null,
+      customer_name: cust?.name || orderForm.customer_name || '',
+      channel: orderForm.channel,
+      status: 'pending',
+      order_date: new Date().toISOString().split('T')[0],
+      payment_status: orderForm.payment_status,
+      invoice_number: `INV-${Date.now().toString().slice(-6)}`,
+      product_id: p.id,
+      product_name: p.name,
+      qty,
+      unit_price: unit,
+      total_price: unit * qty,
+      discount: 0,
+    }
+    const { error } = await supabase.from('orders').insert(payload)
+    if (error) { setPlacingOrder(false); toast.error('Failed to create order: ' + error.message); return }
+    // decrement stock
+    const newStock = (p.stock_qty || 0) - qty
+    await supabase.from('products').update({ stock_qty: newStock }).eq('id', p.id)
+    setPlacingOrder(false)
+    setOrderModal(null)
+    toast.success(`Order created for ${p.name} — view it in Orders`)
+    load()
   }
 
   async function del(id) {
@@ -402,6 +454,11 @@ export default function Inventory() {
 
   return (
     <div>
+      <style>{`
+        .prod-order { display:inline-flex; align-items:center; justify-content:center; gap:8px; background: linear-gradient(135deg,#FFB733,#FF8A00); color:#fff; border:none; border-radius:999px; padding:11px 26px; font-size:14px; font-weight:700; cursor:pointer; font-family:inherit; box-shadow:0 5px 14px rgba(255,138,0,0.34); transition: transform .15s, box-shadow .15s; }
+        .prod-order:hover:not(:disabled) { transform: translateY(-2px); box-shadow:0 9px 20px rgba(255,138,0,0.44); }
+        .prod-order:disabled { background:#d8d4cd; box-shadow:none; cursor:not-allowed; }
+      `}</style>
       <PageHeader title="Inventory" subtitle={`${products.length} products`}
         action={
           <div style={{ display: 'flex', gap: 8 }}>
@@ -451,7 +508,7 @@ export default function Inventory() {
           ? <Table columns={columns} data={filtered} emptyMessage={showDiscontinued ? 'No discontinued products.' : 'No products yet.'} />
           : (filtered.length === 0
               ? <div style={{ textAlign: 'center', padding: '60px 20px', color: '#bbb' }}>{showDiscontinued ? 'No discontinued products.' : 'No products yet.'}</div>
-              : <ProductGrid products={filtered} onView={openView} onEdit={openEdit} onBarcode={openBarcode} onDelete={del} onToggle={toggleDiscontinued} />
+              : <ProductGrid products={filtered} onView={openView} onEdit={openEdit} onBarcode={openBarcode} onDelete={del} onToggle={toggleDiscontinued} onOrder={openOrder} />
           )}
       </Card>
 
@@ -542,56 +599,140 @@ export default function Inventory() {
         </Modal>
       )}
 
-      {/* ── VIEW PRODUCT MODAL ── */}
-      {viewModal && (
-        <Modal title="Product details" onClose={() => setViewModal(null)} width={560}>
-          <div style={{ display: 'flex', gap: 20, marginBottom: 20 }}>
-            {viewModal.photo_url
-              ? <img src={viewModal.photo_url} alt={viewModal.name} style={{ width: 120, height: 120, borderRadius: 12, objectFit: 'cover', border: '1px solid #eee', flexShrink: 0 }} />
-              : <div style={{ width: 120, height: 120, borderRadius: 12, background: '#f0f0f0', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Package size={40} color="#ccc" /></div>
-            }
-            <div style={{ flex: 1 }}>
-              <h2 style={{ fontSize: 18, fontWeight: 800, margin: '0 0 4px', color: '#0d1b2a' }}>{viewModal.name}</h2>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
-                <Badge color="purple">{viewModal.category}</Badge>
-                <Badge color="blue">{viewModal.age_range}</Badge>
-                <StockBadge qty={viewModal.stock_qty} threshold={viewModal.low_stock_threshold} />
-              </div>
-              {viewModal.brand && <div style={{ fontSize: 13, color: '#888' }}>Brand: <strong>{viewModal.brand}</strong></div>}
-              {viewModal.sku && <div style={{ fontSize: 13, color: '#888' }}>SKU: <strong>{viewModal.sku}</strong></div>}
-              {viewModal.barcode && <div style={{ fontSize: 13, color: '#888', fontFamily: 'monospace' }}>Barcode: <strong>{viewModal.barcode}</strong></div>}
+      {/* ── VIEW PRODUCT MODAL (big & cool) ── */}
+      {viewModal && (() => {
+        const vm = viewModal
+        const vmMargin = vm.sell_price > 0 ? Math.round((vm.sell_price - vm.cost_price) / vm.sell_price * 100) : 0
+        const vmOut = vm.stock_qty <= 0
+        const stats = [
+          { label: 'Sell price', value: `MVR ${Number(vm.sell_price).toFixed(2)}`, color: '#0d1b2a' },
+          { label: 'Cost price', value: `MVR ${Number(vm.cost_price).toFixed(2)}`, color: '#0d1b2a' },
+          { label: 'Margin', value: `${vmMargin}%`, color: vmMargin >= 40 ? '#1D9E75' : vmMargin >= 20 ? '#f57f17' : '#E24B4A' },
+          { label: 'In stock', value: vm.stock_qty, color: vmOut ? '#E24B4A' : '#1D9E75' },
+          { label: 'Low stock at', value: vm.low_stock_threshold },
+          vm.pieces ? { label: 'Pieces', value: vm.pieces } : { label: 'Sizes', value: vm.sizes || '—' },
+        ]
+        return (
+        <Modal title="" onClose={() => setViewModal(null)} width={1000}>
+          <div style={{ display: 'grid', gridTemplateColumns: '440px 1fr', gap: 36, alignItems: 'start' }} className="vm-grid">
+            <style>{`@media (max-width: 860px){ .vm-grid { grid-template-columns: 1fr !important; } }`}</style>
+            {/* Hero image */}
+            <div style={{ position: 'relative', width: '100%', aspectRatio: '372 / 443', borderRadius: 26, overflow: 'hidden',
+              background: 'linear-gradient(160deg, #f6f6f8, #e9e9ed)',
+              boxShadow: 'inset 0 2px 0 rgba(255,255,255,0.95), inset 0 -4px 10px rgba(0,0,0,0.08), inset 0 0 0 1px rgba(0,0,0,0.04), 0 10px 30px rgba(13,27,42,0.12)' }}>
+              {vm.photo_url
+                ? <img src={vm.photo_url} alt={vm.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Package size={80} color="#cfcfd6" /></div>}
+              {vm.discontinued && <div style={{ position: 'absolute', top: 16, left: 16, background: 'rgba(102,102,102,0.92)', color: '#fff', fontSize: 11, fontWeight: 700, padding: '5px 12px', borderRadius: 999, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Discontinued</div>}
             </div>
-          </div>
-          {viewModal.description && <div style={{ background: '#f8f7f4', borderRadius: 10, padding: '12px 14px', marginBottom: 14, fontSize: 13, color: '#555' }}>{viewModal.description}</div>}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 14 }}>
-            {[
-              { label: 'Cost price', value: `MVR ${Number(viewModal.cost_price).toFixed(2)}` },
-              { label: 'Sell price', value: `MVR ${Number(viewModal.sell_price).toFixed(2)}` },
-              { label: 'Margin', value: `${viewModal.sell_price > 0 ? Math.round((viewModal.sell_price - viewModal.cost_price) / viewModal.sell_price * 100) : 0}%` },
-              { label: 'Stock qty', value: viewModal.stock_qty },
-              { label: 'Low stock at', value: viewModal.low_stock_threshold },
-              { label: 'Sizes', value: viewModal.sizes || '—' },
-            ].map((item, i) => (
-              <div key={i} style={{ background: '#f8f7f4', borderRadius: 8, padding: '10px 12px' }}>
-                <div style={{ fontSize: 11, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: 3 }}>{item.label}</div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: '#0d1b2a' }}>{item.value}</div>
+
+            {/* Details */}
+            <div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+                <Badge color="purple">{vm.category}</Badge>
+                <Badge color="blue">{vm.age_range}</Badge>
+                {vm.pieces ? <span style={{ background: '#FFF3D6', color: '#b8740a', padding: '3px 11px', borderRadius: 99, fontSize: 12, fontWeight: 700 }}>{vm.pieces} pieces</span> : null}
               </div>
-            ))}
-          </div>
-          {viewModal.tags && (
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
-              {viewModal.tags.split(',').map(t => t.trim()).filter(Boolean).map(tag => (
-                <span key={tag} style={{ background: '#EEEDFE', color: '#6a1b9a', padding: '3px 10px', borderRadius: 99, fontSize: 11, fontWeight: 500 }}>{tag}</span>
-              ))}
+              <h1 style={{ fontSize: 38, fontWeight: 800, margin: '0 0 6px', color: '#0d1b2a', letterSpacing: '-1px', lineHeight: 1.05 }}>{vm.name}</h1>
+              {vm.brand && <div style={{ fontSize: 15, color: '#888', marginBottom: 14 }}>by <strong style={{ color: '#555' }}>{vm.brand}</strong></div>}
+
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, margin: '6px 0 18px' }}>
+                <span style={{ fontSize: 34, fontWeight: 800, color: '#0d1b2a', letterSpacing: '-1px' }}>MVR {Number(vm.sell_price).toFixed(2)}</span>
+                <span style={{ fontSize: 15, fontWeight: 700, color: vmMargin >= 40 ? '#1D9E75' : vmMargin >= 20 ? '#f57f17' : '#E24B4A' }}>{vmMargin}% margin</span>
+              </div>
+
+              {vm.description && <p style={{ fontSize: 16, color: '#555', lineHeight: 1.6, margin: '0 0 20px' }}>{vm.description}</p>}
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
+                {stats.map((item, i) => (
+                  <div key={i} style={{ background: '#f8f7f4', borderRadius: 14, padding: '14px 16px' }}>
+                    <div style={{ fontSize: 11.5, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 5 }}>{item.label}</div>
+                    <div style={{ fontSize: 19, fontWeight: 800, color: item.color || '#0d1b2a', letterSpacing: '-0.3px' }}>{item.value}</div>
+                  </div>
+                ))}
+              </div>
+
+              {(vm.sku || vm.barcode) && (
+                <div style={{ display: 'flex', gap: 20, fontSize: 13, color: '#999', marginBottom: 18, flexWrap: 'wrap' }}>
+                  {vm.sku && <span>SKU: <strong style={{ color: '#666', fontFamily: 'monospace' }}>{vm.sku}</strong></span>}
+                  {vm.barcode && <span>Barcode: <strong style={{ color: '#666', fontFamily: 'monospace' }}>{vm.barcode}</strong></span>}
+                </div>
+              )}
+
+              {vm.tags && (
+                <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginBottom: 22 }}>
+                  {vm.tags.split(',').map(t => t.trim()).filter(Boolean).map(tag => (
+                    <span key={tag} style={{ background: '#EEEDFE', color: '#6a1b9a', padding: '4px 13px', borderRadius: 99, fontSize: 12.5, fontWeight: 600 }}>{tag}</span>
+                  ))}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                <button className="prod-order" disabled={vmOut} onClick={() => { setViewModal(null); openOrder(vm) }} style={{ padding: '13px 34px', fontSize: 15.5 }}>
+                  <ShoppingBag size={18} /> {vmOut ? 'Out of stock' : 'Order'}
+                </button>
+                <Button variant="ghost" onClick={() => { openEdit(vm); setViewModal(null) }}><Edit2 size={14} /> Edit</Button>
+                <Button variant="ghost" onClick={() => openBarcode(vm)} style={{ color: '#FFA500' }}><Barcode size={14} /> Barcode</Button>
+              </div>
             </div>
-          )}
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <Button variant="ghost" onClick={() => openBarcode(viewModal)} style={{ color: '#FFA500' }}>▦ Barcode</Button>
-            <Button variant="ghost" onClick={() => { openEdit(viewModal); setViewModal(null) }}><Edit2 size={13} /> Edit</Button>
-            <Button variant="ghost" onClick={() => setViewModal(null)}>Close</Button>
           </div>
         </Modal>
-      )}
+        )
+      })()}
+
+      {/* ── CREATE ORDER MODAL ── */}
+      {orderModal && (() => {
+        const om = orderModal
+        const qty = parseInt(orderForm.qty) || 0
+        const unit = parseFloat(orderForm.unit_price) || 0
+        const total = qty * unit
+        const avail = om.stock_qty || 0
+        const tooMany = qty > avail
+        return (
+        <Modal title="New order" subtitle="Confirm to add it to Orders" onClose={() => setOrderModal(null)} width={460}>
+          <div style={{ display: 'flex', gap: 14, alignItems: 'center', marginBottom: 18, padding: 12, background: '#f8f7f4', borderRadius: 14 }}>
+            {om.photo_url
+              ? <img src={om.photo_url} alt={om.name} style={{ width: 64, height: 64, borderRadius: 12, objectFit: 'cover' }} />
+              : <div style={{ width: 64, height: 64, borderRadius: 12, background: '#eee', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Package size={26} color="#ccc" /></div>}
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: '#0d1b2a' }}>{om.name}</div>
+              <div style={{ fontSize: 12.5, color: '#999' }}>{avail} in stock · {om.category}</div>
+            </div>
+          </div>
+
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ fontSize: 12, color: '#666', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.4px', display: 'block', marginBottom: 6 }}>Quantity</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <button onClick={() => setOrderForm(p => ({ ...p, qty: Math.max(1, (parseInt(p.qty) || 1) - 1) }))} style={{ width: 40, height: 40, borderRadius: 11, border: '1px solid #ddd', background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Minus size={16} /></button>
+              <input type="number" min="1" value={orderForm.qty} onChange={e => setOrderForm(p => ({ ...p, qty: e.target.value }))}
+                style={{ width: 80, textAlign: 'center', padding: '10px', border: `1px solid ${tooMany ? '#E24B4A' : '#ddd'}`, borderRadius: 11, fontSize: 16, fontWeight: 700, fontFamily: 'inherit', outline: 'none' }} />
+              <button onClick={() => setOrderForm(p => ({ ...p, qty: (parseInt(p.qty) || 0) + 1 }))} style={{ width: 40, height: 40, borderRadius: 11, border: '1px solid #ddd', background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Plus size={16} /></button>
+            </div>
+            {tooMany && <div style={{ fontSize: 11.5, color: '#E24B4A', marginTop: 5 }}>Only {avail} in stock</div>}
+          </div>
+
+          <FormRow>
+            <Input label="Unit price (MVR)" type="number" step="0.01" value={orderForm.unit_price} onChange={e => setOrderForm(p => ({ ...p, unit_price: e.target.value }))} />
+            <Select label="Payment" value={orderForm.payment_status} onChange={e => setOrderForm(p => ({ ...p, payment_status: e.target.value }))}
+              options={[{ value: 'unpaid', label: 'Unpaid' }, { value: 'paid', label: 'Paid' }, { value: 'partial', label: 'Partial' }]} />
+          </FormRow>
+          <Select label="Customer" value={orderForm.customer_id} onChange={e => setOrderForm(p => ({ ...p, customer_id: e.target.value }))}
+            options={[{ value: '', label: '— Walk-in / No customer —' }, ...customers.map(c => ({ value: c.id, label: c.name }))]} style={{ marginBottom: 16 }} />
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 16px', background: '#0d1b2a', borderRadius: 14, marginBottom: 18 }}>
+            <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.55)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Total</span>
+            <span style={{ fontSize: 24, fontWeight: 800, color: '#FFA500', letterSpacing: '-0.5px' }}>MVR {total.toFixed(2)}</span>
+          </div>
+
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+            <Button variant="ghost" onClick={() => setOrderModal(null)}>Cancel</Button>
+            <button className="prod-order" disabled={placingOrder || qty < 1} onClick={createOrder} style={{ padding: '12px 28px' }}>
+              <ShoppingBag size={16} /> {placingOrder ? 'Creating…' : 'Confirm order'}
+            </button>
+          </div>
+        </Modal>
+        )
+      })()}
 
       {/* ── ADD/EDIT MODAL ── */}
       {modal && (
@@ -622,6 +763,9 @@ export default function Inventory() {
           <FormRow>
             <Input label="Brand" value={form.brand} onChange={f('brand')} placeholder="e.g. LEGO, Mattel" />
             <Input label="SKU" value={form.sku} onChange={f('sku')} placeholder="Optional" />
+          </FormRow>
+          <FormRow>
+            <Input label="Pieces (optional)" type="number" value={form.pieces} onChange={f('pieces')} placeholder="e.g. 259" style={{ gridColumn: 'span 2' }} />
           </FormRow>
           <FormRow>
             <Input label="Barcode (auto-generated)" value={form.barcode} onChange={f('barcode')} placeholder="Auto" style={{ gridColumn: 'span 2' }} />
@@ -668,19 +812,19 @@ export default function Inventory() {
 }
 
 // ── Apple-style product grid ──────────────────────────────
-function ProductGrid({ products, onView, onEdit, onBarcode, onDelete, onToggle }) {
+function ProductGrid({ products, onView, onEdit, onBarcode, onDelete, onToggle, onOrder }) {
   return (
     <>
       <style>{`
         @keyframes cardIn { from { opacity:0; transform: translateY(14px); } to { opacity:1; transform: translateY(0); } }
-        .inv-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(372px, 1fr)); gap: 32px 28px; }
+        .inv-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(372px, 1fr)); gap: 34px 28px; }
         .prod-card { animation: cardIn 0.35s ease both; }
         .prod-tile {
           position: relative; width: 100%; aspect-ratio: 372 / 443; min-height: 443px; border-radius: 22px; overflow: hidden;
           background: linear-gradient(160deg, #f6f6f8 0%, #e9e9ed 100%);
           box-shadow: inset 0 1.5px 0 rgba(255,255,255,0.95), inset 0 -3px 8px rgba(0,0,0,0.07),
                       inset 0 0 0 1px rgba(0,0,0,0.04), 0 2px 6px rgba(0,0,0,0.05);
-          transition: transform 0.28s cubic-bezier(.2,.7,.3,1), box-shadow 0.28s;
+          transition: transform 0.28s cubic-bezier(.2,.7,.3,1), box-shadow 0.28s; cursor: pointer;
         }
         .prod-card:hover .prod-tile {
           transform: translateY(-6px) scale(1.012);
@@ -688,69 +832,81 @@ function ProductGrid({ products, onView, onEdit, onBarcode, onDelete, onToggle }
                       inset 0 0 0 1px rgba(0,0,0,0.04), 0 16px 34px rgba(13,27,42,0.16);
         }
         .prod-tile img { width:100%; height:100%; object-fit: cover; display:block; }
-        .prod-actions { position:absolute; top:10px; right:10px; display:flex; gap:6px; opacity:0; transform: translateY(-4px); transition: all 0.2s; }
-        .prod-card:hover .prod-actions { opacity:1; transform: translateY(0); }
+        /* slide-out kebab menu */
+        .kebab-wrap { position:absolute; top:12px; right:12px; display:flex; align-items:center; gap:7px; }
+        .kebab-tray { display:flex; align-items:center; gap:7px; max-width:0; opacity:0; overflow:hidden; transition: max-width 0.32s cubic-bezier(.2,.7,.3,1), opacity 0.22s; }
+        .kebab-tray.open { max-width:140px; opacity:1; }
         .prod-act {
-          width:30px; height:30px; border-radius:9px; border:none; cursor:pointer; display:flex; align-items:center; justify-content:center;
-          background: rgba(255,255,255,0.9); backdrop-filter: blur(6px); box-shadow: 0 2px 6px rgba(0,0,0,0.12); transition: background 0.15s, transform 0.15s;
+          width:34px; height:34px; border-radius:11px; border:none; cursor:pointer; display:flex; align-items:center; justify-content:center; flex-shrink:0;
+          background: rgba(255,255,255,0.92); backdrop-filter: blur(6px); box-shadow: 0 2px 8px rgba(0,0,0,0.14); transition: transform 0.15s, background 0.15s;
         }
-        .prod-act:hover { transform: scale(1.08); }
-        .prod-buy { background: linear-gradient(135deg,#2f8fe6,#1f6fd0); color:#fff; border:none; border-radius:999px; padding:9px 22px; font-size:13.5px; font-weight:700; cursor:pointer; font-family:inherit; box-shadow:0 4px 12px rgba(47,143,230,0.32); transition: transform .15s, box-shadow .15s; }
-        .prod-buy:hover { transform: translateY(-1px); box-shadow:0 7px 16px rgba(47,143,230,0.4); }
-        .prod-link { background:none; border:none; color:#2f8fe6; font-size:13.5px; font-weight:600; cursor:pointer; font-family:inherit; padding:6px 4px; }
-        .prod-link:hover { text-decoration: underline; }
+        .prod-act:hover { transform: scale(1.1); }
+        .prod-order { display:flex; align-items:center; justify-content:center; gap:8px; background: linear-gradient(135deg,#FFB733,#FF8A00); color:#fff; border:none; border-radius:999px; padding:11px 26px; font-size:14px; font-weight:700; cursor:pointer; font-family:inherit; box-shadow:0 5px 14px rgba(255,138,0,0.34); transition: transform .15s, box-shadow .15s; }
+        .prod-order:hover { transform: translateY(-2px); box-shadow:0 9px 20px rgba(255,138,0,0.44); }
+        .prod-order:disabled { background:#d8d4cd; box-shadow:none; cursor:not-allowed; }
+        .meta-chip { display:inline-flex; align-items:center; gap:4px; font-size:12px; font-weight:700; color:#5a6472; }
       `}</style>
       <div className="inv-grid">
         {products.map(p => (
-          <ProductCard key={p.id} p={p} onView={onView} onEdit={onEdit} onBarcode={onBarcode} onDelete={onDelete} onToggle={onToggle} />
+          <ProductCard key={p.id} p={p} onView={onView} onEdit={onEdit} onBarcode={onBarcode} onDelete={onDelete} onToggle={onToggle} onOrder={onOrder} />
         ))}
       </div>
     </>
   )
 }
 
-function ProductCard({ p, onView, onEdit, onBarcode, onDelete, onToggle }) {
+function ProductCard({ p, onView, onEdit, onBarcode, onDelete, onOrder }) {
+  const [menu, setMenu] = useState(false)
   const margin = p.sell_price > 0 ? Math.round((p.sell_price - p.cost_price) / p.sell_price * 100) : 0
   const low = p.stock_qty <= (p.low_stock_threshold || 0)
+  const out = p.stock_qty <= 0
   const isNew = (p.tags || '').toLowerCase().split(',').map(t => t.trim()).includes('new')
   return (
     <div className="prod-card">
-      <div className="prod-tile" onClick={() => onView(p)} style={{ cursor: 'pointer' }}>
+      <div className="prod-tile" onClick={() => onView(p)}>
         {p.photo_url
           ? <img src={p.photo_url} alt={p.name} />
           : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Package size={56} color="#cfcfd6" /></div>}
 
-        {/* stock pill */}
-        <div style={{ position: 'absolute', left: 12, bottom: 12, background: low ? 'rgba(226,75,74,0.92)' : 'rgba(13,27,42,0.78)', color: '#fff', fontSize: 11, fontWeight: 700, padding: '4px 11px', borderRadius: 999, backdropFilter: 'blur(4px)' }}>
-          {p.stock_qty} in stock
+        {/* meta row top-left, like the LEGO card */}
+        <div style={{ position: 'absolute', left: 14, top: 14, display: 'flex', gap: 12, background: 'rgba(255,255,255,0.85)', backdropFilter: 'blur(6px)', padding: '6px 12px', borderRadius: 999, boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+          {p.pieces ? <span className="meta-chip"><Blocks size={14} color="#FFA500" /> {p.pieces}</span> : null}
+          <span className="meta-chip"><Baby size={14} color="#378ADD" /> {p.age_range}</span>
+          <span className="meta-chip" style={{ color: margin >= 40 ? '#1D9E75' : margin >= 20 ? '#f57f17' : '#E24B4A' }}><Percent size={13} /> {margin}%</span>
         </div>
+
         {p.discontinued && (
-          <div style={{ position: 'absolute', left: 12, top: 12, background: 'rgba(102,102,102,0.92)', color: '#fff', fontSize: 10, fontWeight: 700, padding: '4px 10px', borderRadius: 999, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Discontinued</div>
+          <div style={{ position: 'absolute', left: 14, bottom: 14, background: 'rgba(102,102,102,0.92)', color: '#fff', fontSize: 10, fontWeight: 700, padding: '4px 10px', borderRadius: 999, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Discontinued</div>
         )}
 
-        {/* hover actions */}
-        <div className="prod-actions" onClick={e => e.stopPropagation()}>
-          <button className="prod-act" title="Barcode" onClick={() => onBarcode(p)}><Barcode size={15} color="#FFA500" /></button>
-          <button className="prod-act" title="Edit" onClick={() => onEdit(p)}><Edit2 size={15} color="#0d1b2a" /></button>
-          <button className="prod-act" title="Delete" onClick={() => onDelete(p.id)}><Trash2 size={15} color="#E24B4A" /></button>
+        {/* slide-out kebab */}
+        <div className="kebab-wrap" onClick={e => e.stopPropagation()} onMouseLeave={() => setMenu(false)}>
+          <div className={`kebab-tray ${menu ? 'open' : ''}`}>
+            <button className="prod-act" title="Barcode" onClick={() => onBarcode(p)}><Barcode size={16} color="#FFA500" /></button>
+            <button className="prod-act" title="Edit" onClick={() => onEdit(p)}><Edit2 size={16} color="#0d1b2a" /></button>
+            <button className="prod-act" title="Delete" onClick={() => onDelete(p.id)}><Trash2 size={16} color="#E24B4A" /></button>
+          </div>
+          <button className="prod-act" title="Options" onClick={() => setMenu(m => !m)}>
+            {menu ? <X size={16} color="#0d1b2a" /> : <MoreVertical size={16} color="#0d1b2a" />}
+          </button>
         </div>
       </div>
 
-      {/* info */}
+      {/* info under picture */}
       <div style={{ textAlign: 'center', padding: '16px 8px 0' }}>
         {isNew && <div style={{ fontSize: 12, fontWeight: 700, color: '#FFA500', marginBottom: 2 }}>New</div>}
-        <div style={{ fontSize: 18, fontWeight: 700, color: '#0d1b2a', letterSpacing: '-0.3px', lineHeight: 1.2 }}>{p.name}</div>
-        <div style={{ fontSize: 11.5, color: '#aaa', marginTop: 4, fontWeight: 500 }}>{p.category} · {p.age_range}</div>
-        {p.description && (
-          <div style={{ fontSize: 13, color: '#666', marginTop: 8, lineHeight: 1.45, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', minHeight: 38 }}>{p.description}</div>
-        )}
-        <div style={{ fontSize: 14.5, fontWeight: 700, color: '#0d1b2a', marginTop: 10 }}>
-          From MVR {Number(p.sell_price).toFixed(2)}
-          <span style={{ fontSize: 12, fontWeight: 600, color: margin >= 40 ? '#1D9E75' : margin >= 20 ? '#f57f17' : '#E24B4A', marginLeft: 8 }}>{margin}% margin</span>
+        <div style={{ fontSize: 19, fontWeight: 700, color: '#0d1b2a', letterSpacing: '-0.3px', lineHeight: 1.2 }}>{p.name}</div>
+        <div style={{ fontSize: 12, color: '#aaa', marginTop: 4, fontWeight: 600 }}>{p.category}</div>
+        <div style={{ fontSize: 12.5, color: out ? '#E24B4A' : low ? '#f57f17' : '#1D9E75', marginTop: 6, fontWeight: 700 }}>
+          {out ? 'Out of stock' : `${p.stock_qty} in stock`}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14, marginTop: 14 }}>
-          <button className="prod-buy" onClick={() => onView(p)}>View</button>
-          <button className="prod-link" onClick={() => onEdit(p)}>Edit ›</button>
+        <div style={{ fontSize: 20, fontWeight: 800, color: '#0d1b2a', marginTop: 8, letterSpacing: '-0.4px' }}>
+          MVR {Number(p.sell_price).toFixed(2)}
+        </div>
+        <div style={{ marginTop: 14 }}>
+          <button className="prod-order" disabled={out} onClick={() => onOrder(p)}>
+            <ShoppingBag size={16} /> Order
+          </button>
         </div>
       </div>
     </div>
