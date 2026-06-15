@@ -1156,15 +1156,15 @@ function CatalogGrid({ items, activeSupplier, selectMode, selectedIds, onToggleS
     <>
       <style>{`
         @keyframes catIn { from { opacity:0; transform: translateY(14px);} to { opacity:1; transform: translateY(0);} }
-        .cat-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 30px 24px; }
+        .cat-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(372px, 1fr)); gap: 34px 28px; }
         .cat-card { animation: catIn 0.32s ease both; position:relative; }
-        .cat-tile { position:relative; width:100%; aspect-ratio:372/443; border-radius:22px; overflow:hidden; cursor:pointer;
-          background: linear-gradient(160deg,#f6f6f8,#e9e9ed);
+        .cat-tile { position:relative; width:100%; aspect-ratio:372/443; min-height:443px; border-radius:22px; overflow:hidden; cursor:pointer;
+          background: #fff;
           box-shadow: inset 0 1.5px 0 rgba(255,255,255,0.95), inset 0 -3px 8px rgba(0,0,0,0.07), inset 0 0 0 1px rgba(0,0,0,0.04), 0 2px 6px rgba(0,0,0,0.05);
           transition: transform .28s cubic-bezier(.2,.7,.3,1), box-shadow .28s; }
         .cat-card:hover .cat-tile { transform: translateY(-6px) scale(1.012); box-shadow: inset 0 1.5px 0 rgba(255,255,255,0.95), 0 16px 34px rgba(13,27,42,0.16); }
         .cat-tile.sel { outline:3px solid #FFA500; outline-offset:2px; }
-        .cat-tile img { width:100%; height:100%; object-fit:cover; display:block; }
+        .cat-tile img { width:100%; height:100%; object-fit:contain; background:#fff; display:block; }
         .cat-meta { position:absolute; bottom:12px; left:12px; right:12px; display:flex; gap:8px; flex-wrap:wrap; }
         .cat-chip { display:inline-flex; align-items:center; gap:4px; font-size:11.5px; font-weight:700; color:#4a5568; background:rgba(255,255,255,0.9); backdrop-filter:blur(6px); padding:5px 10px; border-radius:999px; box-shadow:0 2px 6px rgba(0,0,0,0.08); }
         .cat-kebab { position:absolute; top:12px; right:12px; display:flex; align-items:center; gap:7px; opacity:0; transition:opacity .2s; }
