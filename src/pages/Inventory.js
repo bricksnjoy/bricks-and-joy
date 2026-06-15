@@ -1,7 +1,23 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Button, Input, Select, Table, Modal, Badge, StockBadge, Spinner, FormRow, useToast, Toasts } from '../components/UI'
-import { Plus, Trash2, Edit2, Upload, X, Package, Eye, Barcode, Download, Printer, Camera, LayoutGrid, List, MoreVertical, ShoppingBag, Cake, Percent, Minus, CheckSquare, Square, AlertTriangle } from 'lucide-react'
+import { Plus, Trash2, Edit2, Upload, X, Package, Eye, Barcode, Download, Printer, Camera, LayoutGrid, List, MoreVertical, ShoppingBag, Percent, Minus } from 'lucide-react'
+
+// Custom line-art icons matching the toy/store brand
+const BrickIcon = ({ size = 14, color = '#FFA500' }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round">
+    <path d="M4 9.5l8-4 8 4v6l-8 4-8-4z" />
+    <path d="M4 9.5l8 4 8-4M12 13.5v6" />
+    <ellipse cx="8.5" cy="6.6" rx="1.5" ry="0.9" /><ellipse cx="13" cy="4.7" rx="1.5" ry="0.9" />
+  </svg>
+)
+const CakeIcon = ({ size = 14, color = '#378ADD' }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round">
+    <path d="M4 20h16v-7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2z" />
+    <path d="M4 15c1.3 1 2.7 1 4 0s2.7-1 4 0 2.7 1 4 0 2.7-1 4 0" />
+    <path d="M8 8V5M12 8V4.5M16 8V5" />
+  </svg>
+)
 import JsBarcode from 'jsbarcode'
 import QRCode from 'qrcode'
 import BarcodeScanner from '../components/BarcodeScanner'
@@ -403,8 +419,7 @@ export default function Inventory() {
   const [view, setView] = useState(() => localStorage.getItem('bnj_inv_view') || 'grid')
   const [selectMode, setSelectMode] = useState(false)
   const [selected, setSelected] = useState(new Set())
-  const [bulkPrintQty, setBulkPrintQty] = useState(1)
-  const [bulkMenu, setBulkMenu] = useState(false)
+  const [openMenuId, setOpenMenuId] = useState(null)
   function changeView(v) { setView(v); localStorage.setItem('bnj_inv_view', v) }
   function toggleSelect(id) { setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n }) }
   function selectAll() { setSelected(new Set(filtered.map(p => p.id))) }
@@ -418,19 +433,12 @@ export default function Inventory() {
     setSelected(new Set()); setSelectMode(false); load()
   }
 
-  async function bulkRetire() {
-    if (!selected.size) return
-    for (const id of selected) { await supabase.from('products').update({ discontinued: true }).eq('id', id) }
-    toast.success(`Retired ${selected.size} product(s)`)
-    setSelected(new Set()); setSelectMode(false); load()
-  }
-
   async function bulkPrint() {
     const selProds = products.filter(p => selected.has(p.id) && p.barcode)
     if (!selProds.length) { toast.error('No selected products have barcodes'); return }
     const logoUrl = window.location.origin + '/logo.png'
-    const repeat = Math.max(1, parseInt(bulkPrintQty) || 1)
-    const allLabels = selProds.flatMap(p => Array.from({ length: repeat }, () => p))
+    // One label per unit in stock (min 1 per product)
+    const allLabels = selProds.flatMap(p => Array.from({ length: Math.max(1, parseInt(p.stock_qty) || 1) }, () => p))
     const labelSvgs = await Promise.all(allLabels.map(async p => {
       try {
         const tempSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
@@ -530,27 +538,18 @@ export default function Inventory() {
       <PageHeader title="Inventory" subtitle={`${products.length} products`}
         action={
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <div style={{ position: 'relative' }}>
-              <button onClick={() => { setSelectMode(m => { if(m){setSelected(new Set());setBulkMenu(false)} return !m }) }}
-                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', border: '1px solid #ddd', borderRadius: 8, background: selectMode ? '#0d1b2a' : '#fff', color: selectMode ? '#fff' : '#555', cursor: 'pointer', fontSize: 13, fontWeight: 600, fontFamily: 'inherit' }}>
-                {selectMode ? <CheckSquare size={15} color="#FFA500" /> : <Square size={15} />} Select
-              </button>
-            </div>
-            {selectMode && (
-              <div style={{ display: 'flex', gap: 6, alignItems: 'center', background: '#f8f7f4', borderRadius: 10, padding: '4px 10px' }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: '#0d1b2a', minWidth: 60 }}>{selected.size} selected</span>
-                <button onClick={selectAll} style={{ fontSize: 11, padding: '4px 8px', border: '1px solid #ddd', borderRadius: 6, background: '#fff', cursor: 'pointer', fontFamily: 'inherit' }}>All</button>
-                <button onClick={clearSelect} style={{ fontSize: 11, padding: '4px 8px', border: '1px solid #ddd', borderRadius: 6, background: '#fff', cursor: 'pointer', fontFamily: 'inherit' }}>None</button>
-                <div style={{ width: 1, height: 20, background: '#ddd' }} />
-                <button onClick={bulkRetire} disabled={!selected.size} style={{ fontSize: 11, padding: '4px 10px', border: '1px solid #ddd', borderRadius: 6, background: '#fff', color: '#666', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600 }}>Retire</button>
-                <button onClick={bulkDelete} disabled={!selected.size} style={{ fontSize: 11, padding: '4px 10px', border: 'none', borderRadius: 6, background: '#E24B4A', color: '#fff', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600 }}>Delete</button>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <input type="number" min="1" value={bulkPrintQty} onChange={e => setBulkPrintQty(e.target.value)}
-                    style={{ width: 44, padding: '4px 6px', border: '1px solid #ddd', borderRadius: 6, fontSize: 12, fontFamily: 'inherit', textAlign: 'center', outline: 'none' }} />
-                  <button onClick={bulkPrint} disabled={!selected.size} style={{ fontSize: 11, padding: '4px 10px', border: 'none', borderRadius: 6, background: '#FFA500', color: '#fff', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600 }}>Print labels</button>
-                </div>
+            <button onClick={() => setSelectMode(m => { if (m) setSelected(new Set()); return !m })}
+              style={{ padding: '8px 16px', border: '1px solid #ddd', borderRadius: 8, background: selectMode ? '#0d1b2a' : '#fff', color: selectMode ? '#fff' : '#555', cursor: 'pointer', fontSize: 13, fontWeight: 600, fontFamily: 'inherit' }}>
+              {selectMode ? 'Cancel' : 'Select'}
+            </button>
+            <div style={{ display: 'flex', alignItems: 'center', maxWidth: selectMode ? 360 : 0, opacity: selectMode ? 1 : 0, overflow: 'hidden', transition: 'max-width 0.32s cubic-bezier(.2,.7,.3,1), opacity 0.25s' }}>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center', background: '#f8f7f4', borderRadius: 10, padding: '5px 10px', whiteSpace: 'nowrap' }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: '#0d1b2a' }}>{selected.size} selected</span>
+                <button onClick={selectAll} style={{ fontSize: 11, padding: '4px 9px', border: '1px solid #ddd', borderRadius: 6, background: '#fff', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600 }}>All</button>
+                <button onClick={bulkDelete} disabled={!selected.size} style={{ fontSize: 11, padding: '4px 11px', border: 'none', borderRadius: 6, background: selected.size ? '#E24B4A' : '#e8c5c4', color: '#fff', cursor: selected.size ? 'pointer' : 'default', fontFamily: 'inherit', fontWeight: 600 }}>Delete</button>
+                <button onClick={bulkPrint} disabled={!selected.size} style={{ fontSize: 11, padding: '4px 11px', border: 'none', borderRadius: 6, background: selected.size ? '#FFA500' : '#f0ddb8', color: '#fff', cursor: selected.size ? 'pointer' : 'default', fontFamily: 'inherit', fontWeight: 600 }}>Print</button>
               </div>
-            )}
+            </div>
             <Button variant="ghost" onClick={printAllBarcodes}><Printer size={15} /> Print all</Button>
             <Button onClick={openAdd}><Plus size={15} /> Add product</Button>
           </div>
@@ -607,7 +606,8 @@ export default function Inventory() {
           : (filtered.length === 0
               ? <div style={{ textAlign: 'center', padding: '60px 20px', color: '#bbb' }}>No products found.</div>
               : <ProductGrid products={filtered} onView={openView} onEdit={openEdit} onBarcode={openBarcode} onDelete={del} onToggle={toggleDiscontinued} onOrder={openOrder}
-                  selectMode={selectMode} selected={selected} onToggleSelect={toggleSelect} />
+                  selectMode={selectMode} selected={selected} onToggleSelect={toggleSelect}
+                  openMenuId={openMenuId} setOpenMenuId={setOpenMenuId} />
           )}
       </Card>
 
@@ -911,7 +911,7 @@ export default function Inventory() {
 }
 
 // ── Apple-style product grid ──────────────────────────────
-function ProductGrid({ products, onView, onEdit, onBarcode, onDelete, onToggle, onOrder, selectMode, selected, onToggleSelect }) {
+function ProductGrid({ products, onView, onEdit, onBarcode, onDelete, onToggle, onOrder, selectMode, selected, onToggleSelect, openMenuId, setOpenMenuId }) {
   return (
     <>
       <style>{`
@@ -933,7 +933,8 @@ function ProductGrid({ products, onView, onEdit, onBarcode, onDelete, onToggle, 
         .prod-tile-sel { outline: 3px solid #FFA500 !important; outline-offset: 2px; }
         .prod-tile img { width:100%; height:100%; object-fit: cover; display:block; }
         /* slide-out kebab */
-        .kebab-wrap { position:absolute; top:12px; right:12px; display:flex; align-items:center; gap:7px; }
+        .kebab-wrap { position:absolute; top:12px; right:12px; display:flex; align-items:center; gap:7px; opacity:0; transition: opacity 0.2s; }
+        .prod-card:hover .kebab-wrap, .kebab-wrap.pinned { opacity:1; }
         .kebab-tray { display:flex; align-items:center; gap:7px; max-width:0; opacity:0; overflow:hidden; transition: max-width 0.32s cubic-bezier(.2,.7,.3,1), opacity 0.22s; }
         .kebab-tray.open { max-width:160px; opacity:1; }
         .prod-act {
@@ -951,21 +952,21 @@ function ProductGrid({ products, onView, onEdit, onBarcode, onDelete, onToggle, 
       <div className="inv-grid">
         {products.map(p => (
           <ProductCard key={p.id} p={p} onView={onView} onEdit={onEdit} onBarcode={onBarcode} onDelete={onDelete} onToggle={onToggle} onOrder={onOrder}
-            selectMode={selectMode} isSelected={selected?.has(p.id)} onToggleSelect={onToggleSelect} />
+            selectMode={selectMode} isSelected={selected?.has(p.id)} onToggleSelect={onToggleSelect}
+            menuOpen={openMenuId === p.id} onMenuToggle={() => setOpenMenuId(openMenuId === p.id ? null : p.id)} onHover={() => { if (openMenuId && openMenuId !== p.id) setOpenMenuId(null) }} />
         ))}
       </div>
     </>
   )
 }
 
-function ProductCard({ p, onView, onEdit, onBarcode, onDelete, onOrder, selectMode, isSelected, onToggleSelect }) {
-  const [menu, setMenu] = useState(false)
+function ProductCard({ p, onView, onEdit, onBarcode, onDelete, onOrder, selectMode, isSelected, onToggleSelect, menuOpen, onMenuToggle, onHover }) {
   const margin = p.sell_price > 0 ? Math.round((p.sell_price - p.cost_price) / p.sell_price * 100) : 0
   const low = p.stock_qty > 0 && p.stock_qty <= (p.low_stock_threshold || 10)
   const out = p.stock_qty <= 0
   const isNew = (p.tags || '').toLowerCase().split(',').map(t => t.trim()).includes('new')
   return (
-    <div className="prod-card">
+    <div className="prod-card" onMouseEnter={onHover}>
       <div className={`prod-tile ${isSelected ? 'prod-tile-sel' : ''}`}
         onClick={() => selectMode ? onToggleSelect(p.id) : onView(p)}>
         {p.photo_url
@@ -981,8 +982,8 @@ function ProductCard({ p, onView, onEdit, onBarcode, onDelete, onOrder, selectMo
 
         {/* meta chips bottom */}
         <div className="meta-row">
-          {p.pieces ? <span className="meta-chip">🧱 {p.pieces}</span> : null}
-          <span className="meta-chip"><Cake size={13} color="#378ADD" /> {p.age_range}</span>
+          {p.pieces ? <span className="meta-chip"><BrickIcon size={14} color="#FFA500" /> {p.pieces}</span> : null}
+          <span className="meta-chip"><CakeIcon size={14} color="#378ADD" /> {p.age_range}</span>
           <span className="meta-chip"><Percent size={12} color={margin >= 40 ? '#1D9E75' : margin >= 20 ? '#f57f17' : '#E24B4A'} style={{ flexShrink:0 }} /><span style={{ color: margin >= 40 ? '#1D9E75' : margin >= 20 ? '#f57f17' : '#E24B4A' }}>{margin}%</span></span>
         </div>
 
@@ -990,16 +991,16 @@ function ProductCard({ p, onView, onEdit, onBarcode, onDelete, onOrder, selectMo
           <div style={{ position: 'absolute', top: 14, left: 14, background: 'rgba(102,102,102,0.92)', color: '#fff', fontSize: 10, fontWeight: 700, padding: '4px 10px', borderRadius: 999, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Retired</div>
         )}
 
-        {/* slide-out kebab */}
+        {/* slide-out kebab — stays open until toggled again or another card hovered */}
         {!selectMode && (
-          <div className="kebab-wrap" onClick={e => e.stopPropagation()} onMouseLeave={() => setMenu(false)}>
-            <div className={`kebab-tray ${menu ? 'open' : ''}`}>
+          <div className={`kebab-wrap ${menuOpen ? 'pinned' : ''}`} onClick={e => e.stopPropagation()}>
+            <div className={`kebab-tray ${menuOpen ? 'open' : ''}`}>
               <button className="prod-act" title="Barcode" onClick={() => onBarcode(p)}><Barcode size={15} color="#FFA500" /></button>
               <button className="prod-act" title="Edit" onClick={() => onEdit(p)}><Edit2 size={15} color="#0d1b2a" /></button>
               <button className="prod-act" title="Delete" onClick={() => onDelete(p.id)}><Trash2 size={15} color="#E24B4A" /></button>
             </div>
-            <button className="prod-act" onClick={() => setMenu(m => !m)}>
-              {menu ? <X size={15} color="#0d1b2a" /> : <MoreVertical size={15} color="#0d1b2a" />}
+            <button className="prod-act" onClick={onMenuToggle}>
+              {menuOpen ? <X size={15} color="#0d1b2a" /> : <MoreVertical size={15} color="#0d1b2a" />}
             </button>
           </div>
         )}
