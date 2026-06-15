@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Button, Input, Select, Table, Modal, Badge, StockBadge, Spinner, FormRow, useToast, Toasts } from '../components/UI'
-import { Plus, Trash2, Edit2, Upload, X, Package, Eye, Barcode, Download, Printer, Camera } from 'lucide-react'
+import { Plus, Trash2, Edit2, Upload, X, Package, Eye, Barcode, Download, Printer, Camera, LayoutGrid, List } from 'lucide-react'
 import JsBarcode from 'jsbarcode'
 import QRCode from 'qrcode'
 import BarcodeScanner from '../components/BarcodeScanner'
@@ -348,6 +348,8 @@ export default function Inventory() {
   const margin = form.sell_price > 0 ? Math.round((form.sell_price - form.cost_price) / form.sell_price * 100) : 0
 
   const [showDiscontinued, setShowDiscontinued] = useState(false)
+  const [view, setView] = useState(() => localStorage.getItem('bnj_inv_view') || 'grid')
+  function changeView(v) { setView(v); localStorage.setItem('bnj_inv_view', v) }
 
   const filtered = products.filter(p => {
     const ms = p.name.toLowerCase().includes(search.toLowerCase()) || (p.brand || '').toLowerCase().includes(search.toLowerCase()) || (p.sku || '').toLowerCase().includes(search.toLowerCase()) || (p.barcode || '').includes(search)
@@ -434,8 +436,23 @@ export default function Inventory() {
               Discontinued ({products.filter(p=>p.discontinued).length})
             </button>
           </div>
+          <div style={{ display: 'flex', gap: 0, border: '1px solid #ddd', borderRadius: 8, overflow: 'hidden', marginLeft: 'auto' }}>
+            <button onClick={() => changeView('grid')} title="Grid view"
+              style={{ padding: '7px 11px', border: 'none', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', background: view === 'grid' ? '#0d1b2a' : '#fff' }}>
+              <LayoutGrid size={15} color={view === 'grid' ? '#fff' : '#999'} />
+            </button>
+            <button onClick={() => changeView('list')} title="List view"
+              style={{ padding: '7px 11px', border: 'none', borderLeft: '1px solid #ddd', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', background: view === 'list' ? '#0d1b2a' : '#fff' }}>
+              <List size={15} color={view === 'list' ? '#fff' : '#999'} />
+            </button>
+          </div>
         </div>
-        {loading ? <Spinner /> : <Table columns={columns} data={filtered} emptyMessage={showDiscontinued ? 'No discontinued products.' : 'No products yet.'} />}
+        {loading ? <Spinner /> : view === 'list'
+          ? <Table columns={columns} data={filtered} emptyMessage={showDiscontinued ? 'No discontinued products.' : 'No products yet.'} />
+          : (filtered.length === 0
+              ? <div style={{ textAlign: 'center', padding: '60px 20px', color: '#bbb' }}>{showDiscontinued ? 'No discontinued products.' : 'No products yet.'}</div>
+              : <ProductGrid products={filtered} onView={openView} onEdit={openEdit} onBarcode={openBarcode} onDelete={del} onToggle={toggleDiscontinued} />
+          )}
       </Card>
 
       {/* ── BARCODE MODAL ── */}
@@ -646,6 +663,96 @@ export default function Inventory() {
         </Modal>
       )}
       <Toasts toasts={toast.toasts} />
+    </div>
+  )
+}
+
+// ── Apple-style product grid ──────────────────────────────
+function ProductGrid({ products, onView, onEdit, onBarcode, onDelete, onToggle }) {
+  return (
+    <>
+      <style>{`
+        @keyframes cardIn { from { opacity:0; transform: translateY(14px); } to { opacity:1; transform: translateY(0); } }
+        .inv-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(216px, 1fr)); gap: 26px 22px; }
+        .prod-card { animation: cardIn 0.35s ease both; }
+        .prod-tile {
+          position: relative; width: 100%; aspect-ratio: 372 / 443; border-radius: 22px; overflow: hidden;
+          background: linear-gradient(160deg, #f6f6f8 0%, #e9e9ed 100%);
+          box-shadow: inset 0 1.5px 0 rgba(255,255,255,0.95), inset 0 -3px 8px rgba(0,0,0,0.07),
+                      inset 0 0 0 1px rgba(0,0,0,0.04), 0 2px 6px rgba(0,0,0,0.05);
+          transition: transform 0.28s cubic-bezier(.2,.7,.3,1), box-shadow 0.28s;
+        }
+        .prod-card:hover .prod-tile {
+          transform: translateY(-6px) scale(1.012);
+          box-shadow: inset 0 1.5px 0 rgba(255,255,255,0.95), inset 0 -3px 8px rgba(0,0,0,0.07),
+                      inset 0 0 0 1px rgba(0,0,0,0.04), 0 16px 34px rgba(13,27,42,0.16);
+        }
+        .prod-tile img { width:100%; height:100%; object-fit: cover; display:block; }
+        .prod-actions { position:absolute; top:10px; right:10px; display:flex; gap:6px; opacity:0; transform: translateY(-4px); transition: all 0.2s; }
+        .prod-card:hover .prod-actions { opacity:1; transform: translateY(0); }
+        .prod-act {
+          width:30px; height:30px; border-radius:9px; border:none; cursor:pointer; display:flex; align-items:center; justify-content:center;
+          background: rgba(255,255,255,0.9); backdrop-filter: blur(6px); box-shadow: 0 2px 6px rgba(0,0,0,0.12); transition: background 0.15s, transform 0.15s;
+        }
+        .prod-act:hover { transform: scale(1.08); }
+        .prod-buy { background: linear-gradient(135deg,#2f8fe6,#1f6fd0); color:#fff; border:none; border-radius:999px; padding:9px 22px; font-size:13.5px; font-weight:700; cursor:pointer; font-family:inherit; box-shadow:0 4px 12px rgba(47,143,230,0.32); transition: transform .15s, box-shadow .15s; }
+        .prod-buy:hover { transform: translateY(-1px); box-shadow:0 7px 16px rgba(47,143,230,0.4); }
+        .prod-link { background:none; border:none; color:#2f8fe6; font-size:13.5px; font-weight:600; cursor:pointer; font-family:inherit; padding:6px 4px; }
+        .prod-link:hover { text-decoration: underline; }
+      `}</style>
+      <div className="inv-grid">
+        {products.map(p => (
+          <ProductCard key={p.id} p={p} onView={onView} onEdit={onEdit} onBarcode={onBarcode} onDelete={onDelete} onToggle={onToggle} />
+        ))}
+      </div>
+    </>
+  )
+}
+
+function ProductCard({ p, onView, onEdit, onBarcode, onDelete, onToggle }) {
+  const margin = p.sell_price > 0 ? Math.round((p.sell_price - p.cost_price) / p.sell_price * 100) : 0
+  const low = p.stock_qty <= (p.low_stock_threshold || 0)
+  const isNew = (p.tags || '').toLowerCase().split(',').map(t => t.trim()).includes('new')
+  return (
+    <div className="prod-card">
+      <div className="prod-tile" onClick={() => onView(p)} style={{ cursor: 'pointer' }}>
+        {p.photo_url
+          ? <img src={p.photo_url} alt={p.name} />
+          : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Package size={56} color="#cfcfd6" /></div>}
+
+        {/* stock pill */}
+        <div style={{ position: 'absolute', left: 12, bottom: 12, background: low ? 'rgba(226,75,74,0.92)' : 'rgba(13,27,42,0.78)', color: '#fff', fontSize: 11, fontWeight: 700, padding: '4px 11px', borderRadius: 999, backdropFilter: 'blur(4px)' }}>
+          {p.stock_qty} in stock
+        </div>
+        {p.discontinued && (
+          <div style={{ position: 'absolute', left: 12, top: 12, background: 'rgba(102,102,102,0.92)', color: '#fff', fontSize: 10, fontWeight: 700, padding: '4px 10px', borderRadius: 999, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Discontinued</div>
+        )}
+
+        {/* hover actions */}
+        <div className="prod-actions" onClick={e => e.stopPropagation()}>
+          <button className="prod-act" title="Barcode" onClick={() => onBarcode(p)}><Barcode size={15} color="#FFA500" /></button>
+          <button className="prod-act" title="Edit" onClick={() => onEdit(p)}><Edit2 size={15} color="#0d1b2a" /></button>
+          <button className="prod-act" title="Delete" onClick={() => onDelete(p.id)}><Trash2 size={15} color="#E24B4A" /></button>
+        </div>
+      </div>
+
+      {/* info */}
+      <div style={{ textAlign: 'center', padding: '16px 8px 0' }}>
+        {isNew && <div style={{ fontSize: 12, fontWeight: 700, color: '#FFA500', marginBottom: 2 }}>New</div>}
+        <div style={{ fontSize: 18, fontWeight: 700, color: '#0d1b2a', letterSpacing: '-0.3px', lineHeight: 1.2 }}>{p.name}</div>
+        <div style={{ fontSize: 11.5, color: '#aaa', marginTop: 4, fontWeight: 500 }}>{p.category} · {p.age_range}</div>
+        {p.description && (
+          <div style={{ fontSize: 13, color: '#666', marginTop: 8, lineHeight: 1.45, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', minHeight: 38 }}>{p.description}</div>
+        )}
+        <div style={{ fontSize: 14.5, fontWeight: 700, color: '#0d1b2a', marginTop: 10 }}>
+          From MVR {Number(p.sell_price).toFixed(2)}
+          <span style={{ fontSize: 12, fontWeight: 600, color: margin >= 40 ? '#1D9E75' : margin >= 20 ? '#f57f17' : '#E24B4A', marginLeft: 8 }}>{margin}% margin</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14, marginTop: 14 }}>
+          <button className="prod-buy" onClick={() => onView(p)}>View</button>
+          <button className="prod-link" onClick={() => onEdit(p)}>Edit ›</button>
+        </div>
+      </div>
     </div>
   )
 }
