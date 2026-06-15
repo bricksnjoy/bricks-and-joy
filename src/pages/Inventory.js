@@ -433,6 +433,13 @@ export default function Inventory() {
     setSelected(new Set()); setSelectMode(false); load()
   }
 
+  async function bulkRetire() {
+    if (!selected.size) return
+    for (const id of selected) { await supabase.from('products').update({ discontinued: true }).eq('id', id) }
+    toast.success(`Retired ${selected.size} product(s)`)
+    setSelected(new Set()); setSelectMode(false); load()
+  }
+
   async function bulkPrint() {
     const selProds = products.filter(p => selected.has(p.id) && p.barcode)
     if (!selProds.length) { toast.error('No selected products have barcodes'); return }
@@ -546,8 +553,9 @@ export default function Inventory() {
               <div style={{ display: 'flex', gap: 6, alignItems: 'center', background: '#f8f7f4', borderRadius: 10, padding: '5px 10px', whiteSpace: 'nowrap' }}>
                 <span style={{ fontSize: 12, fontWeight: 700, color: '#0d1b2a' }}>{selected.size} selected</span>
                 <button onClick={selectAll} style={{ fontSize: 11, padding: '4px 9px', border: '1px solid #ddd', borderRadius: 6, background: '#fff', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600 }}>All</button>
+                <button onClick={bulkRetire} disabled={!selected.size} style={{ fontSize: 11, padding: '4px 11px', border: 'none', borderRadius: 6, background: selected.size ? '#FFA500' : '#f0ddb8', color: '#fff', cursor: selected.size ? 'pointer' : 'default', fontFamily: 'inherit', fontWeight: 600 }}>Retire</button>
                 <button onClick={bulkDelete} disabled={!selected.size} style={{ fontSize: 11, padding: '4px 11px', border: 'none', borderRadius: 6, background: selected.size ? '#E24B4A' : '#e8c5c4', color: '#fff', cursor: selected.size ? 'pointer' : 'default', fontFamily: 'inherit', fontWeight: 600 }}>Delete</button>
-                <button onClick={bulkPrint} disabled={!selected.size} style={{ fontSize: 11, padding: '4px 11px', border: 'none', borderRadius: 6, background: selected.size ? '#FFA500' : '#f0ddb8', color: '#fff', cursor: selected.size ? 'pointer' : 'default', fontFamily: 'inherit', fontWeight: 600 }}>Print</button>
+                <button onClick={bulkPrint} disabled={!selected.size} style={{ fontSize: 11, padding: '4px 11px', border: 'none', borderRadius: 6, background: selected.size ? '#0d1b2a' : '#cbd2da', color: '#fff', cursor: selected.size ? 'pointer' : 'default', fontFamily: 'inherit', fontWeight: 600 }}>Print</button>
               </div>
             </div>
             <Button variant="ghost" onClick={printAllBarcodes}><Printer size={15} /> Print all</Button>
@@ -579,10 +587,12 @@ export default function Inventory() {
         {/* Search row */}
         <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
           <div style={{ position: 'relative' }}>
-            <Camera size={15} color="#aaa" style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', cursor: 'pointer' }}
-              onClick={startScanner} />
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name, barcode, SKU…"
-              style={{ padding: '9px 14px 9px 34px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', width: 252, outline: 'none' }} />
+            <button onClick={startScanner} title="Scan barcode to find product"
+              style={{ position: 'absolute', left: 6, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', padding: 5, borderRadius: 7, display: 'flex', alignItems: 'center' }}>
+              <Camera size={16} color="#FFA500" />
+            </button>
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search or scan barcode…"
+              style={{ padding: '9px 14px 9px 36px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', width: 252, outline: 'none' }} />
           </div>
           <select value={filterCat} onChange={e => setFilterCat(e.target.value)}
             style={{ padding: '9px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', background: '#fff', cursor: 'pointer' }}>
@@ -982,8 +992,8 @@ function ProductCard({ p, onView, onEdit, onBarcode, onDelete, onOrder, selectMo
 
         {/* meta chips bottom */}
         <div className="meta-row">
-          {p.pieces ? <span className="meta-chip"><BrickIcon size={14} color="#FFA500" /> {p.pieces}</span> : null}
-          <span className="meta-chip"><CakeIcon size={14} color="#378ADD" /> {p.age_range}</span>
+          {p.pieces ? <span className="meta-chip"><BrickIcon size={18} color="#FFA500" /> {p.pieces}</span> : null}
+          <span className="meta-chip"><CakeIcon size={15} color="#378ADD" /> {p.age_range}</span>
           <span className="meta-chip"><Percent size={12} color={margin >= 40 ? '#1D9E75' : margin >= 20 ? '#f57f17' : '#E24B4A'} style={{ flexShrink:0 }} /><span style={{ color: margin >= 40 ? '#1D9E75' : margin >= 20 ? '#f57f17' : '#E24B4A' }}>{margin}%</span></span>
         </div>
 
@@ -1011,17 +1021,17 @@ function ProductCard({ p, onView, onEdit, onBarcode, onDelete, onOrder, selectMo
         {isNew && <div style={{ fontSize: 12, fontWeight: 700, color: '#FFA500', marginBottom: 2 }}>New</div>}
         <div style={{ fontSize: 19, fontWeight: 700, color: '#0d1b2a', letterSpacing: '-0.3px', lineHeight: 1.2 }}>{p.name}</div>
         <div style={{ fontSize: 12, color: '#aaa', marginTop: 4, fontWeight: 600 }}>{p.category}</div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 10 }}>
-          <div style={{ fontSize: 22, fontWeight: 800, color: '#0d1b2a', letterSpacing: '-0.5px' }}>
+        <div style={{ fontSize: 15, color: out ? '#E24B4A' : low ? '#f57f17' : '#1D9E75', marginTop: 9, fontWeight: 800 }}>
+          {out ? 'Cleared out' : low ? `⚠ ${p.stock_qty} left` : `${p.stock_qty} in stock`}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 11, marginTop: 5 }}>
+          <div style={{ fontSize: 18, fontWeight: 700, color: '#0d1b2a', letterSpacing: '-0.3px' }}>
             MVR {Number(p.sell_price).toFixed(2)}
           </div>
           <button className="prod-order" disabled={out || selectMode} onClick={() => onOrder(p)}
-            style={{ padding: '10px 13px', borderRadius: 999, fontSize: 16 }} title={out ? 'Out of stock' : 'Order'}>
-            <ShoppingBag size={17} />
+            style={{ padding: '9px 12px', borderRadius: 999, fontSize: 16 }} title={out ? 'Out of stock' : 'Order'}>
+            <ShoppingBag size={16} />
           </button>
-        </div>
-        <div style={{ fontSize: 12, color: out ? '#E24B4A' : low ? '#f57f17' : '#1D9E75', marginTop: 6, fontWeight: 700 }}>
-          {out ? 'Cleared out' : low ? `⚠ ${p.stock_qty} left` : `${p.stock_qty} in stock`}
         </div>
       </div>
     </div>
