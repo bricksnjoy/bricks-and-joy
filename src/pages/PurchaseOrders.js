@@ -212,12 +212,19 @@ export default function PurchaseOrders() {
           toast.success(`${existing.name}: +${row.qty} added to stock`)
           ok = true
         } else {
+          // Pull extra details from matching catalog item if we have it
+          const cat = supplierCatalog.find(c => c.product_name?.toLowerCase() === row.product_name?.toLowerCase())
           const { error: insErr } = await supabase.from('products').insert({
             name: row.product_name,
+            category: cat?.category || 'Building & Blocks',
+            age_range: '3–5',
             stock_qty: Number(row.qty),
-            cost_price: Number(row.unit_cost) || 0,
             low_stock_threshold: 10,
-            ...(row.image_url ? { image_url: row.image_url } : {})
+            cost_price: Number(row.unit_cost) || 0,
+            sell_price: cat?.sell_price || parseFloat(((Number(row.unit_cost) || 0) * 1.3).toFixed(2)),
+            sku: cat?.sku || null,
+            barcode: cat?.barcode || null,
+            photo_url: row.image_url || cat?.image_url || null,
           })
           if (insErr) { toast.error(`Could not add ${row.product_name}: ${insErr.message}`) }
           else { toast.success(`${row.product_name}: created in inventory`); ok = true }
