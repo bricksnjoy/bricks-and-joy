@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Button, Input, Select, Table, Modal, Spinner, FormRow, useToast, Toasts, Badge } from '../components/UI'
-import { Plus, Trash2, Package, Truck, X, Info, AlertTriangle, CreditCard, Wallet, CheckCircle, Paperclip, Eye } from 'lucide-react'
+import { Plus, Trash2, Package, Truck, X, Info, AlertTriangle, CreditCard, Wallet, CheckCircle, Paperclip, Eye, Pencil, LayoutGrid, List, LayoutList } from 'lucide-react'
 
 const AVATAR_COLORS = ['#7F77DD', '#1D9E75', '#FFA500', '#378ADD', '#E24B4A', '#0F6E56']
 function avatarColor(name = '') {
@@ -42,6 +42,9 @@ export default function PurchaseOrders() {
   const [paymentsTab, setPaymentsTab] = useState(false)
   const [viewSlips, setViewSlips] = useState(null) // { slips: [...], title } for fullscreen viewer
   const [viewTab, setViewTab] = useState('ongoing') // 'ongoing' | 'history'
+  const [listView, setListView] = useState(() => localStorage.getItem('po_list_view') || 'detailed') // 'detailed' | 'compact' | 'table'
+  const [editPayModal, setEditPayModal] = useState(null) // payment being edited
+  const [editPayForm, setEditPayForm] = useState({ amount: '', payment_date: '', payment_method: 'Bank Transfer', reference: '', notes: '', slips: [], newCosts: [] })
   const [batchForm, setBatchForm] = useState({ supplier_id: '', supplier_name: '', order_date: new Date().toISOString().split('T')[0], expected_date: '', items: [], extraCosts: [] })
   const [supplierForm, setSupplierForm] = useState({ name: '', contact_name: '', email: '', phone: '', address: '' })
   const [saving, setSaving] = useState(false)
@@ -379,6 +382,92 @@ export default function PurchaseOrders() {
     setPayForm({ amount: newOutstanding > 0 ? newOutstanding.toFixed(2) : '', payment_date: new Date().toISOString().split('T')[0], payment_method: payForm.payment_method, reference: '', notes: '', slips: [] })
   }
 
+  function switchView(v) { setListView(v); localStorage.setItem('po_list_view', v) }
+
+  function openEditPayment(payment) {
+    setEditPayForm({
+      amount: String(payment.amount ?? ''),
+      payment_date: payment.payment_date || new Date().toISOString().split('T')[0],
+      payment_method: payment.payment_method || 'Bank Transfer',
+      reference: payment.reference || '',
+      notes: payment.notes || '',
+      slips: Array.isArray(payment.slips) ? payment.slips : [],
+      newCosts: [],
+    })
+    setEditPayModal(payment)
+  }
+
+  // Append payslip files to the edit-payment form
+  async function addEditSlipFiles(fileList) {
+    const files = Array.from(fileList || [])
+    if (!files.length) return
+    const read = f => new Promise(resolve => {
+      const reader = new FileReader()
+      reader.onload = () => resolve({ name: f.name, type: f.type, url: reader.result })
+      reader.onerror = () => resolve(null)
+      reader.readAsDataURL(f)
+    })
+    const slips = (await Promise.all(files.map(read))).filter(Boolean)
+    setEditPayForm(p => ({ ...p, slips: [...(p.slips || []), ...slips] }))
+  }
+
+  async function saveEditPayment() {
+    if (!editPayModal) return
+    if (!editPayForm.amount || Number(editPayForm.amount) <= 0) { toast.error('Enter a valid amount'); return }
+    setSaving(true)
+
+    // Add any extra cost lines to this order's batch (same transaction)
+    const validCosts = (editPayForm.newCosts || []).filter(c => Number(c.amount) > 0)
+    if (validCosts.length > 0) {
+      const po = pos.find(o => o.id === editPayModal.purchase_order_id)
+      const batchId = po?.batch_id || po?.id || editPayModal.purchase_order_id
+      const costRecords = validCosts.map(c => ({
+        supplier_id: editPayModal.supplier_id || po?.supplier_id || null,
+        supplier_name: editPayModal.supplier_name || po?.supplier_name || '',
+        product_id: null,
+        product_name: c.type === 'Other' ? (c.label || 'Other cost') : c.type,
+        qty: 1,
+        unit_cost: parseFloat(c.amount),
+        status: po?.status || 'received',
+        order_date: po?.order_date || new Date().toISOString().split('T')[0],
+        expected_date: po?.expected_date || null,
+        cost_type: 'extra',
+        batch_id: batchId,
+      }))
+      await supabase.from('purchase_orders').insert(costRecords)
+    }
+
+    // Update the payment record itself
+    const base = {
+      amount: parseFloat(editPayForm.amount),
+      payment_date: editPayForm.payment_date,
+      payment_method: editPayForm.payment_method,
+      reference: editPayForm.reference || null,
+      notes: editPayForm.notes || null,
+    }
+    const upd = (editPayForm.slips && editPayForm.slips.length) || Array.isArray(editPayModal.slips)
+      ? { ...base, slips: editPayForm.slips }
+      : base
+    let { error } = await supabase.from('supplier_payments').update(upd).eq('id', editPayModal.id)
+    if (error && /column .* does not exist|could not find/i.test(error.message || '') && upd.slips) {
+      ({ error } = await supabase.from('supplier_payments').update(base).eq('id', editPayModal.id))
+    }
+    setSaving(false)
+    if (error) { toast.error('Failed to update payment'); return }
+    toast.success('Payment updated')
+    setEditPayModal(null)
+    load()
+  }
+
+  async function deletePaymentRecord(payment) {
+    if (!window.confirm('Delete this payment? The order will become payable again.')) return
+    const { error } = await supabase.from('supplier_payments').delete().eq('id', payment.id)
+    if (error) { toast.error('Failed to delete payment'); return }
+    toast.success('Payment deleted — order is payable again')
+    setEditPayModal(null)
+    load()
+  }
+
   const [editGroupModal, setEditGroupModal] = useState(null) // group being edited
 
   // Resolve contact name (primary) and company name (sub) from a supplier_id or supplier_name
@@ -649,6 +738,100 @@ export default function PurchaseOrders() {
     )
   }
 
+  // Compact mini-card (grid view)
+  function renderMiniCard(g) {
+    const { anchor, rows } = g
+    const productRows = rows.filter(r => r.cost_type !== 'extra')
+    const totalQty = productRows.reduce((s, r) => s + Number(r.qty || 0), 0)
+    const slipUrl = rows.find(r => r.slip_url)?.slip_url || null
+    const slipAnchorId = rows.find(r => r.slip_url)?.id || anchor.id
+    const sd = supplierDisplay(anchor.supplier_id, anchor.supplier_name)
+    const thumbs = productRows.filter(r => r.image_url).slice(0, 5)
+    const statusColors = { pending: { bg: '#FFF8E1', fg: '#b8740a' }, ordered: { bg: '#EAF2FD', fg: '#2f6fc0' }, received: { bg: '#E1F5EE', fg: '#1D9E75' }, cancelled: { bg: '#fef2f2', fg: '#E24B4A' } }
+    const sc = statusColors[anchor.status] || statusColors.pending
+    return (
+      <div key={g.key} style={{ border: '1px solid #eee', borderRadius: 14, padding: 14, background: '#fff', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+          <Avatar name={sd.main} size={30} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 700, color: '#0d1b2a', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sd.main || '—'}</div>
+            <div style={{ fontSize: 10.5, color: '#aaa' }}>{anchor.order_date}</div>
+          </div>
+          <span style={{ fontSize: 10.5, fontWeight: 700, color: sc.fg, background: sc.bg, padding: '3px 9px', borderRadius: 99 }}>{anchor.status}</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          {thumbs.map(r => (
+            <img key={r.id} src={r.image_url} alt="" title={r.product_name} style={{ width: 34, height: 34, objectFit: 'contain', borderRadius: 7, border: '1px solid #f0f0f0', background: '#fff' }} onError={e => e.target.style.display = 'none'} />
+          ))}
+          {productRows.length > thumbs.length && (
+            <span style={{ fontSize: 11, color: '#aaa', fontWeight: 600 }}>+{productRows.length - thumbs.length}</span>
+          )}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+          <div style={{ fontSize: 15, fontWeight: 800, color: '#0d1b2a' }}>MVR {g.total.toFixed(2)}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 10.5, color: '#bbb', fontWeight: 600 }}>{totalQty} items</span>
+            {payStatusBadgeForGroup(g)}
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 6, borderTop: '1px solid #f5f5f5', paddingTop: 10 }}>
+          <button onClick={() => openGroupPayModal(g)} title="Record payment" style={{ flex: 1, background: '#FFA500', border: 'none', borderRadius: 8, cursor: 'pointer', padding: '7px 0', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, color: '#fff', fontSize: 11, fontWeight: 700, fontFamily: 'inherit' }}><CreditCard size={13} /> Pay</button>
+          <button onClick={() => setSlipModal({ ...anchor, slip_url: slipUrl, _anchorId: slipAnchorId })} title={slipUrl ? 'View slip' : 'Attach slip'} style={{ background: slipUrl ? '#E1F5EE' : '#fff', border: `1px solid ${slipUrl ? '#1D9E75' : '#e0e0e0'}`, borderRadius: 8, cursor: 'pointer', padding: '7px 10px', display: 'flex', alignItems: 'center', color: slipUrl ? '#1D9E75' : '#999' }}>{slipUrl ? <Eye size={14} /> : <Paperclip size={14} />}</button>
+          <button onClick={() => openEditGroup(g)} title="Edit order" style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: 8, cursor: 'pointer', padding: '7px 10px', display: 'flex', alignItems: 'center', color: '#666' }}><Pencil size={14} /></button>
+          <button onClick={() => delGroup(g)} title="Delete order" style={{ background: '#fff', border: '1px solid #f3d6d6', borderRadius: 8, cursor: 'pointer', padding: '7px 10px', display: 'flex', alignItems: 'center', color: '#E24B4A' }}><Trash2 size={14} /></button>
+        </div>
+      </div>
+    )
+  }
+
+  // Compact table row (table view)
+  function renderTableRow(g) {
+    const { anchor, rows } = g
+    const productRows = rows.filter(r => r.cost_type !== 'extra')
+    const feeRows = rows.filter(r => r.cost_type === 'extra')
+    const totalQty = productRows.reduce((s, r) => s + Number(r.qty || 0), 0)
+    const slipUrl = rows.find(r => r.slip_url)?.slip_url || null
+    const slipAnchorId = rows.find(r => r.slip_url)?.id || anchor.id
+    const sd = supplierDisplay(anchor.supplier_id, anchor.supplier_name)
+    const statusColors = { pending: { bg: '#FFF8E1', fg: '#b8740a' }, ordered: { bg: '#EAF2FD', fg: '#2f6fc0' }, received: { bg: '#E1F5EE', fg: '#1D9E75' }, cancelled: { bg: '#fef2f2', fg: '#E24B4A' } }
+    const sc = statusColors[anchor.status] || statusColors.pending
+    return (
+      <tr key={g.key} style={{ borderBottom: '1px solid #f0f0f0' }}>
+        <td style={{ padding: '10px 12px', verticalAlign: 'middle' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+            <Avatar name={sd.main} size={28} />
+            <div>
+              <div style={{ fontWeight: 600, color: '#0d1b2a', fontSize: 13 }}>{sd.main || '—'}</div>
+              <div style={{ fontSize: 11, color: '#aaa' }}>{anchor.order_date}</div>
+            </div>
+          </div>
+        </td>
+        <td style={{ padding: '10px 12px', verticalAlign: 'middle', color: '#666', fontSize: 12, maxWidth: 240 }}>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>
+            {productRows.map(r => `${r.product_name} ×${r.qty}`).join(', ')}{feeRows.length ? ` · +${feeRows.length} cost${feeRows.length > 1 ? 's' : ''}` : ''}
+          </span>
+        </td>
+        <td style={{ padding: '10px 12px', verticalAlign: 'middle', fontWeight: 700 }}>{totalQty}</td>
+        <td style={{ padding: '10px 12px', verticalAlign: 'middle', fontWeight: 700, color: '#0d1b2a' }}>MVR {g.total.toFixed(2)}</td>
+        <td style={{ padding: '10px 12px', verticalAlign: 'middle' }}>
+          <select value={anchor.status} onChange={e => updateBatchStatus(g, e.target.value)}
+            style={{ border: 'none', background: sc.bg, color: sc.fg, fontWeight: 700, fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', borderRadius: 99, padding: '4px 8px' }}>
+            {STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+          </select>
+        </td>
+        <td style={{ padding: '10px 12px', verticalAlign: 'middle' }}>{payStatusBadgeForGroup(g)}</td>
+        <td style={{ padding: '10px 12px', verticalAlign: 'middle' }}>
+          <div style={{ display: 'flex', gap: 5 }}>
+            <button onClick={() => openGroupPayModal(g)} title="Record payment" className="icon-btn primary" style={{ background: '#FFA500', border: 'none', borderRadius: 7, cursor: 'pointer', padding: 6, display: 'flex', color: '#fff' }}><CreditCard size={13} /></button>
+            <button onClick={() => setSlipModal({ ...anchor, slip_url: slipUrl, _anchorId: slipAnchorId })} title={slipUrl ? 'View slip' : 'Attach slip'} style={{ background: slipUrl ? '#E1F5EE' : '#fff', border: `1px solid ${slipUrl ? '#1D9E75' : '#e0e0e0'}`, borderRadius: 7, cursor: 'pointer', padding: 6, display: 'flex', color: slipUrl ? '#1D9E75' : '#999' }}>{slipUrl ? <Eye size={13} /> : <Paperclip size={13} />}</button>
+            <button onClick={() => openEditGroup(g)} title="Edit order" style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: 7, cursor: 'pointer', padding: 6, display: 'flex', color: '#666' }}><Pencil size={13} /></button>
+            <button onClick={() => delGroup(g)} title="Delete order" style={{ background: '#fff', border: '1px solid #f3d6d6', borderRadius: 7, cursor: 'pointer', padding: 6, display: 'flex', color: '#E24B4A' }}><Trash2 size={13} /></button>
+          </div>
+        </td>
+      </tr>
+    )
+  }
+
   return (
     <div>
       <PageHeader
@@ -718,13 +901,26 @@ export default function PurchaseOrders() {
               </button>
             )
           })}
-          {viewTab === 'ongoing' && ongoingGroups.length > 0 && (
-            <div style={{ marginLeft: 'auto' }}>
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
+            {viewTab === 'ongoing' && ongoingGroups.length > 0 && (
               <Button variant="ghost" size="sm" onClick={markAllReceived}>
                 <Truck size={13} /> Mark all received
               </Button>
+            )}
+            {/* View switcher */}
+            <div style={{ display: 'flex', gap: 2, background: '#f5f5f5', borderRadius: 9, padding: 3 }}>
+              {[{ k: 'detailed', icon: LayoutList, title: 'Detailed cards' }, { k: 'compact', icon: LayoutGrid, title: 'Mini-card grid' }, { k: 'table', icon: List, title: 'Compact table' }].map(v => {
+                const Icon = v.icon
+                const active = listView === v.k
+                return (
+                  <button key={v.k} onClick={() => switchView(v.k)} title={v.title}
+                    style={{ background: active ? '#fff' : 'transparent', border: 'none', borderRadius: 7, cursor: 'pointer', padding: '6px 9px', display: 'flex', alignItems: 'center', color: active ? '#FFA500' : '#999', boxShadow: active ? '0 1px 3px rgba(0,0,0,0.1)' : 'none' }}>
+                    <Icon size={15} />
+                  </button>
+                )
+              })}
             </div>
-          )}
+          </div>
         </div>
 
         {loading ? <Spinner /> : poGroups.length === 0 ? (
@@ -736,6 +932,23 @@ export default function PurchaseOrders() {
           <div style={{ textAlign: 'center', padding: '48px 0', color: '#c4c4c4', fontSize: 14 }}>
             <Package size={32} color="#e0e0e0" style={{ marginBottom: 10 }} />
             <div style={{ fontWeight: 500 }}>{viewTab === 'history' ? 'No completed orders yet. Received orders appear here.' : 'No ongoing orders. All caught up!'}</div>
+          </div>
+        ) : listView === 'table' ? (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead>
+                <tr>{['Supplier', 'Products', 'Qty', 'Total', 'Status', 'Payment', ''].map(h => (
+                  <th key={h} style={{ textAlign: 'left', padding: '8px 12px', fontSize: 10, color: '#bbb', borderBottom: '2px solid #f0f0f0', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.6px', whiteSpace: 'nowrap' }}>{h}</th>
+                ))}</tr>
+              </thead>
+              <tbody>
+                {displayGroups.map(g => renderTableRow(g))}
+              </tbody>
+            </table>
+          </div>
+        ) : listView === 'compact' ? (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 14 }}>
+            {displayGroups.map(g => renderMiniCard(g))}
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -1069,6 +1282,106 @@ export default function PurchaseOrders() {
         </Modal>
       )}
 
+      {/* Edit payment modal */}
+      {editPayModal && (() => {
+        const sd = supplierDisplay(editPayModal.supplier_id, editPayModal.supplier_name)
+        const costsTotal = (editPayForm.newCosts || []).reduce((s, c) => s + parseFloat(c.amount || 0), 0)
+        return (
+        <Modal title="Edit Payment" subtitle={`${sd.main}${sd.sub ? ` · ${sd.sub}` : ''}`} onClose={() => setEditPayModal(null)} width={520}>
+          <FormRow>
+            <Input label="Amount (MVR) *" type="number" min="0" step="0.01" value={editPayForm.amount} onChange={e => setEditPayForm(p => ({ ...p, amount: e.target.value }))} />
+            <Input label="Payment date" type="date" value={editPayForm.payment_date} onChange={e => setEditPayForm(p => ({ ...p, payment_date: e.target.value }))} />
+          </FormRow>
+          <Select label="Payment method" value={editPayForm.payment_method} onChange={e => setEditPayForm(p => ({ ...p, payment_method: e.target.value }))}
+            options={['Bank Transfer', 'Cash', 'Cheque', 'Online Transfer', 'Other']} style={{ marginBottom: 14 }} />
+          <Input label="Reference / Transaction ID" value={editPayForm.reference} onChange={e => setEditPayForm(p => ({ ...p, reference: e.target.value }))} placeholder="TXN-12345 (optional)" style={{ marginBottom: 14 }} />
+          <Input label="Notes" value={editPayForm.notes} onChange={e => setEditPayForm(p => ({ ...p, notes: e.target.value }))} placeholder="Optional notes" style={{ marginBottom: 14 }} />
+
+          {/* Payslips */}
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#888', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>Payslips ({(editPayForm.slips || []).length})</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+              {(editPayForm.slips || []).map((s, i) => (
+                <div key={i} style={{ position: 'relative', width: 64, height: 64, borderRadius: 8, overflow: 'hidden', border: '1px solid #eee', background: '#f8f7f4' }}>
+                  {s.type && s.type.startsWith('image/')
+                    ? <img src={s.url} alt={s.name} title={s.name} onClick={() => setViewSlips({ slips: editPayForm.slips, title: 'Payslips' })} style={{ width: '100%', height: '100%', objectFit: 'cover', cursor: 'pointer' }} />
+                    : <div title={s.name} onClick={() => setViewSlips({ slips: editPayForm.slips, title: 'Payslips' })} style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 3, cursor: 'pointer', padding: 4, textAlign: 'center' }}>
+                        <Paperclip size={16} color="#888" />
+                        <span style={{ fontSize: 8, color: '#888', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%' }}>{s.name}</span>
+                      </div>}
+                  <button onClick={() => setEditPayForm(p => ({ ...p, slips: p.slips.filter((_, j) => j !== i) }))}
+                    style={{ position: 'absolute', top: 2, right: 2, width: 16, height: 16, borderRadius: '50%', background: 'rgba(0,0,0,0.6)', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>
+                    <X size={10} />
+                  </button>
+                </div>
+              ))}
+              <label style={{ width: 64, height: 64, borderRadius: 8, border: '1.5px dashed #ddd', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 3, cursor: 'pointer', color: '#999' }}>
+                <Plus size={18} />
+                <span style={{ fontSize: 9 }}>Add</span>
+                <input type="file" accept="image/*,application/pdf" multiple onChange={e => { addEditSlipFiles(e.target.files); e.target.value = '' }} style={{ display: 'none' }} />
+              </label>
+            </div>
+          </div>
+
+          {/* Add extra costs to the order under this transaction */}
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: '#888', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Add costs to this order ({(editPayForm.newCosts || []).length})</span>
+              <Button variant="ghost" size="sm" onClick={() => setEditPayForm(p => ({ ...p, newCosts: [...(p.newCosts || []), { type: 'Alibaba transaction charge', label: '', amount: '' }] }))}><Plus size={13} /> Add cost</Button>
+            </div>
+            {(editPayForm.newCosts || []).length > 0 && (
+              <div style={{ border: '1px solid #eee', borderRadius: 10, overflow: 'hidden' }}>
+                <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
+                  <tbody>
+                    {(editPayForm.newCosts || []).map((c, idx) => (
+                      <tr key={idx} style={{ borderTop: idx ? '1px solid #f5f5f5' : 'none' }}>
+                        <td style={{ padding: 6 }}>
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <select value={c.type} onChange={e => setEditPayForm(p => ({ ...p, newCosts: p.newCosts.map((x, i) => i === idx ? { ...x, type: e.target.value } : x) }))}
+                              style={{ flex: c.type === 'Other' ? '0 0 130px' : 1, padding: '6px 8px', border: '1px solid #ddd', borderRadius: 6, fontSize: 12, fontFamily: 'inherit', background: '#fff' }}>
+                              {COST_TYPES.map(o => <option key={o} value={o}>{o}</option>)}
+                            </select>
+                            {c.type === 'Other' && (
+                              <input value={c.label} onChange={e => setEditPayForm(p => ({ ...p, newCosts: p.newCosts.map((x, i) => i === idx ? { ...x, label: e.target.value } : x) }))} placeholder="Specify..."
+                                style={{ flex: 1, padding: '6px 8px', border: '1px solid #ddd', borderRadius: 6, fontSize: 12, fontFamily: 'inherit' }} />
+                            )}
+                          </div>
+                        </td>
+                        <td style={{ padding: 6, width: 120 }}>
+                          <input type="number" step="0.01" min="0" value={c.amount} onChange={e => setEditPayForm(p => ({ ...p, newCosts: p.newCosts.map((x, i) => i === idx ? { ...x, amount: e.target.value } : x) }))} placeholder="0.00"
+                            style={{ width: '100%', padding: '6px 8px', border: '1px solid #ddd', borderRadius: 6, fontSize: 12, fontFamily: 'inherit', textAlign: 'right', boxSizing: 'border-box' }} />
+                        </td>
+                        <td style={{ width: 34 }}>
+                          <button onClick={() => setEditPayForm(p => ({ ...p, newCosts: p.newCosts.filter((_, i) => i !== idx) }))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#c62828', padding: 4 }}><X size={14} /></button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {costsTotal > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, fontSize: 12 }}>
+                <span style={{ color: '#888' }}>Costs to add: <strong style={{ color: '#0d1b2a' }}>MVR {costsTotal.toFixed(2)}</strong></span>
+                <button onClick={() => setEditPayForm(p => ({ ...p, amount: (parseFloat(p.amount || 0) + costsTotal).toFixed(2) }))}
+                  style={{ background: '#FFF3D6', color: '#b8740a', border: 'none', borderRadius: 7, cursor: 'pointer', padding: '5px 10px', fontSize: 11, fontWeight: 700, fontFamily: 'inherit' }}>
+                  + Add to payment amount
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'space-between', alignItems: 'center' }}>
+            <Button variant="danger" onClick={() => deletePaymentRecord(editPayModal)}><Trash2 size={13} /> Delete</Button>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <Button variant="ghost" onClick={() => setEditPayModal(null)}>Cancel</Button>
+              <Button onClick={saveEditPayment} disabled={saving}>{saving ? 'Saving…' : 'Save changes'}</Button>
+            </div>
+          </div>
+        </Modal>
+        )
+      })()}
+
       {/* Payments history panel */}
       {payments.length > 0 && (
         <Card style={{ marginTop: 20 }}>
@@ -1087,7 +1400,7 @@ export default function PurchaseOrders() {
           {paymentsTab && (
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
-                <tr>{['Date','Supplier','PO Product','Amount','Method','Reference','Slip'].map(h => (
+                <tr>{['Date','Supplier','PO Product','Amount','Method','Reference','Slip',''].map(h => (
                   <th key={h} style={{ textAlign: 'left', padding: '7px 12px', fontSize: 11, color: '#bbb', borderBottom: '1px solid #f0f0f0', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.4px' }}>{h}</th>
                 ))}</tr>
               </thead>
@@ -1110,6 +1423,18 @@ export default function PurchaseOrders() {
                             <Paperclip size={11} /> {p.slips.length}
                           </button>
                         ) : <span style={{ color: '#ddd', fontSize: 12 }}>—</span>}
+                      </td>
+                      <td style={{ padding: '9px 12px' }}>
+                        <div style={{ display: 'flex', gap: 5, justifyContent: 'flex-end' }}>
+                          <button onClick={() => openEditPayment(p)} title="Edit payment / add costs"
+                            style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: 7, cursor: 'pointer', padding: 6, display: 'flex', color: '#666' }}>
+                            <Pencil size={13} />
+                          </button>
+                          <button onClick={() => deletePaymentRecord(p)} title="Delete payment"
+                            style={{ background: '#fff', border: '1px solid #f3d6d6', borderRadius: 7, cursor: 'pointer', padding: 6, display: 'flex', color: '#E24B4A' }}>
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   )
