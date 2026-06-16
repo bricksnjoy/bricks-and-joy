@@ -136,8 +136,12 @@ create table supplier_payments (
   payment_method text default 'Bank Transfer',
   reference text,
   notes text,
+  slips jsonb,
   created_at timestamptz default now()
 );
+
+-- For existing databases, add the payslips column:
+-- alter table supplier_payments add column if not exists slips jsonb;
 
 -- USER PROFILES (extends Supabase auth)
 create table profiles (

@@ -36,8 +36,9 @@ export default function PurchaseOrders() {
   const [batchModal, setBatchModal] = useState(false)
   const [supplierModal, setSupplierModal] = useState(false)
   const [payModal, setPayModal] = useState(null) // PO object being paid
-  const [payForm, setPayForm] = useState({ amount: '', payment_date: new Date().toISOString().split('T')[0], payment_method: 'Bank Transfer', reference: '', notes: '' })
+  const [payForm, setPayForm] = useState({ amount: '', payment_date: new Date().toISOString().split('T')[0], payment_method: 'Bank Transfer', reference: '', notes: '', slips: [] })
   const [paymentsTab, setPaymentsTab] = useState(false)
+  const [viewSlips, setViewSlips] = useState(null) // { slips: [...], title } for fullscreen viewer
   const [batchForm, setBatchForm] = useState({ supplier_id: '', supplier_name: '', order_date: new Date().toISOString().split('T')[0], expected_date: '', items: [], extraCosts: [] })
   const [supplierForm, setSupplierForm] = useState({ name: '', contact_name: '', email: '', phone: '', address: '' })
   const [saving, setSaving] = useState(false)
@@ -297,7 +298,7 @@ export default function PurchaseOrders() {
     const anchor = group.rows.find(r => r.cost_type !== 'extra') || group.rows[0]
     const paid = paidForGroup(group)
     const outstanding = Math.max(0, group.total - paid)
-    setPayForm({ amount: outstanding > 0 ? outstanding.toFixed(2) : '', payment_date: new Date().toISOString().split('T')[0], payment_method: 'Bank Transfer', reference: '', notes: '' })
+    setPayForm({ amount: outstanding > 0 ? outstanding.toFixed(2) : '', payment_date: new Date().toISOString().split('T')[0], payment_method: 'Bank Transfer', reference: '', notes: '', slips: [] })
     setPayModal({ ...anchor, total_cost: group.total, _groupTotal: group.total, _groupPaid: paid, _groupIds: group.rows.map(r => r.id) })
   }
 
@@ -323,9 +324,23 @@ export default function PurchaseOrders() {
 
   const sf = k => e => setSupplierForm(prev => ({ ...prev, [k]: e.target.value }))
 
+  // Read selected payslip files into base64 data URLs and append to the form
+  async function addSlipFiles(fileList) {
+    const files = Array.from(fileList || [])
+    if (!files.length) return
+    const read = f => new Promise(resolve => {
+      const reader = new FileReader()
+      reader.onload = () => resolve({ name: f.name, type: f.type, url: reader.result })
+      reader.onerror = () => resolve(null)
+      reader.readAsDataURL(f)
+    })
+    const slips = (await Promise.all(files.map(read))).filter(Boolean)
+    setPayForm(p => ({ ...p, slips: [...(p.slips || []), ...slips] }))
+  }
+
   async function recordPayment() {
     if (!payForm.amount || Number(payForm.amount) <= 0) { toast.error('Enter a valid amount'); return }
-    const { error } = await supabase.from('supplier_payments').insert({
+    const base = {
       purchase_order_id: payModal.id,
       supplier_id: payModal.supplier_id || null,
       supplier_name: payModal.supplier_name || '',
@@ -334,7 +349,14 @@ export default function PurchaseOrders() {
       payment_method: payForm.payment_method,
       reference: payForm.reference || null,
       notes: payForm.notes || null,
-    })
+    }
+    const row = (payForm.slips && payForm.slips.length) ? { ...base, slips: payForm.slips } : base
+    let { error } = await supabase.from('supplier_payments').insert(row)
+    // The slips column may not exist yet — retry without it so the payment still saves
+    if (error && /column .* does not exist|could not find/i.test(error.message || '') && row.slips) {
+      ({ error } = await supabase.from('supplier_payments').insert(base))
+      if (!error && payForm.slips.length) toast.error('Payment saved, but payslips need the "slips" column (run the migration)')
+    }
     if (error) { toast.error('Failed to record payment'); return }
     const recorded = parseFloat(payForm.amount)
     toast.success(`Payment of MVR ${recorded.toFixed(2)} recorded`)
@@ -351,7 +373,7 @@ export default function PurchaseOrders() {
     const newGroupPaid = freshPay.filter(x => payModal._groupIds?.includes(x.purchase_order_id) || x.purchase_order_id === payModal.id).reduce((s, x) => s + Number(x.amount), 0)
     const newOutstanding = Math.max(0, payModal._groupTotal - newGroupPaid)
     setPayModal(prev => ({ ...prev, _groupPaid: newGroupPaid }))
-    setPayForm({ amount: newOutstanding > 0 ? newOutstanding.toFixed(2) : '', payment_date: new Date().toISOString().split('T')[0], payment_method: payForm.payment_method, reference: '', notes: '' })
+    setPayForm({ amount: newOutstanding > 0 ? newOutstanding.toFixed(2) : '', payment_date: new Date().toISOString().split('T')[0], payment_method: payForm.payment_method, reference: '', notes: '', slips: [] })
   }
 
   const [editGroupModal, setEditGroupModal] = useState(null) // group being edited
@@ -912,10 +934,19 @@ export default function PurchaseOrders() {
                       <div style={{ fontWeight: 600, color: '#0d1b2a' }}>MVR {Number(p.amount).toFixed(2)}</div>
                       <div style={{ fontSize: 11, color: '#aaa' }}>{p.payment_date} · {p.payment_method}{p.reference ? ` · ${p.reference}` : ''}</div>
                     </div>
-                    <button onClick={async () => { if (window.confirm('Delete this payment?')) { await supabase.from('supplier_payments').delete().eq('id', p.id); load(); setPayModal(null) } }}
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#E24B4A', padding: 4 }}>
-                      <Trash2 size={12} />
-                    </button>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      {Array.isArray(p.slips) && p.slips.length > 0 && (
+                        <button onClick={() => setViewSlips({ slips: p.slips, title: `Payslips · MVR ${Number(p.amount).toFixed(2)}` })}
+                          title={`View ${p.slips.length} payslip(s)`}
+                          style={{ display: 'flex', alignItems: 'center', gap: 3, background: '#f5f5f5', border: 'none', borderRadius: 99, padding: '3px 8px', cursor: 'pointer', color: '#555', fontSize: 11, fontWeight: 600, fontFamily: 'inherit' }}>
+                          <Paperclip size={11} /> {p.slips.length}
+                        </button>
+                      )}
+                      <button onClick={async () => { if (window.confirm('Delete this payment?')) { await supabase.from('supplier_payments').delete().eq('id', p.id); load(); setPayModal(null) } }}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#E24B4A', padding: 4 }}>
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -930,7 +961,34 @@ export default function PurchaseOrders() {
           <Select label="Payment method" value={payForm.payment_method} onChange={e => setPayForm(p => ({ ...p, payment_method: e.target.value }))}
             options={['Bank Transfer', 'Cash', 'Cheque', 'Online Transfer', 'Other']} style={{ marginBottom: 14 }} />
           <Input label="Reference / Transaction ID" value={payForm.reference} onChange={e => setPayForm(p => ({ ...p, reference: e.target.value }))} placeholder="TXN-12345 (optional)" style={{ marginBottom: 14 }} />
-          <Input label="Notes" value={payForm.notes} onChange={e => setPayForm(p => ({ ...p, notes: e.target.value }))} placeholder="Optional notes" style={{ marginBottom: 20 }} />
+          <Input label="Notes" value={payForm.notes} onChange={e => setPayForm(p => ({ ...p, notes: e.target.value }))} placeholder="Optional notes" style={{ marginBottom: 14 }} />
+
+          {/* Payslip uploads — one or more */}
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#888', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>Payslips ({(payForm.slips || []).length})</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+              {(payForm.slips || []).map((s, i) => (
+                <div key={i} style={{ position: 'relative', width: 64, height: 64, borderRadius: 8, overflow: 'hidden', border: '1px solid #eee', background: '#f8f7f4' }}>
+                  {s.type && s.type.startsWith('image/')
+                    ? <img src={s.url} alt={s.name} title={s.name} onClick={() => setViewSlips({ slips: payForm.slips, title: 'New payslips' })} style={{ width: '100%', height: '100%', objectFit: 'cover', cursor: 'pointer' }} />
+                    : <div title={s.name} onClick={() => setViewSlips({ slips: payForm.slips, title: 'New payslips' })} style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 3, cursor: 'pointer', padding: 4, textAlign: 'center' }}>
+                        <Paperclip size={16} color="#888" />
+                        <span style={{ fontSize: 8, color: '#888', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%' }}>{s.name}</span>
+                      </div>}
+                  <button onClick={() => setPayForm(p => ({ ...p, slips: p.slips.filter((_, j) => j !== i) }))}
+                    style={{ position: 'absolute', top: 2, right: 2, width: 16, height: 16, borderRadius: '50%', background: 'rgba(0,0,0,0.6)', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>
+                    <X size={10} />
+                  </button>
+                </div>
+              ))}
+              <label style={{ width: 64, height: 64, borderRadius: 8, border: '1.5px dashed #ddd', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 3, cursor: 'pointer', color: '#999' }}>
+                <Plus size={18} />
+                <span style={{ fontSize: 9 }}>Add</span>
+                <input type="file" accept="image/*,application/pdf" multiple onChange={e => { addSlipFiles(e.target.files); e.target.value = '' }} style={{ display: 'none' }} />
+              </label>
+            </div>
+          </div>
+
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <Button variant="ghost" onClick={() => setPayModal(null)}>Done</Button>
             <Button onClick={recordPayment}><CreditCard size={13} /> Record Payment</Button>
@@ -938,6 +996,23 @@ export default function PurchaseOrders() {
         </Modal>
         )
       })()}
+
+      {/* Payslip viewer */}
+      {viewSlips && (
+        <Modal title={viewSlips.title || 'Payslips'} subtitle={`${viewSlips.slips.length} file(s)`} onClose={() => setViewSlips(null)} width={560}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {viewSlips.slips.map((s, i) => (
+              <div key={i}>
+                {s.type && s.type === 'application/pdf'
+                  ? <a href={s.url} download={s.name} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px', border: '1px solid #eee', borderRadius: 10, color: '#0d1b2a', textDecoration: 'none', fontSize: 13, fontWeight: 600 }}>
+                      <Paperclip size={14} /> {s.name || `Payslip ${i + 1}`} <span style={{ color: '#FFA500', marginLeft: 'auto', fontSize: 12 }}>Download</span>
+                    </a>
+                  : <img src={s.url} alt={s.name || `Payslip ${i + 1}`} style={{ width: '100%', borderRadius: 10, border: '1px solid #eee', objectFit: 'contain' }} />}
+              </div>
+            ))}
+          </div>
+        </Modal>
+      )}
 
       {/* Payments history panel */}
       {payments.length > 0 && (
