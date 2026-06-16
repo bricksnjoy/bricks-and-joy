@@ -445,15 +445,18 @@ export default function PurchaseOrders() {
       reference: editPayForm.reference || null,
       notes: editPayForm.notes || null,
     }
-    const upd = (editPayForm.slips && editPayForm.slips.length) || Array.isArray(editPayModal.slips)
-      ? { ...base, slips: editPayForm.slips }
-      : base
-    let { error } = await supabase.from('supplier_payments').update(upd).eq('id', editPayModal.id)
-    if (error && /column .* does not exist|could not find/i.test(error.message || '') && upd.slips) {
-      ({ error } = await supabase.from('supplier_payments').update(base).eq('id', editPayModal.id))
+    // Only send slips when they actually changed — re-sending large base64
+    // payloads on every save is wasteful and can make the request fail.
+    const slipsChanged = JSON.stringify(editPayForm.slips || []) !== JSON.stringify(editPayModal.slips || [])
+    const payload = slipsChanged ? { ...base, slips: editPayForm.slips || [] } : base
+
+    let res = await supabase.from('supplier_payments').update(payload).eq('id', editPayModal.id)
+    // The slips column may not exist yet — retry without it so the rest still saves
+    if (res.error && /column .* does not exist|could not find/i.test(res.error.message || '') && payload.slips) {
+      res = await supabase.from('supplier_payments').update(base).eq('id', editPayModal.id)
     }
     setSaving(false)
-    if (error) { toast.error('Failed to update payment'); return }
+    if (res.error) { toast.error('Failed to update payment: ' + res.error.message); return }
     toast.success('Payment updated')
     setEditPayModal(null)
     load()
