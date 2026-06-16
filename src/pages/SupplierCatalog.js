@@ -88,8 +88,11 @@ export default function SupplierCatalog() {
       supabase.from('suppliers').select('*').order('name'),
       supabase.from('supplier_products').select('*').order('product_name'),
     ])
-    setSuppliers(s.data || [])
+    const sup = s.data || []
+    setSuppliers(sup)
     setCatalog(c.data || [])
+    // Default to the top supplier on first load
+    setActiveSupplier(prev => prev || sup[0] || null)
     setLoading(false)
   }
 
@@ -521,6 +524,14 @@ export default function SupplierCatalog() {
   // ── UI ───────────────────────────────────────────────────────────────────────
   const supplierCatalogCount = sid => catalog.filter(c => c.supplier_id === sid).length
 
+  // Resolve display names from an item: main = contact name, small = company name
+  const supplierNames = item => {
+    const s = suppliers.find(x => x.id === item.supplier_id)
+    const company = s?.name || item.supplier_name || ''
+    const contact = s?.contact_name || ''
+    return { main: contact || company, sub: contact ? company : '' }
+  }
+
   const priceColor = (price, allPrices) => {
     if (!price || allPrices.length < 2) return '#0d1b2a'
     const min = Math.min(...allPrices)
@@ -606,6 +617,10 @@ export default function SupplierCatalog() {
         subtitle="Track which suppliers offer which products and compare prices"
         action={
           <div style={{ display: 'flex', gap: 8 }}>
+            <Button variant="ghost" onClick={() => { setActiveSupplier(null); setCompareMode(false) }}
+              style={{ background: (!activeSupplier && !compareMode) ? '#FFF3E0' : undefined, color: (!activeSupplier && !compareMode) ? '#FFA500' : undefined }}>
+              <Building2 size={14} /> All catalogs
+            </Button>
             <Button variant="ghost" onClick={() => setCompareMode(m => !m)} style={{ background: compareMode ? '#e8f5e9' : undefined, color: compareMode ? '#1D9E75' : undefined }}>
               <ArrowUpDown size={14} /> {compareMode ? 'Exit compare' : 'Price compare'}
             </Button>
@@ -631,17 +646,6 @@ export default function SupplierCatalog() {
           <div>
             <Card style={{ padding: '12px 8px' }}>
               <div style={{ padding: '0 8px 10px', fontSize: 11, fontWeight: 700, color: '#bbb', textTransform: 'uppercase', letterSpacing: '0.6px' }}>Suppliers</div>
-              <div
-                onClick={() => { setActiveSupplier(null); setCompareMode(false) }}
-                className={`sc-supplier-item${!activeSupplier && !compareMode ? ' active' : ''}`}>
-                <div style={{ width: 34, height: 34, borderRadius: 10, background: '#f0f0f0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <Building2 size={15} color="#aaa" />
-                </div>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: '#0d1b2a' }}>All suppliers</div>
-                  <div style={{ fontSize: 11, color: '#bbb' }}>{catalog.length} products</div>
-                </div>
-              </div>
 
               {suppliers.map(s => {
                 const display = s.contact_name || s.name
@@ -714,9 +718,10 @@ export default function SupplierCatalog() {
                         const savings = i > 0 && p > 0 && minP > 0 ? ((p - minP) / minP * 100).toFixed(0) : null
                         return (
                           <div key={item.id} style={{ display:'flex', alignItems:'center', gap:12, padding:'9px 0', borderBottom:'1px solid #f8f8f8' }}>
-                            <Avatar name={item.supplier_name||'?'} size={28} />
+                            <Avatar name={supplierNames(item).main||'?'} size={28} />
                             <div style={{ flex:1 }}>
-                              <div style={{ fontSize:13, fontWeight:500, color:'#0d1b2a' }}>{item.supplier_name}</div>
+                              <div style={{ fontSize:13, fontWeight:600, color:'#0d1b2a' }}>{supplierNames(item).main}</div>
+                              {supplierNames(item).sub && <div style={{ fontSize:11, color:'#999', fontWeight:500 }}>{supplierNames(item).sub}</div>}
                               {item.sku && <div style={{ fontSize:11, color:'#bbb' }}>SKU: {item.sku}</div>}
                             </div>
                             {item.image_url && <img src={item.image_url} alt="" style={{ width:36, height:36, objectFit:'cover', borderRadius:6, flexShrink:0 }} onError={e=>e.target.style.display='none'} />}
@@ -743,7 +748,7 @@ export default function SupplierCatalog() {
                       <div key={item.id} className="sc-product-row">
                         <div>
                           <div style={{ fontSize:13, fontWeight:500, color:'#0d1b2a' }}>{item.product_name}</div>
-                          <div style={{ fontSize:11, color:'#bbb' }}>{item.supplier_name}</div>
+                          <div style={{ fontSize:11, color:'#bbb' }}>{supplierNames(item).main}{supplierNames(item).sub ? ` · ${supplierNames(item).sub}` : ''}</div>
                         </div>
                         <div style={{ fontSize:13, fontWeight:700, color:'#0d1b2a' }}>{(item.sell_price||item.cost_price) ? `MVR ${Number(item.sell_price||item.cost_price).toFixed(2)}` : '—'}</div>
                         <button className="icon-btn" onClick={() => showBarcode(item)}><Barcode size={13}/></button>
@@ -779,7 +784,7 @@ export default function SupplierCatalog() {
                 )}
 
                 {view === 'grid' ? (
-                  <CatalogGrid items={visibleCatalog} activeSupplier={activeSupplier} selectMode={selectMode}
+                  <CatalogGrid items={visibleCatalog} activeSupplier={activeSupplier} suppliers={suppliers} selectMode={selectMode}
                     selectedIds={selectedIds} onToggleSelect={toggleSelect}
                     onView={setViewItem} onPO={openPO} onEdit={openEdit} onBarcode={showBarcode} onDelete={del} />
                 ) : (
@@ -806,7 +811,7 @@ export default function SupplierCatalog() {
                             <div>
                               <div style={{ fontSize:13, fontWeight:600, color:'#0d1b2a' }}>{item.product_name}</div>
                               <div style={{ fontSize:11, color:'#bbb' }}>
-                                {!activeSupplier && <span>{item.supplier_name} · </span>}
+                                {!activeSupplier && <span>{supplierNames(item).main} · </span>}
                                 {item.category && <span>{item.category} · </span>}
                                 {item.unit}
                               </div>
@@ -1101,9 +1106,10 @@ export default function SupplierCatalog() {
           <div style={{ display: 'grid', gridTemplateColumns: '420px 1fr', gap: 34, alignItems: 'start' }} className="cat-vm-grid">
             <style>{`@media (max-width: 820px){ .cat-vm-grid { grid-template-columns: 1fr !important; } }`}</style>
             <div style={{ position: 'relative', width: '100%', aspectRatio: '372 / 443', borderRadius: 24, overflow: 'hidden',
-              background: 'linear-gradient(160deg,#f6f6f8,#e9e9ed)', boxShadow: 'inset 0 2px 0 rgba(255,255,255,0.95), inset 0 -4px 10px rgba(0,0,0,0.08), 0 10px 30px rgba(13,27,42,0.12)' }}>
+              background: '#fff', padding: 15, boxSizing: 'border-box',
+              boxShadow: 'inset 0 2px 0 rgba(255,255,255,0.95), inset 0 -4px 10px rgba(0,0,0,0.08), 0 10px 30px rgba(13,27,42,0.12)' }}>
               {vm.image_url
-                ? <img src={vm.image_url} alt={vm.product_name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={e=>e.target.style.display='none'} />
+                ? <img src={vm.image_url} alt={vm.product_name} style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#fff', borderRadius: 12 }} onError={e=>e.target.style.display='none'} />
                 : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Package size={80} color="#cfcfd6" /></div>}
             </div>
             <div>
@@ -1115,7 +1121,7 @@ export default function SupplierCatalog() {
               <h1 style={{ fontSize: 36, fontWeight: 800, margin: '0 0 6px', color: '#0d1b2a', letterSpacing: '-1px', lineHeight: 1.05 }}>{vm.product_name}</h1>
               <div style={{ fontSize: 14, color: '#888', marginBottom: 16 }}>
                 {vm.brand && <span><strong style={{ color: '#555' }}>{vm.brand}</strong> · </span>}
-                from <strong style={{ color: '#555' }}>{vm.supplier_name}</strong>{vm.sku ? ` · SKU ${vm.sku}` : ''}
+                from <strong style={{ color: '#555' }}>{supplierNames(vm).main}</strong>{supplierNames(vm).sub ? ` (${supplierNames(vm).sub})` : ''}{vm.sku ? ` · SKU ${vm.sku}` : ''}
               </div>
               {vm.description && <p style={{ fontSize: 15.5, color: '#555', lineHeight: 1.6, margin: '0 0 20px' }}>{vm.description}</p>}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
@@ -1150,8 +1156,14 @@ export default function SupplierCatalog() {
 }
 
 // ── Apple-style catalog grid ───────────────────────────────
-function CatalogGrid({ items, activeSupplier, selectMode, selectedIds, onToggleSelect, onView, onPO, onEdit, onBarcode, onDelete }) {
+function CatalogGrid({ items, activeSupplier, suppliers, selectMode, selectedIds, onToggleSelect, onView, onPO, onEdit, onBarcode, onDelete }) {
   const [openMenuId, setOpenMenuId] = useState(null)
+  const supplierNames = item => {
+    const s = suppliers?.find(x => x.id === item.supplier_id)
+    const company = s?.name || item.supplier_name || ''
+    const contact = s?.contact_name || ''
+    return { main: contact || company, sub: contact ? company : '' }
+  }
   return (
     <>
       <style>{`
@@ -1219,7 +1231,7 @@ function CatalogGrid({ items, activeSupplier, selectMode, selectedIds, onToggleS
               <div style={{ textAlign:'center', padding:'15px 8px 0' }}>
                 <div style={{ fontSize:18, fontWeight:700, color:'#0d1b2a', letterSpacing:'-0.3px', lineHeight:1.2 }}>{item.product_name}</div>
                 <div style={{ fontSize:12, color:'#aaa', marginTop:4, fontWeight:600 }}>
-                  {!activeSupplier && <span>{item.supplier_name} · </span>}{item.category || item.unit}
+                  {!activeSupplier && <span>{supplierNames(item).main} · </span>}{item.category || item.unit}
                 </div>
                 <div style={{ marginTop:8 }}>
                   {item.cost_price ? <div style={{ fontSize:12, color:'#999', fontWeight:600 }}>Cost MVR {Number(item.cost_price).toFixed(2)}</div> : null}

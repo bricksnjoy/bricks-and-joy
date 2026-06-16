@@ -200,9 +200,14 @@ export function Table({ columns, data, emptyMessage = 'No data yet.' }) {
 
 // ─── Modal ────────────────────────────────────────────────────────────────────
 export function Modal({ title, subtitle, children, onClose, width = 640, noBackdropClose = false }) {
+  useEffect(() => {
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = prev }
+  }, [])
   return (
     <div style={{
-      position: 'fixed', inset: 0, background: 'rgba(13,27,42,0.55)', backdropFilter: 'blur(3px)',
+      position: 'fixed', inset: 0, background: 'rgba(13,27,42,0.55)', backdropFilter: 'blur(6px)',
       display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20,
       animation: 'backdropIn 0.2s ease both',
     }} onClick={e => !noBackdropClose && e.target === e.currentTarget && onClose()}>
