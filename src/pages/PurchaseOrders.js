@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Button, Input, Select, Table, Modal, Spinner, FormRow, useToast, Toasts, Badge } from '../components/UI'
 import { Plus, Trash2, Package, Truck, X, Info, AlertTriangle, CreditCard, Wallet, CheckCircle, Paperclip, Eye, Pencil, LayoutGrid, List, LayoutList } from 'lucide-react'
@@ -102,6 +102,46 @@ export default function PurchaseOrders() {
     })
     return `PO-${max + 1}`
   }
+
+  // One-time backfill: stamp batch numbers onto older orders/payments that
+  // predate the feature, so they show up and can be searched.
+  const backfilledRef = useRef(false)
+  useEffect(() => {
+    if (loading || backfilledRef.current || pos.length === 0) return
+    const needsOrder = pos.some(p => !p.batch_no)
+    const needsPay = payments.some(p => !p.batch_no && pos.find(o => o.id === p.purchase_order_id))
+    if (!needsOrder && !needsPay) { backfilledRef.current = true; return }
+    backfilledRef.current = true
+    ;(async () => {
+      let max = 1000
+      pos.forEach(p => { const m = /(\d+)/.exec(p.batch_no || ''); if (m) max = Math.max(max, parseInt(m[1], 10)) })
+      const assigned = {} // batch key -> batch_no
+      // Oldest batches first so they get the lowest numbers
+      const asc = [...pos].reverse()
+      const seen = {}
+      for (const p of asc) {
+        const key = p.batch_id || p.id
+        if (seen[key]) continue
+        seen[key] = true
+        if (p.batch_no) { assigned[key] = p.batch_no; continue }
+        max += 1
+        const no = `PO-${max}`
+        const ids = pos.filter(x => (x.batch_id || x.id) === key).map(x => x.id)
+        const { error } = await supabase.from('purchase_orders').update({ batch_no: no }).in('id', ids)
+        if (error) { return } // column not present yet — skip silently
+        assigned[key] = no
+      }
+      // Stamp payments with their order's batch number
+      for (const pay of payments) {
+        if (pay.batch_no) continue
+        const po = pos.find(o => o.id === pay.purchase_order_id)
+        const key = po ? (po.batch_id || po.id) : null
+        const no = key ? assigned[key] : null
+        if (no) await supabase.from('supplier_payments').update({ batch_no: no }).eq('id', pay.id)
+      }
+      load()
+    })()
+  }, [loading, pos, payments]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function openBatchAdd() {
     // Auto-suggest low stock items
@@ -1466,7 +1506,7 @@ export default function PurchaseOrders() {
               <div style={{ background: '#E1F5EE', borderRadius: 8, padding: 7 }}><Wallet size={14} color="#1D9E75" /></div>
               <div>
                 <div style={{ fontSize: 14, fontWeight: 700, color: '#0d1b2a' }}>Payment History</div>
-                <div style={{ fontSize: 11, color: '#bbb' }}>{q ? `Showing ${filteredPayments.length} of ${payments.length}` : `Total paid: MVR ${payments.reduce((s, p) => s + Number(p.amount), 0).toFixed(2)}`}</div>
+                <div style={{ fontSize: 11, color: '#bbb' }}>{q ? `Showing ${filteredPayments.length} of ${payments.length} · MVR ${filteredPayments.reduce((s, p) => s + Number(p.amount), 0).toFixed(2)}` : `Total paid: MVR ${payments.reduce((s, p) => s + Number(p.amount), 0).toFixed(2)}`}</div>
               </div>
             </div>
             <button onClick={() => setPaymentsTab(p => !p)} style={{ fontSize: 12, color: '#FFA500', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600 }}>
@@ -1476,7 +1516,7 @@ export default function PurchaseOrders() {
           {(paymentsTab || q) && (
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
-                <tr>{['Date','Batch','Supplier','PO Product','Amount','Method','Reference','Slip',''].map(h => (
+                <tr>{['Date','Batch','Supplier','Amount','Method','Reference','Slip',''].map(h => (
                   <th key={h} style={{ textAlign: 'left', padding: '7px 12px', fontSize: 11, color: '#bbb', borderBottom: '1px solid #f0f0f0', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.4px' }}>{h}</th>
                 ))}</tr>
               </thead>
@@ -1484,12 +1524,17 @@ export default function PurchaseOrders() {
                 {filteredPayments.map((p, i) => {
                   const po = pos.find(o => o.id === p.purchase_order_id)
                   const batchNo = p.batch_no || po?.batch_no
+                  const grp = poGroups.find(g => g.rows.some(r => r.id === p.purchase_order_id) || (batchNo && g.anchor.batch_no === batchNo))
                   return (
                     <tr key={p.id} style={{ borderBottom: '1px solid #f5f5f5' }}>
                       <td style={{ padding: '9px 12px', color: '#888', fontSize: 12 }}>{p.payment_date}</td>
-                      <td style={{ padding: '9px 12px' }}>{batchNo ? <span style={{ fontSize: 11, fontWeight: 700, color: '#7F77DD', background: '#7F77DD18', padding: '2px 8px', borderRadius: 99 }}>{batchNo}</span> : <span style={{ color: '#ddd', fontSize: 12 }}>—</span>}</td>
+                      <td style={{ padding: '9px 12px' }}>
+                        {batchNo
+                          ? <button onClick={() => grp && setProductsModal(grp)} disabled={!grp} title={grp ? 'View products in this batch' : ''}
+                              style={{ fontSize: 11, fontWeight: 700, color: '#7F77DD', background: '#7F77DD18', padding: '3px 9px', borderRadius: 99, border: 'none', cursor: grp ? 'pointer' : 'default', fontFamily: 'inherit' }}>{batchNo}{grp ? ` · ${grp.rows.filter(r => r.cost_type !== 'extra').length}` : ''}</button>
+                          : <span style={{ color: '#ddd', fontSize: 12 }}>—</span>}
+                      </td>
                       <td style={{ padding: '9px 12px', fontWeight: 500 }}>{(() => { const sd = supplierDisplay(p.supplier_id, p.supplier_name); return <div><div>{sd.main}</div>{sd.sub && <div style={{fontSize:11,color:'#aaa'}}>{sd.sub}</div>}</div> })()}</td>
-                      <td style={{ padding: '9px 12px', color: '#666', fontSize: 12 }}>{po?.product_name || '—'}</td>
                       <td style={{ padding: '9px 12px', fontWeight: 700, color: '#1D9E75' }}>MVR {Number(p.amount).toFixed(2)}</td>
                       <td style={{ padding: '9px 12px', fontSize: 12 }}><span style={{ background: '#f5f5f5', padding: '2px 8px', borderRadius: 99, fontWeight: 500 }}>{p.payment_method}</span></td>
                       <td style={{ padding: '9px 12px', color: '#aaa', fontSize: 11 }}>{p.reference || '—'}</td>
