@@ -63,6 +63,8 @@ export default function Planning() {
   const [form, setForm] = useState({ name: '', date: '', lead_days: 90, notify_email: BNJ_EMAIL })
   const [planModal, setPlanModal] = useState(null) // campaign being viewed
   const [saving, setSaving] = useState(false)
+  // AI is off by default so no paid Claude calls happen unless the user opts in
+  const [useAI, setUseAI] = useState(() => localStorage.getItem('bnj_planning_use_ai') === '1')
   const notifiedRef = useRef(false)
   const toast = useToast()
 
@@ -103,8 +105,14 @@ export default function Planning() {
     })()
   }, [loading])
 
-  // Try Claude (web-search, toy-aware) first; fall back to the built-in generator
+  function toggleAI() {
+    setUseAI(v => { const n = !v; localStorage.setItem('bnj_planning_use_ai', n ? '1' : '0'); return n })
+  }
+
+  // Try Claude (web-search, toy-aware) first; fall back to the built-in generator.
+  // When the AI toggle is off, skip straight to the free built-in generator.
   async function buildPlan(name, dateISO, leadDays) {
+    if (!useAI) return generateCampaignPlan({ name, dateISO, leadDays }, catalog, inventoryNames)
     try {
       const slim = catalog.slice(0, 150).map(p => ({
         name: p.product_name, category: p.category,
@@ -277,7 +285,16 @@ export default function Planning() {
       <PageHeader
         title="Planning"
         subtitle="Plan seasonal sales campaigns — auto-generated, with reminders 3 months ahead"
-        action={<Button onClick={openAdd}><Plus size={15} /> Add occasion</Button>}
+        action={
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Button variant="ghost" onClick={toggleAI}
+              title={useAI ? 'Claude AI on — uses live web trends (paid per use). Click to switch to free built-in.' : 'Built-in (free). Click to use Claude AI with live trends (paid per use).'}
+              style={{ background: useAI ? '#EEF0FF' : undefined, color: useAI ? '#5b5bd6' : undefined, borderColor: useAI ? '#cdd0fb' : undefined }}>
+              <Bot size={14} /> AI: {useAI ? 'On' : 'Off'}
+            </Button>
+            <Button onClick={openAdd}><Plus size={15} /> Add occasion</Button>
+          </div>
+        }
       />
 
       {usingLocal && (
@@ -369,8 +386,12 @@ export default function Planning() {
             <Input label="Start prep (days before)" type="number" min="1" value={form.lead_days} onChange={e => setForm(f => ({ ...f, lead_days: e.target.value }))} />
           </div>
           <Input label="Notify email" type="email" value={form.notify_email} onChange={e => setForm(f => ({ ...f, notify_email: e.target.value }))} placeholder={BNJ_EMAIL} style={{ marginBottom: 8 }} />
-          <div style={{ fontSize: 12, color: '#aaa', display: 'flex', gap: 6, alignItems: 'center', marginBottom: 18 }}>
+          <div style={{ fontSize: 12, color: '#aaa', display: 'flex', gap: 6, alignItems: 'center', marginBottom: 8 }}>
             <RefreshCw size={12} /> Repeats every year — reminders roll forward automatically.
+          </div>
+          <div style={{ fontSize: 12, display: 'flex', gap: 6, alignItems: 'center', marginBottom: 18, color: useAI ? '#5b5bd6' : '#888' }}>
+            <Bot size={12} /> {useAI ? 'Using Claude AI with live trends (paid per use).' : 'Using the free built-in generator.'}
+            <button onClick={toggleAI} style={{ background: 'none', border: 'none', color: '#FFA500', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, padding: 0 }}>Switch</button>
           </div>
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <Button variant="ghost" onClick={() => setAddModal(false)}>Cancel</Button>
