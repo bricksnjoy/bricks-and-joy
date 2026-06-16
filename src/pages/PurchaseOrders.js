@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Button, Input, Select, Table, Modal, Spinner, FormRow, useToast, Toasts, Badge } from '../components/UI'
-import { Plus, Trash2, Package, Truck, X, Info, AlertTriangle, CreditCard, Wallet, CheckCircle, Paperclip, Eye, Pencil, LayoutGrid, List, LayoutList, Clock } from 'lucide-react'
+import { Plus, Trash2, Package, Truck, X, Info, AlertTriangle, CreditCard, Wallet, CheckCircle, Paperclip, Eye, Pencil, LayoutGrid, List, ChevronDown } from 'lucide-react'
 
 const AVATAR_COLORS = ['#7F77DD', '#1D9E75', '#FFA500', '#378ADD', '#E24B4A', '#0F6E56']
 function avatarColor(name = '') {
@@ -42,7 +42,8 @@ export default function PurchaseOrders() {
   const [paymentsTab, setPaymentsTab] = useState(false)
   const [viewSlips, setViewSlips] = useState(null) // { slips: [...], title } for fullscreen viewer
   const [viewTab, setViewTab] = useState('ongoing') // 'ongoing' | 'history'
-  const [listView, setListView] = useState(() => localStorage.getItem('po_list_view') || 'detailed') // 'detailed' | 'compact' | 'table'
+  const [listView, setListView] = useState(() => localStorage.getItem('po_list_view') === 'table' ? 'table' : 'detailed') // 'detailed' (Card) | 'table' (List)
+  const [supplierFilter, setSupplierFilter] = useState(null) // supplier id to filter by, or null
   const [search, setSearch] = useState('')
   const [productsModal, setProductsModal] = useState(null) // group whose products are shown in full
   const [editPayModal, setEditPayModal] = useState(null) // payment being edited
@@ -738,12 +739,14 @@ export default function PurchaseOrders() {
     if (`${sd.main} ${sd.sub}`.toLowerCase().includes(q)) return true
     return g.rows.some(r => (r.product_name || '').toLowerCase().includes(q))
   }
-  const ongoingGroups = poGroups.filter(g => (g.anchor.status === 'pending' || g.anchor.status === 'ordered') && matchesSearch(g))
-  const historyGroups = poGroups.filter(g => (g.anchor.status === 'received' || g.anchor.status === 'cancelled') && matchesSearch(g))
+  const matchesSupplier = g => !supplierFilter || g.anchor.supplier_id === supplierFilter
+  const ongoingGroups = poGroups.filter(g => (g.anchor.status === 'pending' || g.anchor.status === 'ordered') && matchesSearch(g) && matchesSupplier(g))
+  const historyGroups = poGroups.filter(g => (g.anchor.status === 'received' || g.anchor.status === 'cancelled') && matchesSearch(g) && matchesSupplier(g))
   const displayGroups = viewTab === 'history' ? historyGroups : ongoingGroups
 
   // Payments filtered by the same search (batch no / supplier)
   const filteredPayments = payments.filter(p => {
+    if (supplierFilter && p.supplier_id !== supplierFilter) return false
     if (!q) return true
     const sd = supplierDisplay(p.supplier_id, p.supplier_name)
     return (p.batch_no || '').toLowerCase().includes(q) || `${sd.main} ${sd.sub}`.toLowerCase().includes(q) || (p.reference || '').toLowerCase().includes(q)
@@ -782,11 +785,12 @@ export default function PurchaseOrders() {
             </div>
           </div>
           {/* Status pill with embedded select */}
-          <div style={{ position: 'relative', background: sc.bg, borderRadius: 99, padding: '5px 10px' }}>
+          <div style={{ position: 'relative', background: sc.bg, borderRadius: 99, padding: '5px 8px 5px 10px', display: 'flex', alignItems: 'center', gap: 2 }}>
             <select value={anchor.status} onChange={e => updateBatchStatus(g, e.target.value)}
-              style={{ border: 'none', background: 'transparent', fontSize: 12, fontWeight: 700, color: sc.fg, cursor: 'pointer', fontFamily: 'inherit', appearance: 'none', paddingRight: 2 }}>
+              style={{ border: 'none', background: 'transparent', fontSize: 12, fontWeight: 700, color: sc.fg, cursor: 'pointer', fontFamily: 'inherit', appearance: 'none', paddingRight: 0 }}>
               {STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
             </select>
+            <ChevronDown size={13} color={sc.fg} style={{ flexShrink: 0, pointerEvents: 'none' }} />
           </div>
           {payStatusBadgeForGroup(g)}
           <div style={{ textAlign: 'right', minWidth: 110 }}>
@@ -831,73 +835,23 @@ export default function PurchaseOrders() {
             </button>
           )}
           <div style={{ flex: 1 }} />
-          <button onClick={() => setProductsModal(g)} title="Full history — products, costs & quantities"
-            style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: 8, cursor: 'pointer', padding: '6px 11px', display: 'flex', alignItems: 'center', gap: 5, color: '#666', fontSize: 11, fontWeight: 600, fontFamily: 'inherit' }}>
-            <Clock size={13} /> More
-          </button>
           <button onClick={() => setSlipModal({ ...anchor, slip_url: slipUrl, _anchorId: slipAnchorId })}
             style={{ background: slipUrl ? '#E1F5EE' : '#fff', border: `1px solid ${slipUrl ? '#1D9E75' : '#e0e0e0'}`, borderRadius: 8, cursor: 'pointer', padding: '6px 11px', display: 'flex', alignItems: 'center', gap: 5, color: slipUrl ? '#1D9E75' : '#999', fontSize: 11, fontWeight: 600, fontFamily: 'inherit' }}>
             {slipUrl ? <Eye size={13} /> : <Paperclip size={13} />}{slipUrl ? 'View slip' : 'Attach slip'}
           </button>
+          <button onClick={() => openEditGroup(g)} title="Edit order"
+            style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: 8, cursor: 'pointer', padding: '6px 11px', display: 'flex', alignItems: 'center', gap: 5, color: '#666', fontSize: 11, fontWeight: 600, fontFamily: 'inherit' }}>
+            <Pencil size={13} /> Edit
+          </button>
           <button onClick={() => openGroupPayModal(g)}
-            style={{ background: '#FFA500', border: 'none', borderRadius: 8, cursor: 'pointer', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: 5, color: '#fff', fontSize: 11, fontWeight: 700, fontFamily: 'inherit' }}>
+            style={{ background: '#FFA500', border: 'none', borderRadius: 8, cursor: 'pointer', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: 5, color: '#fff', fontSize: 11, fontWeight: 700, fontFamily: 'inherit' }}>
             <CreditCard size={13} /> Payment
           </button>
-          <button onClick={() => openEditGroup(g)} title="Edit order"
-            style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: 8, cursor: 'pointer', padding: '6px 9px', display: 'flex', alignItems: 'center', color: '#666' }}>
-            <Plus size={14} />
-          </button>
+          <div style={{ width: 1, height: 22, background: '#eee', margin: '0 2px' }} />
           <button onClick={() => delGroup(g)} title="Delete order"
             style={{ background: '#fff', border: '1px solid #f3d6d6', borderRadius: 8, cursor: 'pointer', padding: '6px 9px', display: 'flex', alignItems: 'center', color: '#E24B4A' }}>
             <Trash2 size={14} />
           </button>
-        </div>
-      </div>
-    )
-  }
-
-  // Compact mini-card (grid view)
-  function renderMiniCard(g) {
-    const { anchor, rows } = g
-    const productRows = rows.filter(r => r.cost_type !== 'extra')
-    const totalQty = productRows.reduce((s, r) => s + Number(r.qty || 0), 0)
-    const slipUrl = rows.find(r => r.slip_url)?.slip_url || null
-    const slipAnchorId = rows.find(r => r.slip_url)?.id || anchor.id
-    const sd = supplierDisplay(anchor.supplier_id, anchor.supplier_name)
-    const thumbs = productRows.filter(r => r.image_url).slice(0, 5)
-    const statusColors = { pending: { bg: '#FFF8E1', fg: '#b8740a' }, ordered: { bg: '#EAF2FD', fg: '#2f6fc0' }, received: { bg: '#E1F5EE', fg: '#1D9E75' }, cancelled: { bg: '#fef2f2', fg: '#E24B4A' } }
-    const sc = statusColors[anchor.status] || statusColors.pending
-    return (
-      <div key={g.key} style={{ border: '1px solid #eee', borderRadius: 14, padding: 14, background: '#fff', display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-          <Avatar name={sd.main} size={30} />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 700, color: '#0d1b2a', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sd.main || '—'}</div>
-            <div style={{ fontSize: 10.5, color: '#aaa' }}>{anchor.batch_no ? `${anchor.batch_no} · ` : ''}{anchor.order_date}</div>
-          </div>
-          <span style={{ fontSize: 10.5, fontWeight: 700, color: sc.fg, background: sc.bg, padding: '3px 9px', borderRadius: 99 }}>{anchor.status}</span>
-        </div>
-        <div onClick={() => setProductsModal(g)} title="View all products" style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-          {thumbs.map(r => (
-            <img key={r.id} src={r.image_url} alt="" title={r.product_name} style={{ width: 34, height: 34, objectFit: 'contain', borderRadius: 7, border: '1px solid #f0f0f0', background: '#fff' }} onError={e => e.target.style.display = 'none'} />
-          ))}
-          {productRows.length > thumbs.length
-            ? <span style={{ fontSize: 11, color: '#FFA500', fontWeight: 700 }}>+{productRows.length - thumbs.length} more</span>
-            : <span style={{ fontSize: 11, color: '#FFA500', fontWeight: 700 }}>View all</span>}
-        </div>
-        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
-          <div style={{ fontSize: 15, fontWeight: 800, color: '#0d1b2a' }}>MVR {g.total.toFixed(2)}</div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 10.5, color: '#bbb', fontWeight: 600 }}>{totalQty} items</span>
-            {payStatusBadgeForGroup(g)}
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: 6, borderTop: '1px solid #f5f5f5', paddingTop: 10 }}>
-          <button onClick={() => openGroupPayModal(g)} title="Record payment" style={{ flex: 1, background: '#FFA500', border: 'none', borderRadius: 8, cursor: 'pointer', padding: '7px 0', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, color: '#fff', fontSize: 11, fontWeight: 700, fontFamily: 'inherit' }}><CreditCard size={13} /> Pay</button>
-          <button onClick={() => setProductsModal(g)} title="Full history" style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: 8, cursor: 'pointer', padding: '7px 10px', display: 'flex', alignItems: 'center', color: '#666' }}><Clock size={14} /></button>
-          <button onClick={() => setSlipModal({ ...anchor, slip_url: slipUrl, _anchorId: slipAnchorId })} title={slipUrl ? 'View slip' : 'Attach slip'} style={{ background: slipUrl ? '#E1F5EE' : '#fff', border: `1px solid ${slipUrl ? '#1D9E75' : '#e0e0e0'}`, borderRadius: 8, cursor: 'pointer', padding: '7px 10px', display: 'flex', alignItems: 'center', color: slipUrl ? '#1D9E75' : '#999' }}>{slipUrl ? <Eye size={14} /> : <Paperclip size={14} />}</button>
-          <button onClick={() => openEditGroup(g)} title="Edit order" style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: 8, cursor: 'pointer', padding: '7px 10px', display: 'flex', alignItems: 'center', color: '#666' }}><Pencil size={14} /></button>
-          <button onClick={() => delGroup(g)} title="Delete order" style={{ background: '#fff', border: '1px solid #f3d6d6', borderRadius: 8, cursor: 'pointer', padding: '7px 10px', display: 'flex', alignItems: 'center', color: '#E24B4A' }}><Trash2 size={14} /></button>
         </div>
       </div>
     )
@@ -937,15 +891,17 @@ export default function PurchaseOrders() {
         <td style={{ padding: '10px 12px', verticalAlign: 'middle', fontWeight: 700 }}>{totalQty}</td>
         <td style={{ padding: '10px 12px', verticalAlign: 'middle', fontWeight: 700, color: '#0d1b2a' }}>MVR {g.total.toFixed(2)}</td>
         <td style={{ padding: '10px 12px', verticalAlign: 'middle' }}>
-          <select value={anchor.status} onChange={e => updateBatchStatus(g, e.target.value)}
-            style={{ border: 'none', background: sc.bg, color: sc.fg, fontWeight: 700, fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', borderRadius: 99, padding: '4px 8px' }}>
-            {STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-          </select>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 1, background: sc.bg, borderRadius: 99, padding: '4px 6px 4px 8px' }}>
+            <select value={anchor.status} onChange={e => updateBatchStatus(g, e.target.value)}
+              style={{ border: 'none', background: 'transparent', color: sc.fg, fontWeight: 700, fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', appearance: 'none', padding: 0 }}>
+              {STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+            </select>
+            <ChevronDown size={12} color={sc.fg} style={{ flexShrink: 0, pointerEvents: 'none' }} />
+          </div>
         </td>
         <td style={{ padding: '10px 12px', verticalAlign: 'middle' }}>{payStatusBadgeForGroup(g)}</td>
         <td style={{ padding: '10px 12px', verticalAlign: 'middle' }}>
           <div style={{ display: 'flex', gap: 5 }}>
-            <button onClick={() => setProductsModal(g)} title="Full history" style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: 7, cursor: 'pointer', padding: 6, display: 'flex', color: '#666' }}><Clock size={13} /></button>
             <button onClick={() => openGroupPayModal(g)} title="Record payment" className="icon-btn primary" style={{ background: '#FFA500', border: 'none', borderRadius: 7, cursor: 'pointer', padding: 6, display: 'flex', color: '#fff' }}><CreditCard size={13} /></button>
             <button onClick={() => setSlipModal({ ...anchor, slip_url: slipUrl, _anchorId: slipAnchorId })} title={slipUrl ? 'View slip' : 'Attach slip'} style={{ background: slipUrl ? '#E1F5EE' : '#fff', border: `1px solid ${slipUrl ? '#1D9E75' : '#e0e0e0'}`, borderRadius: 7, cursor: 'pointer', padding: 6, display: 'flex', color: slipUrl ? '#1D9E75' : '#999' }}>{slipUrl ? <Eye size={13} /> : <Paperclip size={13} />}</button>
             <button onClick={() => openEditGroup(g)} title="Edit order" style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: 7, cursor: 'pointer', padding: 6, display: 'flex', color: '#666' }}><Pencil size={13} /></button>
@@ -988,22 +944,29 @@ export default function PurchaseOrders() {
         </div>
       )}
 
-      {/* Suppliers chips */}
+      {/* Suppliers chips — click to filter the list by supplier */}
       {suppliers.length > 0 && (
-        <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
           {suppliers.map(s => {
             const main = s.contact_name || s.name
+            const active = supplierFilter === s.id
             return (
-            <div key={s.id} style={{ background: '#fff', border: '1px solid #eee', borderRadius: 99, padding: '5px 14px 5px 7px', fontSize: 12, color: '#555', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button key={s.id} onClick={() => setSupplierFilter(active ? null : s.id)}
+              title={active ? 'Clear filter' : `Show only ${main}'s orders`}
+              style={{ background: active ? '#FFF3D6' : '#fff', border: `1px solid ${active ? '#FFA500' : '#eee'}`, borderRadius: 99, padding: '5px 14px 5px 7px', fontSize: 12, color: '#555', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s' }}>
               <Avatar name={main} size={22} />
-              <div>
+              <div style={{ textAlign: 'left' }}>
                 <span style={{ fontWeight: 600, color: '#0d1b2a' }}>{main}</span>
                 {s.contact_name && <span style={{ color: '#aaa', marginLeft: 5 }}>{s.name}</span>}
               </div>
               {s.phone && <span style={{ color: '#aaa' }}>· {s.phone}</span>}
-            </div>
+              {active && <X size={13} color="#FFA500" />}
+            </button>
             )
           })}
+          {supplierFilter && (
+            <button onClick={() => setSupplierFilter(null)} style={{ background: 'none', border: 'none', color: '#FFA500', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>Clear filter</button>
+          )}
         </div>
       )}
 
@@ -1047,7 +1010,7 @@ export default function PurchaseOrders() {
             )}
             {/* View switcher */}
             <div style={{ display: 'flex', gap: 2, background: '#f5f5f5', borderRadius: 9, padding: 3 }}>
-              {[{ k: 'detailed', icon: LayoutList, title: 'Detailed cards' }, { k: 'compact', icon: LayoutGrid, title: 'Mini-card grid' }, { k: 'table', icon: List, title: 'Compact table' }].map(v => {
+              {[{ k: 'detailed', icon: LayoutGrid, title: 'Card view' }, { k: 'table', icon: List, title: 'List view' }].map(v => {
                 const Icon = v.icon
                 const active = listView === v.k
                 return (
@@ -1083,10 +1046,6 @@ export default function PurchaseOrders() {
                 {displayGroups.map(g => renderTableRow(g))}
               </tbody>
             </table>
-          </div>
-        ) : listView === 'compact' ? (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 14 }}>
-            {displayGroups.map(g => renderMiniCard(g))}
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -1538,7 +1497,7 @@ export default function PurchaseOrders() {
           {(paymentsTab || q) && (
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
-                <tr>{['Date','Batch','Supplier','Amount','Method','Reference','Slip',''].map(h => (
+                <tr>{['Date','Batch','Supplier','Order total','Payment','Method','Reference','Slip',''].map(h => (
                   <th key={h} style={{ textAlign: 'left', padding: '7px 12px', fontSize: 11, color: '#bbb', borderBottom: '1px solid #f0f0f0', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.4px' }}>{h}</th>
                 ))}</tr>
               </thead>
@@ -1557,6 +1516,16 @@ export default function PurchaseOrders() {
                           : <span style={{ color: '#ddd', fontSize: 12 }}>—</span>}
                       </td>
                       <td style={{ padding: '9px 12px', fontWeight: 500 }}>{(() => { const sd = supplierDisplay(p.supplier_id, p.supplier_name); return <div><div>{sd.main}</div>{sd.sub && <div style={{fontSize:11,color:'#aaa'}}>{sd.sub}</div>}</div> })()}</td>
+                      <td style={{ padding: '9px 12px' }}>
+                        {grp ? (
+                          <div>
+                            <div style={{ fontWeight: 700, color: '#0d1b2a' }}>MVR {grp.total.toFixed(2)}</div>
+                            {(() => { const paid = paidForGroup(grp); const out = Math.max(0, grp.total - paid); return out > 0.01
+                              ? <div style={{ fontSize: 11, color: '#E24B4A' }}>MVR {out.toFixed(2)} due</div>
+                              : <div style={{ fontSize: 11, color: '#1D9E75' }}>Fully paid</div> })()}
+                          </div>
+                        ) : <span style={{ color: '#ddd', fontSize: 12 }}>—</span>}
+                      </td>
                       <td style={{ padding: '9px 12px', fontWeight: 700, color: '#1D9E75' }}>MVR {Number(p.amount).toFixed(2)}</td>
                       <td style={{ padding: '9px 12px', fontSize: 12 }}><span style={{ background: '#f5f5f5', padding: '2px 8px', borderRadius: 99, fontWeight: 500 }}>{p.payment_method}</span></td>
                       <td style={{ padding: '9px 12px', color: '#aaa', fontSize: 11 }}>{p.reference || '—'}</td>
