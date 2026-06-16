@@ -189,7 +189,10 @@ export default function App() {
           .sidebar-overlay.open { display: block; }
           .main-content { margin-left: 0 !important; }
         }
-        .page-content { animation: fadeSlideUp 0.25s ease both; }
+        /* 'backwards' (not 'both') so the entry transform is NOT retained after the
+           animation — a lingering transform creates a containing block that breaks
+           position:fixed for descendants (modals, toasts). */
+        .page-content { animation: fadeSlideUp 0.25s ease backwards; }
       `}</style>
 
       <div className={`sidebar-overlay ${sidebarOpen ? 'open' : ''}`} onClick={() => setSidebarOpen(false)} />

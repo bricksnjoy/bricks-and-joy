@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { X, AlertTriangle, CheckCircle, Info, Inbox } from 'lucide-react'
 
 // ─── Page header ──────────────────────────────────────────────────────────────
@@ -205,7 +206,11 @@ export function Modal({ title, subtitle, children, onClose, width = 640, noBackd
     document.body.style.overflow = 'hidden'
     return () => { document.body.style.overflow = prev }
   }, [])
-  return (
+  // Rendered through a portal to <body> so the fixed overlay is always positioned
+  // relative to the viewport — never trapped by an ancestor that has a CSS
+  // transform/filter (e.g. the animated .page-content wrapper), which would
+  // otherwise make `position: fixed` resolve against that ancestor instead.
+  return createPortal((
     <div style={{
       position: 'fixed', inset: 0, background: 'rgba(13,27,42,0.55)', backdropFilter: 'blur(6px)',
       display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20,
@@ -232,7 +237,7 @@ export function Modal({ title, subtitle, children, onClose, width = 640, noBackd
         <div style={{ padding: '26px 28px' }}>{children}</div>
       </div>
     </div>
-  )
+  ), document.body)
 }
 
 // ─── Toast ────────────────────────────────────────────────────────────────────
