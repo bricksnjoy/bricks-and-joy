@@ -700,9 +700,20 @@ export default function PurchaseOrders() {
   function payStatusBadgeForGroup(group) {
     const total = group.total
     const paid = paidForGroup(group)
-    if (paid <= 0) return <span style={{ fontSize: 11, fontWeight: 600, color: '#E24B4A', background: '#fef2f2', padding: '2px 8px', borderRadius: 99 }}>Unpaid</span>
-    if (paid >= total - 0.01) return <span style={{ fontSize: 11, fontWeight: 600, color: '#1D9E75', background: '#E1F5EE', padding: '2px 8px', borderRadius: 99 }}>Paid</span>
-    return <span style={{ fontSize: 11, fontWeight: 600, color: '#f57f17', background: '#FFF8E1', padding: '2px 8px', borderRadius: 99 }}>Partial</span>
+    const outstanding = Math.max(0, total - paid)
+    const base = { fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 99, border: 'none', cursor: 'pointer', fontFamily: 'inherit' }
+    if (paid <= 0) return (
+      <button onClick={() => openGroupPayModal(group)} title={`Record payment — MVR ${outstanding.toFixed(2)} due`}
+        style={{ ...base, color: '#E24B4A', background: '#fef2f2' }}>Unpaid</button>
+    )
+    if (paid >= total - 0.01) return (
+      <button onClick={() => openGroupPayModal(group)} title="View / edit payments"
+        style={{ ...base, color: '#1D9E75', background: '#E1F5EE', cursor: 'pointer' }}>Paid</button>
+    )
+    return (
+      <button onClick={() => openGroupPayModal(group)} title={`Mark paid — MVR ${outstanding.toFixed(2)} still due`}
+        style={{ ...base, color: '#f57f17', background: '#FFF8E1' }}>Partial · MVR {outstanding.toFixed(2)} due</button>
+    )
   }
 
   const totalSpend = pos.filter(p => p.status === 'received').reduce((s, p) => s + Number(p.total_cost || 0), 0)
