@@ -127,6 +127,20 @@ create table categories (
   created_at timestamptz default now()
 );
 
+-- SEASONAL CAMPAIGN PLANS (Planning tab)
+create table campaigns (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  occasion_date date not null,         -- the event date (yearly recurring by month/day)
+  emoji text,
+  lead_days int default 90,            -- start prep this many days before
+  notify_email text,
+  recurring boolean default true,
+  plan jsonb,                          -- generated plan: summary, stock-up, packages, marketing, checklist
+  last_notified_year int,              -- year the prep reminder was last emailed (avoids dupes)
+  created_at timestamptz default now()
+);
+
 -- SUPPLIER PAYMENTS
 create table supplier_payments (
   id uuid primary key default gen_random_uuid(),

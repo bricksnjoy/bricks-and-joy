@@ -14,11 +14,12 @@ import TasksCalendar from './pages/TasksCalendar'
 import Categories from './pages/Categories'
 import SupplierCatalog from './pages/SupplierCatalog'
 import EmailCenter from './pages/EmailCenter'
+import Planning from './pages/Planning'
 import {
   LayoutDashboard, ShoppingCart, Package, Users,
   DollarSign, BarChart2, Truck, ChevronDown, ChevronRight,
   LogOut, Building2, FileText, Menu, CalendarDays, Mail, Tag, BookOpen,
-  GripVertical, Check, Settings2, MoreVertical
+  GripVertical, Check, Settings2, MoreVertical, Sparkles
 } from 'lucide-react'
 
 // Catalog of every page. The sidebar layout (sections + order) is built from
@@ -29,6 +30,7 @@ const ITEMS = {
   customers:          { label: 'Customers',         icon: Users,           render: <Customers /> },
   tasks:              { label: 'Tasks & Calendar',  icon: CalendarDays,    render: <TasksCalendar /> },
   email:              { label: 'Email Center',      icon: Mail,            render: <EmailCenter /> },
+  planning:           { label: 'Planning',          icon: Sparkles,        render: <Planning /> },
   inventory:          { label: 'Inventory',         icon: Package,         render: <Inventory /> },
   categories:         { label: 'Categories',        icon: Tag,             render: <Categories /> },
   'purchase-orders':  { label: 'Purchase Orders',   icon: Truck,           render: <PurchaseOrders /> },
@@ -41,7 +43,7 @@ const ITEMS = {
 
 const DEFAULT_NAV = [
   { id: 'main',       section: null,             items: ['dashboard'] },
-  { id: 'pos',        section: 'Point of Sale',  items: ['orders', 'customers', 'tasks', 'email'] },
+  { id: 'pos',        section: 'Point of Sale',  items: ['orders', 'customers', 'tasks', 'email', 'planning'] },
   { id: 'inventory',  section: 'Inventory',      items: ['inventory', 'categories', 'purchase-orders', 'supplier-catalog'] },
   { id: 'accounting', section: 'Accounting',     items: ['profit-loss', 'costs', 'vendors', 'statistics'] },
 ]
