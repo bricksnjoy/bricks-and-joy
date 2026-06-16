@@ -394,11 +394,17 @@ export default function PurchaseOrders() {
       if (error) { toast.error('Failed to add items: ' + error.message); setSaving(false); return }
     }
 
-    // Update quantities on existing rows that changed
+    // Update quantities on existing rows (always write to avoid type-coercion mismatches)
     for (const it of existingItems) {
-      if (Number(it.qty) !== Number(it._origQty)) {
-        const qty = parseInt(it.qty) || 0
-        await supabase.from('purchase_orders').update({ qty, total_cost: qty * Number(it.unit_cost || 0) }).eq('id', it.id)
+      const qty = Math.max(1, parseInt(it.qty) || 1)
+      const unitCost = Number(it.unit_cost || 0)
+      const { error: updErr } = await supabase
+        .from('purchase_orders')
+        .update({ qty, total_cost: qty * unitCost })
+        .eq('id', it.id)
+      if (updErr) {
+        // total_cost may not exist as a column — retry without it
+        await supabase.from('purchase_orders').update({ qty }).eq('id', it.id)
       }
     }
 
