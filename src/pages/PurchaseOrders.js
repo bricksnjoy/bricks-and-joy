@@ -141,7 +141,7 @@ export default function PurchaseOrders() {
       }
       load()
     })()
-  }, [loading, pos, payments]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [loading, pos, payments])
 
   function openBatchAdd() {
     // Auto-suggest low stock items
