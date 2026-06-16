@@ -75,15 +75,24 @@ Deno.serve(async () => {
   for (const camp of campaigns ?? []) {
     if (!camp.occasion_date || !camp.notify_email) continue
     const occ = nextOccurrence(camp.occasion_date, today)
+    const year = occ.getFullYear()
     const daysUntil = daysBetween(today, occ)
-    const prepOpen = daysUntil <= (camp.lead_days ?? 90)
-    if (prepOpen && camp.last_notified_year !== occ.getFullYear()) {
+    const changes: Record<string, number> = {}
+    // 1st reminder: prep window opens (~lead days, e.g. 90 days out)
+    if (daysUntil <= (camp.lead_days ?? 90) && camp.last_notified_year !== year) {
       try {
         await sendEmail(camp.notify_email, `⏰ Time to prep for ${camp.name}!`, body(camp, occ, daysUntil))
-        await supabase.from('campaigns').update({ last_notified_year: occ.getFullYear() }).eq('id', camp.id)
-        sent++
+        changes.last_notified_year = year; sent++
       } catch (_) { /* keep going */ }
     }
+    // 2nd reminder: final push at 30 days out
+    if (daysUntil <= 30 && camp.notified_30_year !== year) {
+      try {
+        await sendEmail(camp.notify_email, `🔔 ${camp.name} is ${daysUntil} days away — final push!`, body(camp, occ, daysUntil))
+        changes.notified_30_year = year; sent++
+      } catch (_) { /* keep going */ }
+    }
+    if (Object.keys(changes).length) await supabase.from('campaigns').update(changes).eq('id', camp.id)
   }
   return new Response(JSON.stringify({ ok: true, sent }), { headers: { 'Content-Type': 'application/json' } })
 })

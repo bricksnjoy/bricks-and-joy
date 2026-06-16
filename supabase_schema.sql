@@ -137,9 +137,11 @@ create table campaigns (
   notify_email text,
   recurring boolean default true,
   plan jsonb,                          -- generated plan: summary, stock-up, packages, marketing, checklist
-  last_notified_year int,              -- year the prep reminder was last emailed (avoids dupes)
+  last_notified_year int,              -- year the 90-day prep reminder was last emailed (avoids dupes)
+  notified_30_year int,                -- year the 30-day final-push reminder was last emailed
   created_at timestamptz default now()
 );
+-- For existing databases: alter table campaigns add column if not exists notified_30_year int;
 
 -- SUPPLIER PAYMENTS
 create table supplier_payments (

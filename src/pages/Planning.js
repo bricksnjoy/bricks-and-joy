@@ -105,15 +105,28 @@ export default function Planning() {
     notifiedRef.current = true
     ;(async () => {
       for (const c of campaigns) {
+        if (!c.notify_email) continue
         const st = campaignStatus(c.occasion_date, c.lead_days || 90)
         const year = st.occ?.getFullYear()
-        if (st.key === 'prep' && c.notify_email && c.last_notified_year !== year) {
+        if (!year || st.daysUntil == null) continue
+        const changes = {}
+        // 1st reminder: prep window opens (~lead days, e.g. 90 days out)
+        if (st.daysUntil <= (c.lead_days || 90) && c.last_notified_year !== year) {
           try {
             await sendEmailJS(c.notify_email, `⏰ Time to prep for ${c.name}!`, buildEmailBody(c, st, c.plan))
-            await patch(c, { last_notified_year: year })
+            changes.last_notified_year = year
             toast.info(`Prep reminder emailed for ${c.name}`)
-          } catch { /* email is best-effort on the client */ }
+          } catch { /* best effort */ }
         }
+        // 2nd reminder: final push at 30 days out
+        if (st.daysUntil <= 30 && c.notified_30_year !== year) {
+          try {
+            await sendEmailJS(c.notify_email, `🔔 ${c.name} is ${st.daysUntil} days away — final push!`, buildEmailBody(c, st, c.plan))
+            changes.notified_30_year = year
+            toast.info(`30-day reminder emailed for ${c.name}`)
+          } catch { /* best effort */ }
+        }
+        if (Object.keys(changes).length) await patch(c, changes)
       }
     })()
   }, [loading])
