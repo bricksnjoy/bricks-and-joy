@@ -109,15 +109,18 @@ export default function Vendors() {
   const totalPendingAll = vendors.reduce((s, v) => s + getVendorStats(v.id).pendingOrders, 0)
 
   const columns = [
-    { key: 'name', label: 'Vendor', render: r => (
+    { key: 'name', label: 'Vendor', render: r => {
+      const main = r.contact_name || r.name
+      const sub = r.contact_name ? r.name : (r.email || '')
+      return (
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <Avatar name={r.name} />
+        <Avatar name={main} />
         <div>
-          <div style={{ fontWeight: 600, color: '#0d1b2a' }}>{r.name}</div>
-          <div style={{ fontSize: 11, color: '#aaa' }}>{r.contact_name || r.email || '—'}</div>
+          <div style={{ fontWeight: 600, color: '#0d1b2a' }}>{main}</div>
+          <div style={{ fontSize: 11, color: '#aaa' }}>{sub || '—'}</div>
         </div>
       </div>
-    )},
+    )}},
     { key: 'payment_terms', label: 'Terms', render: r => <Badge color="blue">{r.payment_terms || '—'}</Badge> },
     { key: 'products', label: 'Products', render: r => { const s = getVendorStats(r.id); return <strong>{s.productCount}</strong> }},
     { key: 'orders', label: 'POs', render: r => { const s = getVendorStats(r.id); return <span>{s.totalOrders}</span> }},
@@ -169,7 +172,7 @@ export default function Vendors() {
 
       {/* Vendor detail view */}
       {viewModal && viewStats && (
-        <Modal title={viewModal.name} subtitle={viewModal.contact_name || viewModal.email || 'Vendor details'} onClose={() => setViewModal(null)} width={700}>
+        <Modal title={viewModal.contact_name || viewModal.name} subtitle={viewModal.contact_name ? viewModal.name : (viewModal.email || 'Vendor details')} onClose={() => setViewModal(null)} width={700}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 20 }}>
             {[
               { label: 'Products supplied', value: viewStats.productCount, color: '#0d1b2a' },

@@ -297,8 +297,8 @@ export default function PurchaseOrders() {
     const anchor = group.rows.find(r => r.cost_type !== 'extra') || group.rows[0]
     const paid = paidForGroup(group)
     const outstanding = Math.max(0, group.total - paid)
-    setPayForm({ amount: outstanding.toFixed(2), payment_date: new Date().toISOString().split('T')[0], payment_method: 'Bank Transfer', reference: '', notes: '' })
-    setPayModal({ ...anchor, total_cost: group.total, _groupTotal: group.total, _groupPaid: paid })
+    setPayForm({ amount: outstanding > 0 ? outstanding.toFixed(2) : '', payment_date: new Date().toISOString().split('T')[0], payment_method: 'Bank Transfer', reference: '', notes: '' })
+    setPayModal({ ...anchor, total_cost: group.total, _groupTotal: group.total, _groupPaid: paid, _groupIds: group.rows.map(r => r.id) })
   }
 
   async function markAllReceived() {
@@ -336,9 +336,22 @@ export default function PurchaseOrders() {
       notes: payForm.notes || null,
     })
     if (error) { toast.error('Failed to record payment'); return }
-    toast.success(`Payment of MVR ${parseFloat(payForm.amount).toFixed(2)} recorded`)
-    setPayModal(null)
-    load()
+    const recorded = parseFloat(payForm.amount)
+    toast.success(`Payment of MVR ${recorded.toFixed(2)} recorded`)
+    // Reload data then update the modal's paid/outstanding values so user can add another
+    const [p, pay] = await Promise.all([
+      supabase.from('purchase_orders').select('*').order('created_at', { ascending: false }),
+      supabase.from('supplier_payments').select('*').order('payment_date', { ascending: false }),
+    ])
+    const freshPOs = p.data || []
+    const freshPay = pay.data || []
+    setPOs(freshPOs)
+    setPayments(freshPay)
+    // Recalculate paid for this group
+    const newGroupPaid = freshPay.filter(x => payModal._groupIds?.includes(x.purchase_order_id) || x.purchase_order_id === payModal.id).reduce((s, x) => s + Number(x.amount), 0)
+    const newOutstanding = Math.max(0, payModal._groupTotal - newGroupPaid)
+    setPayModal(prev => ({ ...prev, _groupPaid: newGroupPaid }))
+    setPayForm({ amount: newOutstanding > 0 ? newOutstanding.toFixed(2) : '', payment_date: new Date().toISOString().split('T')[0], payment_method: payForm.payment_method, reference: '', notes: '' })
   }
 
   const [editGroupModal, setEditGroupModal] = useState(null) // group being edited
@@ -873,8 +886,10 @@ export default function PurchaseOrders() {
       {payModal && (() => {
         const modalTotal = payModal._groupTotal || Number(payModal.total_cost || 0)
         const modalPaid = payModal._groupPaid ?? payments.filter(p => p.purchase_order_id === payModal.id).reduce((s, p) => s + Number(p.amount), 0)
+        const groupPayments = payments.filter(p => payModal._groupIds?.includes(p.purchase_order_id) || p.purchase_order_id === payModal.id)
+        const sd = supplierDisplay(payModal.supplier_id, payModal.supplier_name)
         return (
-        <Modal title="Record Payment" subtitle={`${payModal.supplier_name || 'Supplier'} — MVR ${modalTotal.toFixed(2)} total`} onClose={() => setPayModal(null)} width={480}>
+        <Modal title="Record Payment" subtitle={`${sd.main}${sd.sub ? ` · ${sd.sub}` : ''} — MVR ${modalTotal.toFixed(2)} total`} onClose={() => setPayModal(null)} width={500}>
           <div style={{ background: '#f8f7f4', borderRadius: 10, padding: '12px 16px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
               <div style={{ fontSize: 11, color: '#bbb', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 2 }}>Outstanding Balance</div>
@@ -885,6 +900,29 @@ export default function PurchaseOrders() {
               <div style={{ fontSize: 16, fontWeight: 700, color: '#1D9E75' }}>MVR {modalPaid.toFixed(2)}</div>
             </div>
           </div>
+
+          {/* Past invoices / payments for this batch */}
+          {groupPayments.length > 0 && (
+            <div style={{ marginBottom: 18 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#bbb', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>Previous payments ({groupPayments.length})</div>
+              <div style={{ border: '1px solid #eee', borderRadius: 10, overflow: 'hidden' }}>
+                {groupPayments.map((p, i) => (
+                  <div key={p.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 14px', borderBottom: i < groupPayments.length - 1 ? '1px solid #f5f5f5' : 'none', fontSize: 12 }}>
+                    <div>
+                      <div style={{ fontWeight: 600, color: '#0d1b2a' }}>MVR {Number(p.amount).toFixed(2)}</div>
+                      <div style={{ fontSize: 11, color: '#aaa' }}>{p.payment_date} · {p.payment_method}{p.reference ? ` · ${p.reference}` : ''}</div>
+                    </div>
+                    <button onClick={async () => { if (window.confirm('Delete this payment?')) { await supabase.from('supplier_payments').delete().eq('id', p.id); load(); setPayModal(null) } }}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#E24B4A', padding: 4 }}>
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#bbb', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>Add payment</div>
           <FormRow>
             <Input label="Amount (MVR) *" type="number" min="0" step="0.01" value={payForm.amount} onChange={e => setPayForm(p => ({ ...p, amount: e.target.value }))} />
             <Input label="Payment date" type="date" value={payForm.payment_date} onChange={e => setPayForm(p => ({ ...p, payment_date: e.target.value }))} />
@@ -894,7 +932,7 @@ export default function PurchaseOrders() {
           <Input label="Reference / Transaction ID" value={payForm.reference} onChange={e => setPayForm(p => ({ ...p, reference: e.target.value }))} placeholder="TXN-12345 (optional)" style={{ marginBottom: 14 }} />
           <Input label="Notes" value={payForm.notes} onChange={e => setPayForm(p => ({ ...p, notes: e.target.value }))} placeholder="Optional notes" style={{ marginBottom: 20 }} />
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-            <Button variant="ghost" onClick={() => setPayModal(null)}>Cancel</Button>
+            <Button variant="ghost" onClick={() => setPayModal(null)}>Done</Button>
             <Button onClick={recordPayment}><CreditCard size={13} /> Record Payment</Button>
           </div>
         </Modal>
@@ -929,7 +967,7 @@ export default function PurchaseOrders() {
                   return (
                     <tr key={p.id} style={{ borderBottom: '1px solid #f5f5f5' }}>
                       <td style={{ padding: '9px 12px', color: '#888', fontSize: 12 }}>{p.payment_date}</td>
-                      <td style={{ padding: '9px 12px', fontWeight: 500 }}>{p.supplier_name || '—'}</td>
+                      <td style={{ padding: '9px 12px', fontWeight: 500 }}>{(() => { const sd = supplierDisplay(p.supplier_id, p.supplier_name); return <div><div>{sd.main}</div>{sd.sub && <div style={{fontSize:11,color:'#aaa'}}>{sd.sub}</div>}</div> })()}</td>
                       <td style={{ padding: '9px 12px', color: '#666', fontSize: 12 }}>{po?.product_name || '—'}</td>
                       <td style={{ padding: '9px 12px', fontWeight: 700, color: '#1D9E75' }}>MVR {Number(p.amount).toFixed(2)}</td>
                       <td style={{ padding: '9px 12px', fontSize: 12 }}><span style={{ background: '#f5f5f5', padding: '2px 8px', borderRadius: 99, fontWeight: 500 }}>{p.payment_method}</span></td>

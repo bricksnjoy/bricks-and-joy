@@ -11,6 +11,7 @@ export default function Accounting() {
   const [expenses, setExpenses] = useState([])
   const [purchaseOrders, setPurchaseOrders] = useState([])
   const [customers, setCustomers] = useState([])
+  const [suppliers, setSuppliers] = useState([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('income')
   const [gstSettings, setGstSettings] = useState(() => {
@@ -24,22 +25,25 @@ export default function Accounting() {
 
   async function load() {
     setLoading(true)
-    const [o, p, e, po, c] = await Promise.all([
+    const [o, p, e, po, c, s] = await Promise.all([
       supabase.from('orders').select('*').order('order_date'),
       supabase.from('products').select('id, name, cost_price, stock_qty'),
       supabase.from('expenses').select('*').order('expense_date', { ascending: false }),
       supabase.from('purchase_orders').select('*'),
       supabase.from('customers').select('*'),
+      supabase.from('suppliers').select('id, name, contact_name'),
     ])
     setOrders(o.data || [])
     setProducts(p.data || [])
     setExpenses(e.data || [])
     setPurchaseOrders(po.data || [])
     setCustomers(c.data || [])
+    setSuppliers(s.data || [])
     setLoading(false)
   }
 
   const fmt = v => currency === 'MVR' ? `MVR ${Number(v).toFixed(2)}` : `USD ${(Number(v) / MVR_RATE).toFixed(2)}`
+  const supName = po => { const s = suppliers.find(x => x.id === po.supplier_id); return s?.contact_name || s?.name || po.supplier_name || 'Supplier' }
 
   const allMonths = [...new Set([
     ...orders.map(o => o.order_date?.slice(0, 7)),
@@ -114,8 +118,8 @@ export default function Accounting() {
     journal.push({
       date: po.order_date, ref: `PO-${po.id?.slice(0, 6)}`,
       desc: isCost
-        ? `Import cost: ${po.product_name} (${po.supplier_name || 'Supplier'})`
-        : `Purchase: ${po.product_name} ×${po.qty} from ${po.supplier_name || 'Supplier'}`,
+        ? `Import cost: ${po.product_name} (${supName(po)})`
+        : `Purchase: ${po.product_name} ×${po.qty} from ${supName(po)}`,
       entries: [
         { account: isCost ? 'Import & Handling Costs' : 'Inventory', debit: amt, credit: 0 },
         { account: 'Cash / Accounts Payable', debit: 0, credit: amt },
@@ -688,8 +692,8 @@ export default function Accounting() {
           ...purchaseOrders.filter(po => inPeriod(po.order_date)).map(po => ({
             date: po.order_date, type: po.cost_type === 'extra' ? 'cost' : 'purchase', ref: `PO-${po.id?.slice(0,6)}`,
             description: po.cost_type === 'extra'
-              ? `Import cost: ${po.product_name} — ${po.supplier_name || 'Supplier'}`
-              : `Purchase: ${po.product_name} ×${po.qty} from ${po.supplier_name || 'Supplier'}`,
+              ? `Import cost: ${po.product_name} — ${supName(po)}`
+              : `Purchase: ${po.product_name} ×${po.qty} from ${supName(po)}`,
             amount: Number(po.total_cost || 0), direction: 'out', status: po.status, payment: po.status === 'received' ? 'paid' : 'pending'
           })),
         ].sort((a,b) => new Date(b.date) - new Date(a.date))
