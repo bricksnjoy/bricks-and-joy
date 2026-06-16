@@ -137,11 +137,14 @@ create table supplier_payments (
   reference text,
   notes text,
   slips jsonb,
+  batch_no text,
   created_at timestamptz default now()
 );
 
--- For existing databases, add the payslips column:
+-- For existing databases, add the new columns:
 -- alter table supplier_payments add column if not exists slips jsonb;
+-- alter table supplier_payments add column if not exists batch_no text;
+-- alter table purchase_orders add column if not exists batch_no text;
 
 -- USER PROFILES (extends Supabase auth)
 create table profiles (

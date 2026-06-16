@@ -43,6 +43,8 @@ export default function PurchaseOrders() {
   const [viewSlips, setViewSlips] = useState(null) // { slips: [...], title } for fullscreen viewer
   const [viewTab, setViewTab] = useState('ongoing') // 'ongoing' | 'history'
   const [listView, setListView] = useState(() => localStorage.getItem('po_list_view') || 'detailed') // 'detailed' | 'compact' | 'table'
+  const [search, setSearch] = useState('')
+  const [productsModal, setProductsModal] = useState(null) // group whose products are shown in full
   const [editPayModal, setEditPayModal] = useState(null) // payment being edited
   const [editPayForm, setEditPayForm] = useState({ amount: '', payment_date: '', payment_method: 'Bank Transfer', reference: '', notes: '', slips: [], newCosts: [] })
   const [batchForm, setBatchForm] = useState({ supplier_id: '', supplier_name: '', order_date: new Date().toISOString().split('T')[0], expected_date: '', items: [], extraCosts: [] })
@@ -72,6 +74,33 @@ export default function PurchaseOrders() {
     setPayments(pay.data || [])
     setSupplierCatalog(sp.data || [])
     setLoading(false)
+  }
+
+  // Insert rows, automatically stripping columns the table doesn't have yet
+  // (e.g. batch_no / slips before the migration is run) and retrying.
+  async function insertStrip(table, rows) {
+    let payload = Array.isArray(rows) ? rows.map(r => ({ ...r })) : { ...rows }
+    let res = await supabase.from(table).insert(payload)
+    while (res.error && /column .* does not exist|could not find/i.test(res.error.message || '')) {
+      const col = (res.error.message.match(/column "?([a-z_]+)"?/i) || [])[1]
+      if (!col) break
+      const arr = Array.isArray(payload) ? payload : [payload]
+      let removed = false
+      arr.forEach(p => { if (col in p) { delete p[col]; removed = true } })
+      if (!removed) break
+      res = await supabase.from(table).insert(payload)
+    }
+    return res
+  }
+
+  // Next human-readable batch number, e.g. PO-1001 (one per batch)
+  function nextBatchNo() {
+    let max = 1000
+    pos.forEach(p => {
+      const m = /(\d+)/.exec(p.batch_no || '')
+      if (m) max = Math.max(max, parseInt(m[1], 10))
+    })
+    return `PO-${max + 1}`
   }
 
   function openBatchAdd() {
@@ -147,6 +176,7 @@ export default function PurchaseOrders() {
     setSaving(true)
 
     const batchId = (window.crypto?.randomUUID?.() || `b${Date.now()}${Math.random().toString(36).slice(2, 8)}`)
+    const batchNo = nextBatchNo()
 
     const records = validItems.map(item => ({
       supplier_id: batchForm.supplier_id || null,
@@ -160,6 +190,7 @@ export default function PurchaseOrders() {
       expected_date: batchForm.expected_date || null,
       image_url: item.image_url || null,
       batch_id: batchId,
+      batch_no: batchNo,
     }))
 
     // Extra costs become their own line items (freight, fees, etc.)
@@ -177,9 +208,10 @@ export default function PurchaseOrders() {
         expected_date: batchForm.expected_date || null,
         cost_type: 'extra',
         batch_id: batchId,
+        batch_no: batchNo,
       }))
 
-    const { error } = await supabase.from('purchase_orders').insert([...records, ...costRecords])
+    const { error } = await insertStrip('purchase_orders', [...records, ...costRecords])
     setSaving(false)
     if (error) { toast.error('Failed to save'); return }
     toast.success(`Batch order created! ${validItems.length} item${validItems.length > 1 ? 's' : ''}${costRecords.length ? ` + ${costRecords.length} cost${costRecords.length > 1 ? 's' : ''}` : ''}`)
@@ -346,7 +378,7 @@ export default function PurchaseOrders() {
 
   async function recordPayment() {
     if (!payForm.amount || Number(payForm.amount) <= 0) { toast.error('Enter a valid amount'); return }
-    const base = {
+    const row = {
       purchase_order_id: payModal.id,
       supplier_id: payModal.supplier_id || null,
       supplier_name: payModal.supplier_name || '',
@@ -355,15 +387,12 @@ export default function PurchaseOrders() {
       payment_method: payForm.payment_method,
       reference: payForm.reference || null,
       notes: payForm.notes || null,
+      batch_no: payModal.batch_no || null,
+      ...(payForm.slips && payForm.slips.length ? { slips: payForm.slips } : {}),
     }
-    const row = (payForm.slips && payForm.slips.length) ? { ...base, slips: payForm.slips } : base
-    let { error } = await supabase.from('supplier_payments').insert(row)
-    // The slips column may not exist yet — retry without it so the payment still saves
-    if (error && /column .* does not exist|could not find/i.test(error.message || '') && row.slips) {
-      ({ error } = await supabase.from('supplier_payments').insert(base))
-      if (!error && payForm.slips.length) toast.error('Payment saved, but payslips need the "slips" column (run the migration)')
-    }
-    if (error) { toast.error('Failed to record payment'); return }
+    // insertStrip drops any columns the table doesn't have yet (slips / batch_no)
+    const { error } = await insertStrip('supplier_payments', row)
+    if (error) { toast.error('Failed to record payment: ' + error.message); return }
     const recorded = parseFloat(payForm.amount)
     toast.success(`Payment of MVR ${recorded.toFixed(2)} recorded`)
     // Reload data then update the modal's paid/outstanding values so user can add another
@@ -433,8 +462,9 @@ export default function PurchaseOrders() {
         expected_date: po?.expected_date || null,
         cost_type: 'extra',
         batch_id: batchId,
+        batch_no: po?.batch_no || editPayModal.batch_no || null,
       }))
-      await supabase.from('purchase_orders').insert(costRecords)
+      await insertStrip('purchase_orders', costRecords)
     }
 
     // Update the payment record itself
@@ -488,6 +518,7 @@ export default function PurchaseOrders() {
     setEditGroupModal({
       group,
       batchId: anchor.batch_id || anchor.id,
+      batchNo: anchor.batch_no || null,
       supplier_id: anchor.supplier_id || '',
       supplier_name: anchor.supplier_name || '',
       order_date: anchor.order_date || new Date().toISOString().split('T')[0],
@@ -507,7 +538,7 @@ export default function PurchaseOrders() {
   async function saveEditGroup() {
     if (!editGroupModal) return
     setSaving(true)
-    const { batchId, supplier_id, supplier_name, order_date, expected_date, newItems, existingItems, removedIds } = editGroupModal
+    const { batchId, batchNo, supplier_id, supplier_name, order_date, expected_date, newItems, existingItems, removedIds } = editGroupModal
 
     // Insert new product rows
     const newRecords = newItems.filter(i => i.product_id && i.qty > 0).map(item => ({
@@ -522,9 +553,10 @@ export default function PurchaseOrders() {
       expected_date: expected_date || null,
       image_url: item.image_url || null,
       batch_id: batchId,
+      batch_no: batchNo,
     }))
     if (newRecords.length > 0) {
-      const { error } = await supabase.from('purchase_orders').insert(newRecords)
+      const { error } = await insertStrip('purchase_orders', newRecords)
       if (error) { toast.error('Failed to add items: ' + error.message); setSaving(false); return }
     }
 
@@ -559,7 +591,7 @@ export default function PurchaseOrders() {
           await supabase.from('purchase_orders').delete().eq('id', c._id)
         }
       } else if (amount > 0) {
-        await supabase.from('purchase_orders').insert({
+        await insertStrip('purchase_orders', {
           supplier_id: supplier_id || null,
           supplier_name,
           product_id: null,
@@ -571,6 +603,7 @@ export default function PurchaseOrders() {
           expected_date: expected_date || null,
           cost_type: 'extra',
           batch_id: batchId,
+          batch_no: batchNo,
         })
       }
     }
@@ -640,9 +673,25 @@ export default function PurchaseOrders() {
   })()
 
   // Ongoing = still being processed; History = received or cancelled
-  const ongoingGroups = poGroups.filter(g => g.anchor.status === 'pending' || g.anchor.status === 'ordered')
-  const historyGroups = poGroups.filter(g => g.anchor.status === 'received' || g.anchor.status === 'cancelled')
+  // Search by batch number, supplier, or product name
+  const q = search.trim().toLowerCase()
+  function matchesSearch(g) {
+    if (!q) return true
+    const sd = supplierDisplay(g.anchor.supplier_id, g.anchor.supplier_name)
+    if ((g.anchor.batch_no || '').toLowerCase().includes(q)) return true
+    if (`${sd.main} ${sd.sub}`.toLowerCase().includes(q)) return true
+    return g.rows.some(r => (r.product_name || '').toLowerCase().includes(q))
+  }
+  const ongoingGroups = poGroups.filter(g => (g.anchor.status === 'pending' || g.anchor.status === 'ordered') && matchesSearch(g))
+  const historyGroups = poGroups.filter(g => (g.anchor.status === 'received' || g.anchor.status === 'cancelled') && matchesSearch(g))
   const displayGroups = viewTab === 'history' ? historyGroups : ongoingGroups
+
+  // Payments filtered by the same search (batch no / supplier)
+  const filteredPayments = payments.filter(p => {
+    if (!q) return true
+    const sd = supplierDisplay(p.supplier_id, p.supplier_name)
+    return (p.batch_no || '').toLowerCase().includes(q) || `${sd.main} ${sd.sub}`.toLowerCase().includes(q) || (p.reference || '').toLowerCase().includes(q)
+  })
 
   // Render a single batch order as a clean card
   function renderBatchCard(g) {
@@ -668,7 +717,10 @@ export default function PurchaseOrders() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 16px', borderBottom: '1px solid #f5f5f5' }}>
           <Avatar name={sd.main} size={36} />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 700, color: '#0d1b2a', fontSize: 14 }}>{sd.main || '—'}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ fontWeight: 700, color: '#0d1b2a', fontSize: 14 }}>{sd.main || '—'}</div>
+              {anchor.batch_no && <span style={{ fontSize: 10.5, fontWeight: 700, color: '#7F77DD', background: '#7F77DD18', padding: '2px 8px', borderRadius: 99 }}>{anchor.batch_no}</span>}
+            </div>
             <div style={{ fontSize: 11, color: '#aaa', fontWeight: 500 }}>
               {sd.sub ? `${sd.sub} · ` : ''}Ordered {anchor.order_date}{anchor.expected_date ? ` · Expected ${anchor.expected_date}` : ''}
             </div>
@@ -709,6 +761,9 @@ export default function PurchaseOrders() {
               ))}
             </div>
           )}
+          <button onClick={() => setProductsModal(g)} style={{ marginTop: 12, background: 'none', border: 'none', cursor: 'pointer', color: '#FFA500', fontSize: 12, fontWeight: 700, fontFamily: 'inherit', padding: 0, display: 'flex', alignItems: 'center', gap: 4 }}>
+            <Eye size={13} /> View all {productRows.length} product{productRows.length === 1 ? '' : 's'}
+          </button>
         </div>
 
         {/* Action bar */}
@@ -758,17 +813,17 @@ export default function PurchaseOrders() {
           <Avatar name={sd.main} size={30} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontWeight: 700, color: '#0d1b2a', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sd.main || '—'}</div>
-            <div style={{ fontSize: 10.5, color: '#aaa' }}>{anchor.order_date}</div>
+            <div style={{ fontSize: 10.5, color: '#aaa' }}>{anchor.batch_no ? `${anchor.batch_no} · ` : ''}{anchor.order_date}</div>
           </div>
           <span style={{ fontSize: 10.5, fontWeight: 700, color: sc.fg, background: sc.bg, padding: '3px 9px', borderRadius: 99 }}>{anchor.status}</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <div onClick={() => setProductsModal(g)} title="View all products" style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
           {thumbs.map(r => (
             <img key={r.id} src={r.image_url} alt="" title={r.product_name} style={{ width: 34, height: 34, objectFit: 'contain', borderRadius: 7, border: '1px solid #f0f0f0', background: '#fff' }} onError={e => e.target.style.display = 'none'} />
           ))}
-          {productRows.length > thumbs.length && (
-            <span style={{ fontSize: 11, color: '#aaa', fontWeight: 600 }}>+{productRows.length - thumbs.length}</span>
-          )}
+          {productRows.length > thumbs.length
+            ? <span style={{ fontSize: 11, color: '#FFA500', fontWeight: 700 }}>+{productRows.length - thumbs.length} more</span>
+            : <span style={{ fontSize: 11, color: '#FFA500', fontWeight: 700 }}>View all</span>}
         </div>
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
           <div style={{ fontSize: 15, fontWeight: 800, color: '#0d1b2a' }}>MVR {g.total.toFixed(2)}</div>
@@ -804,15 +859,19 @@ export default function PurchaseOrders() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
             <Avatar name={sd.main} size={28} />
             <div>
-              <div style={{ fontWeight: 600, color: '#0d1b2a', fontSize: 13 }}>{sd.main || '—'}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontWeight: 600, color: '#0d1b2a', fontSize: 13 }}>{sd.main || '—'}</span>
+                {anchor.batch_no && <span style={{ fontSize: 10, fontWeight: 700, color: '#7F77DD', background: '#7F77DD18', padding: '1px 6px', borderRadius: 99 }}>{anchor.batch_no}</span>}
+              </div>
               <div style={{ fontSize: 11, color: '#aaa' }}>{anchor.order_date}</div>
             </div>
           </div>
         </td>
-        <td style={{ padding: '10px 12px', verticalAlign: 'middle', color: '#666', fontSize: 12, maxWidth: 240 }}>
+        <td onClick={() => setProductsModal(g)} title="View all products" style={{ padding: '10px 12px', verticalAlign: 'middle', color: '#666', fontSize: 12, maxWidth: 240, cursor: 'pointer' }}>
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>
             {productRows.map(r => `${r.product_name} ×${r.qty}`).join(', ')}{feeRows.length ? ` · +${feeRows.length} cost${feeRows.length > 1 ? 's' : ''}` : ''}
           </span>
+          <span style={{ fontSize: 10.5, color: '#FFA500', fontWeight: 700 }}>View all {productRows.length} →</span>
         </td>
         <td style={{ padding: '10px 12px', verticalAlign: 'middle', fontWeight: 700 }}>{totalQty}</td>
         <td style={{ padding: '10px 12px', verticalAlign: 'middle', fontWeight: 700, color: '#0d1b2a' }}>MVR {g.total.toFixed(2)}</td>
@@ -887,6 +946,20 @@ export default function PurchaseOrders() {
       )}
 
       <Card>
+        {/* Search */}
+        <div style={{ marginBottom: 14, position: 'relative', maxWidth: 360 }}>
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search batch no, supplier or product…"
+            style={{ width: '100%', padding: '9px 30px 9px 13px', border: '1px solid #e6e6e6', borderRadius: 10, fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box', background: '#fafafa' }}
+          />
+          {search && (
+            <button onClick={() => setSearch('')} title="Clear" style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#bbb', display: 'flex', padding: 2 }}>
+              <X size={15} />
+            </button>
+          )}
+        </div>
         {/* Tabs: Ongoing | History */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 18, borderBottom: '1px solid #f0f0f0' }}>
           {[{ k: 'ongoing', label: 'Ongoing', count: ongoingGroups.length }, { k: 'history', label: 'History', count: historyGroups.length }].map(t => {
@@ -1393,26 +1466,28 @@ export default function PurchaseOrders() {
               <div style={{ background: '#E1F5EE', borderRadius: 8, padding: 7 }}><Wallet size={14} color="#1D9E75" /></div>
               <div>
                 <div style={{ fontSize: 14, fontWeight: 700, color: '#0d1b2a' }}>Payment History</div>
-                <div style={{ fontSize: 11, color: '#bbb' }}>Total paid: MVR {payments.reduce((s, p) => s + Number(p.amount), 0).toFixed(2)}</div>
+                <div style={{ fontSize: 11, color: '#bbb' }}>{q ? `Showing ${filteredPayments.length} of ${payments.length}` : `Total paid: MVR ${payments.reduce((s, p) => s + Number(p.amount), 0).toFixed(2)}`}</div>
               </div>
             </div>
             <button onClick={() => setPaymentsTab(p => !p)} style={{ fontSize: 12, color: '#FFA500', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600 }}>
-              {paymentsTab ? 'Hide' : `Show all (${payments.length})`}
+              {(paymentsTab || q) ? 'Hide' : `Show all (${payments.length})`}
             </button>
           </div>
-          {paymentsTab && (
+          {(paymentsTab || q) && (
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
-                <tr>{['Date','Supplier','PO Product','Amount','Method','Reference','Slip',''].map(h => (
+                <tr>{['Date','Batch','Supplier','PO Product','Amount','Method','Reference','Slip',''].map(h => (
                   <th key={h} style={{ textAlign: 'left', padding: '7px 12px', fontSize: 11, color: '#bbb', borderBottom: '1px solid #f0f0f0', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.4px' }}>{h}</th>
                 ))}</tr>
               </thead>
               <tbody>
-                {payments.map((p, i) => {
+                {filteredPayments.map((p, i) => {
                   const po = pos.find(o => o.id === p.purchase_order_id)
+                  const batchNo = p.batch_no || po?.batch_no
                   return (
                     <tr key={p.id} style={{ borderBottom: '1px solid #f5f5f5' }}>
                       <td style={{ padding: '9px 12px', color: '#888', fontSize: 12 }}>{p.payment_date}</td>
+                      <td style={{ padding: '9px 12px' }}>{batchNo ? <span style={{ fontSize: 11, fontWeight: 700, color: '#7F77DD', background: '#7F77DD18', padding: '2px 8px', borderRadius: 99 }}>{batchNo}</span> : <span style={{ color: '#ddd', fontSize: 12 }}>—</span>}</td>
                       <td style={{ padding: '9px 12px', fontWeight: 500 }}>{(() => { const sd = supplierDisplay(p.supplier_id, p.supplier_name); return <div><div>{sd.main}</div>{sd.sub && <div style={{fontSize:11,color:'#aaa'}}>{sd.sub}</div>}</div> })()}</td>
                       <td style={{ padding: '9px 12px', color: '#666', fontSize: 12 }}>{po?.product_name || '—'}</td>
                       <td style={{ padding: '9px 12px', fontWeight: 700, color: '#1D9E75' }}>MVR {Number(p.amount).toFixed(2)}</td>
@@ -1706,6 +1781,63 @@ export default function PurchaseOrders() {
           </div>
         </Modal>
       )}
+
+      {/* All products in a batch */}
+      {productsModal && (() => {
+        const g = productsModal
+        const productRows = g.rows.filter(r => r.cost_type !== 'extra')
+        const feeRows = g.rows.filter(r => r.cost_type === 'extra')
+        const sd = supplierDisplay(g.anchor.supplier_id, g.anchor.supplier_name)
+        return (
+          <Modal title={`${g.anchor.batch_no || 'Batch order'}`} subtitle={`${sd.main}${sd.sub ? ` · ${sd.sub}` : ''} — ${productRows.length} product${productRows.length === 1 ? '' : 's'} · MVR ${g.total.toFixed(2)}`} onClose={() => setProductsModal(null)} width={620}>
+            <div style={{ border: '1px solid #eee', borderRadius: 10, overflow: 'hidden' }}>
+              <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ background: '#fafafa' }}>
+                    <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, color: '#999', fontSize: 11, textTransform: 'uppercase' }}>Product</th>
+                    <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, color: '#999', fontSize: 11, textTransform: 'uppercase' }}>Qty</th>
+                    <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, color: '#999', fontSize: 11, textTransform: 'uppercase' }}>Unit</th>
+                    <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, color: '#999', fontSize: 11, textTransform: 'uppercase' }}>Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {productRows.map(r => (
+                    <tr key={r.id} style={{ borderTop: '1px solid #f5f5f5' }}>
+                      <td style={{ padding: '8px 12px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                          {r.image_url
+                            ? <img src={r.image_url} alt="" style={{ width: 34, height: 34, objectFit: 'contain', borderRadius: 6, border: '1px solid #f0f0f0', background: '#fff', flexShrink: 0 }} onError={e => e.target.style.display = 'none'} />
+                            : <div style={{ width: 34, height: 34, borderRadius: 6, background: '#f0f0f0', flexShrink: 0 }} />}
+                          <span style={{ fontWeight: 500, color: '#0d1b2a' }}>{r.product_name}</span>
+                        </div>
+                      </td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700 }}>{r.qty}</td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', color: '#888' }}>MVR {Number(r.unit_cost).toFixed(2)}</td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600 }}>MVR {Number(r.total_cost || r.qty * r.unit_cost).toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {feeRows.length > 0 && (
+              <div style={{ marginTop: 14 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#bbb', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>Additional costs</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {feeRows.map(f => (
+                    <span key={f.id} style={{ fontSize: 12, fontWeight: 600, color: '#b8740a', background: '#FFF3D6', padding: '4px 10px', borderRadius: 99 }}>
+                      {f.product_name} · MVR {Number(f.unit_cost).toFixed(2)}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16, paddingTop: 14, borderTop: '1px solid #f0f0f0' }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#0d1b2a' }}>Grand total</span>
+              <span style={{ fontSize: 17, fontWeight: 800, color: '#FFA500' }}>MVR {g.total.toFixed(2)}</span>
+            </div>
+          </Modal>
+        )
+      })()}
 
       <Toasts toasts={toast.toasts} />
     </div>
