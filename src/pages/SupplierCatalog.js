@@ -90,6 +90,8 @@ export default function SupplierCatalog() {
   const [activeSupplier, setActiveSupplier] = useState(null) // supplier obj
   const [search, setSearch] = useState('')
   const [compareMode, setCompareMode] = useState(false)
+  const [inventoryNames, setInventoryNames] = useState(() => new Set()) // normalized inventory product names
+  const [invFilter, setInvFilter] = useState('all') // 'all' | 'missing' | 'present'
   const [addModal, setAddModal] = useState(false)
   const [editItem, setEditItem] = useState(null)
   const EMPTY_FORM = { product_name:'', sku:'', category:'Building & Blocks', brand:'', age_range:'All ages', pieces:'', sizes:'', weight:'', dimensions:'', cost_price:'', sell_price:'', unit:'piece', notes:'', description:'', tags:'', image_url:'', customFields:[] }
@@ -118,24 +120,30 @@ export default function SupplierCatalog() {
 
   async function load() {
     setLoading(true)
-    const [s, c] = await Promise.all([
+    const [s, c, pr] = await Promise.all([
       supabase.from('suppliers').select('*').order('name'),
       supabase.from('supplier_products').select('*').order('product_name'),
+      supabase.from('products').select('name'),
     ])
     const sup = s.data || []
     setSuppliers(sup)
     setCatalog(c.data || [])
+    setInventoryNames(new Set((pr.data || []).map(p => (p.name || '').toLowerCase().trim()).filter(Boolean)))
     // Default to the top supplier on first load
     setActiveSupplier(prev => prev || sup[0] || null)
     setLoading(false)
   }
 
   // ── Filter ──────────────────────────────────────────────────────────────────
-  const visibleCatalog = catalog.filter(item => {
+  const inInventory = item => inventoryNames.has((item.product_name || '').toLowerCase().trim())
+  const scopedCatalog = catalog.filter(item => {
     const matchSupplier = compareMode ? true : (!activeSupplier || item.supplier_id === activeSupplier.id)
     const matchSearch = !search || item.product_name?.toLowerCase().includes(search.toLowerCase()) || item.sku?.toLowerCase().includes(search.toLowerCase())
     return matchSupplier && matchSearch
   })
+  const missingCount = scopedCatalog.filter(i => !inInventory(i)).length
+  const visibleCatalog = scopedCatalog.filter(item =>
+    invFilter === 'all' ? true : invFilter === 'missing' ? !inInventory(item) : inInventory(item))
 
   // Dropdown options grow from data: base presets + any value already used by a
   // product (e.g. an age imported from Excel) so it's reusable on every product.
@@ -792,6 +800,22 @@ export default function SupplierCatalog() {
               )}
               {!compareMode && (
                 <div style={{ display: 'flex', border: '1px solid #e0e0e0', borderRadius: 9, overflow: 'hidden' }}>
+                  {[
+                    { k: 'all', label: 'All' },
+                    { k: 'missing', label: `Not in inventory${missingCount ? ` (${missingCount})` : ''}` },
+                    { k: 'present', label: 'In inventory' },
+                  ].map((f, i) => (
+                    <button key={f.k} onClick={() => setInvFilter(f.k)} title="Filter by inventory status"
+                      style={{ padding: '8px 12px', border: 'none', borderLeft: i ? '1px solid #e0e0e0' : 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 600,
+                        background: invFilter === f.k ? (f.k === 'missing' ? '#E24B4A' : '#0d1b2a') : '#fff',
+                        color: invFilter === f.k ? '#fff' : '#888', whiteSpace: 'nowrap' }}>
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {!compareMode && (
+                <div style={{ display: 'flex', border: '1px solid #e0e0e0', borderRadius: 9, overflow: 'hidden' }}>
                   <button onClick={() => changeView('grid')} title="Grid" style={{ padding: '8px 11px', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', background: view === 'grid' ? '#0d1b2a' : '#fff' }}>
                     <LayoutGrid size={15} color={view === 'grid' ? '#fff' : '#999'} />
                   </button>
@@ -808,7 +832,7 @@ export default function SupplierCatalog() {
                 {comparedGroups.length === 0 ? (
                   <Card><p style={{ textAlign:'center', color:'#ccc', padding:'40px 0', fontSize:13 }}>No products shared across multiple suppliers{search && ` matching "${search}"`}</p></Card>
                 ) : comparedGroups.map(group => {
-                  const prices = group.map(i => Number(i.cost_price || i.sell_price)).filter(p => p > 0)
+                  const prices = group.map(i => Number(i.cost_price) || 0).filter(p => p > 0)
                   const minP = prices.length ? Math.min(...prices) : 0
                   return (
                     <Card key={group[0].product_name} style={{ marginBottom: 12 }}>
@@ -818,8 +842,8 @@ export default function SupplierCatalog() {
                         <span style={{ fontSize:11, color:'#bbb', background:'#f5f5f5', padding:'2px 8px', borderRadius:99 }}>{group[0].category || 'No category'}</span>
                         <span style={{ marginLeft:'auto', fontSize:11, fontWeight:700, color:'#1D9E75' }}>Cheapest cost: MVR {minP.toFixed(2)}</span>
                       </div>
-                      {group.sort((a,b) => (Number(a.cost_price||a.sell_price)||Infinity)-(Number(b.cost_price||b.sell_price)||Infinity)).map((item, i) => {
-                        const p = Number(item.cost_price || item.sell_price)
+                      {group.sort((a,b) => ((Number(a.cost_price)||Infinity))-((Number(b.cost_price)||Infinity))).map((item, i) => {
+                        const p = Number(item.cost_price) || 0
                         const isMin = p === minP && p > 0
                         const savings = i > 0 && p > 0 && minP > 0 ? ((p - minP) / minP * 100).toFixed(0) : null
                         return (
@@ -834,7 +858,7 @@ export default function SupplierCatalog() {
                             <div style={{ textAlign:'right' }}>
                               <div style={{ fontSize:11, color:'#bbb', marginBottom:2 }}>Cost price</div>
                               <div style={{ fontSize:15, fontWeight:700, color: priceColor(p, prices) }}>
-                                {p > 0 ? `MVR ${p.toFixed(2)}` : '—'}
+                                MVR {p.toFixed(2)}
                                 {isMin && <span style={{ marginLeft:6, fontSize:10, background:'#E1F5EE', color:'#1D9E75', padding:'1px 6px', borderRadius:99, fontWeight:600 }}>Cheapest</span>}
                               </div>
                               {savings && Number(savings) > 0 && <div style={{ fontSize:10, color:'#E24B4A' }}>+{savings}% vs cheapest</div>}
@@ -856,7 +880,7 @@ export default function SupplierCatalog() {
                           <div style={{ fontSize:13, fontWeight:500, color:'#0d1b2a' }}>{item.product_name}</div>
                           <div style={{ fontSize:11, color:'#bbb' }}>{supplierNames(item).main}{supplierNames(item).sub ? ` · ${supplierNames(item).sub}` : ''}</div>
                         </div>
-                        <div style={{ fontSize:13, fontWeight:700, color:'#0d1b2a' }}>{(item.sell_price||item.cost_price) ? `MVR ${Number(item.sell_price||item.cost_price).toFixed(2)}` : '—'}</div>
+                        <div style={{ fontSize:13, fontWeight:700, color:'#0d1b2a' }}>MVR {(Number(item.cost_price) || 0).toFixed(2)}<span style={{ fontSize:10, color:'#bbb', fontWeight:500, marginLeft:4 }}>cost</span></div>
                         <button className="icon-btn" onClick={() => showBarcode(item)}><Barcode size={13}/></button>
                         <button className="icon-btn" onClick={() => openEdit(item)}><Edit2 size={13}/></button>
                       </div>
@@ -891,7 +915,7 @@ export default function SupplierCatalog() {
 
                 {view === 'grid' ? (
                   <CatalogGrid items={visibleCatalog} activeSupplier={activeSupplier} suppliers={suppliers} selectMode={selectMode}
-                    selectedIds={selectedIds} onToggleSelect={toggleSelect}
+                    selectedIds={selectedIds} onToggleSelect={toggleSelect} inventoryNames={inventoryNames}
                     onView={setViewItem} onPO={openPO} onEdit={openEdit} onBarcode={showBarcode} onDelete={del} />
                 ) : (
                   <Card>
@@ -915,7 +939,10 @@ export default function SupplierCatalog() {
                               : <Avatar name={item.supplier_name||item.product_name||'?'} size={36} />
                             }
                             <div>
-                              <div style={{ fontSize:13, fontWeight:600, color:'#0d1b2a' }}>{item.product_name}</div>
+                              <div style={{ fontSize:13, fontWeight:600, color:'#0d1b2a', display:'flex', alignItems:'center', gap:7 }}>
+                                {item.product_name}
+                                {!inInventory(item) && <span style={{ fontSize:9.5, fontWeight:700, color:'#E24B4A', background:'#fef2f2', padding:'1px 7px', borderRadius:99, textTransform:'uppercase', letterSpacing:'0.3px' }}>Not in inventory</span>}
+                              </div>
                               <div style={{ fontSize:11, color:'#bbb' }}>
                                 {!activeSupplier && <span>{supplierNames(item).main} · </span>}
                                 {item.category && <span>{item.category} · </span>}
@@ -1346,8 +1373,9 @@ export default function SupplierCatalog() {
 }
 
 // ── Apple-style catalog grid ───────────────────────────────
-function CatalogGrid({ items, activeSupplier, suppliers, selectMode, selectedIds, onToggleSelect, onView, onPO, onEdit, onBarcode, onDelete }) {
+function CatalogGrid({ items, activeSupplier, suppliers, selectMode, selectedIds, onToggleSelect, inventoryNames, onView, onPO, onEdit, onBarcode, onDelete }) {
   const [openMenuId, setOpenMenuId] = useState(null)
+  const inInventory = item => inventoryNames?.has((item.product_name || '').toLowerCase().trim())
   const supplierNames = item => {
     const s = suppliers?.find(x => x.id === item.supplier_id)
     const company = s?.name || item.supplier_name || ''
@@ -1396,6 +1424,10 @@ function CatalogGrid({ items, activeSupplier, suppliers, selectMode, selectedIds
                   <div className={`cat-sel ${sel ? 'on' : ''}`} onClick={e => { e.stopPropagation(); onToggleSelect(item.id) }}>
                     {sel && <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2.5 7L6 10.5L11.5 3.5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
                   </div>
+                )}
+
+                {!inInventory(item) && (
+                  <span style={{ position:'absolute', top:12, left:12, zIndex:2, fontSize:10, fontWeight:700, color:'#fff', background:'#E24B4A', padding:'3px 9px', borderRadius:99, boxShadow:'0 2px 8px rgba(226,75,74,0.4)', textTransform:'uppercase', letterSpacing:'0.3px' }}>Not in inventory</span>
                 )}
 
                 <div className="cat-meta">
