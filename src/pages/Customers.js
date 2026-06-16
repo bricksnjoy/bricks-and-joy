@@ -207,7 +207,7 @@ export default function Customers() {
       {/* Customer detail view */}
       {viewModal && viewStats && (
         <Modal title={viewModal.name} onClose={() => setViewModal(null)} width={860}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 20 }}>
+          <div className="grid-collapse" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 20 }}>
             {[
               { label: 'Total orders', value: viewStats.totalOrders, color: '#0d1b2a' },
               { label: 'Delivered', value: viewStats.deliveredOrders, color: '#1D9E75' },

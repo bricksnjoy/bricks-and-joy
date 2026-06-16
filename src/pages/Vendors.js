@@ -143,7 +143,7 @@ export default function Vendors() {
         action={<Button onClick={openAdd}><Plus size={15} /> Add vendor</Button>} />
 
       {/* Summary */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 24 }}>
+      <div className="grid-collapse" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 24 }}>
         {[
           { label: 'Total vendors', value: vendors.length, color: '#0d1b2a', icon: Building2 },
           { label: 'Total purchased', value: `MVR ${totalSpentAll.toFixed(2)}`, color: '#1D9E75', icon: TrendingUp },
@@ -173,7 +173,7 @@ export default function Vendors() {
       {/* Vendor detail view */}
       {viewModal && viewStats && (
         <Modal title={viewModal.contact_name || viewModal.name} subtitle={viewModal.contact_name ? viewModal.name : (viewModal.email || 'Vendor details')} onClose={() => setViewModal(null)} width={700}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 20 }}>
+          <div className="grid-collapse" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 20 }}>
             {[
               { label: 'Products supplied', value: viewStats.productCount, color: '#0d1b2a' },
               { label: 'Total POs', value: viewStats.totalOrders, color: '#378ADD' },

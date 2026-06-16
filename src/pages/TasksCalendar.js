@@ -148,7 +148,7 @@ export default function TasksCalendar() {
         action={<Button onClick={() => openAdd()}><Plus size={15} /> Add task</Button>} />
 
       {/* Summary row */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 20 }}>
+      <div className="grid-collapse" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 20 }}>
         {[
           { label: "Today's tasks", value: todayTasks.length, color: todayTasks.length > 0 ? '#f57f17' : '#1D9E75' },
           { label: 'Pending tasks', value: pendingTasks.length, color: pendingTasks.length > 0 ? '#c62828' : '#1D9E75' },

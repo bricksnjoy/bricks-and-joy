@@ -1280,7 +1280,7 @@ export default function SupplierCatalog() {
                 from <strong style={{ color: '#555' }}>{supplierNames(vm).main}</strong>{supplierNames(vm).sub ? ` (${supplierNames(vm).sub})` : ''}{vm.sku ? ` · SKU ${vm.sku}` : ''}
               </div>
               {vm.description && <p style={{ fontSize: 15.5, color: '#555', lineHeight: 1.6, margin: '0 0 20px' }}>{vm.description}</p>}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
+              <div className="grid-collapse" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
                 {stats.map((s, i) => (
                   <div key={i} style={{ background: '#f8f7f4', borderRadius: 14, padding: '13px 15px' }}>
                     <div style={{ fontSize: 11, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 5 }}>{s.label}</div>

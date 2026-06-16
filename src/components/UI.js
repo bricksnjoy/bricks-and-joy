@@ -211,16 +211,16 @@ export function Modal({ title, subtitle, children, onClose, width = 640, noBackd
   // transform/filter (e.g. the animated .page-content wrapper), which would
   // otherwise make `position: fixed` resolve against that ancestor instead.
   return createPortal((
-    <div style={{
+    <div className="modal-overlay" style={{
       position: 'fixed', inset: 0, background: 'rgba(13,27,42,0.55)', backdropFilter: 'blur(6px)',
       display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20,
       animation: 'backdropIn 0.2s ease both',
     }} onClick={e => !noBackdropClose && e.target === e.currentTarget && onClose()}>
-      <div className="modal-enter" style={{
+      <div className="modal-enter modal-card" style={{
         background: '#fff', borderRadius: 20, width: '100%', maxWidth: width,
         maxHeight: '92vh', overflow: 'auto', boxShadow: '0 30px 80px rgba(13,27,42,0.28)',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '22px 28px', borderBottom: '1px solid #f0f0f0' }}>
+        <div className="modal-head" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '22px 28px', borderBottom: '1px solid #f0f0f0' }}>
           <div>
             <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: '#0d1b2a', letterSpacing: '-0.3px' }}>{title}</h2>
             {subtitle && <p style={{ margin: '3px 0 0', fontSize: 12.5, color: '#aaa', fontWeight: 400 }}>{subtitle}</p>}
@@ -234,7 +234,7 @@ export function Modal({ title, subtitle, children, onClose, width = 640, noBackd
             <X size={18} />
           </button>
         </div>
-        <div style={{ padding: '26px 28px' }}>{children}</div>
+        <div className="modal-body" style={{ padding: '26px 28px' }}>{children}</div>
       </div>
     </div>
   ), document.body)
@@ -257,7 +257,7 @@ export function Toasts({ toasts }) {
   const bgs = { success: '#f0fdf8', error: '#fef2f2', info: '#eff6ff' }
   const borders = { success: '#a7f3d8', error: '#fecaca', info: '#bfdbfe' }
   return (
-    <div style={{ position: 'fixed', bottom: 24, right: 24, display: 'flex', flexDirection: 'column', gap: 8, zIndex: 2000 }}>
+    <div className="toast-wrap" style={{ position: 'fixed', bottom: 24, right: 24, display: 'flex', flexDirection: 'column', gap: 8, zIndex: 2000 }}>
       {toasts.map(t => {
         const Icon = icons[t.type]
         return (

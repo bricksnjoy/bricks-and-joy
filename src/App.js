@@ -151,7 +151,7 @@ export default function App() {
   const currentItem = ITEMS[page]
 
   return (
-    <div style={{ display: 'flex', height: '100vh', fontFamily: "'Poppins', sans-serif", background: '#f8f7f4', overflow: 'hidden' }}>
+    <div className="app-shell" style={{ display: 'flex', fontFamily: "'Poppins', sans-serif", background: '#f8f7f4', overflow: 'hidden' }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800;900&display=swap');
         * { box-sizing: border-box; }
@@ -183,11 +183,16 @@ export default function App() {
         .sec-header.editing:hover { background: #f5f4f1; }
 
         .sidebar-overlay { display: none; position: fixed; inset: 0; background: rgba(13,27,42,0.4); z-index: 99; backdrop-filter: blur(2px); }
+        .app-shell { height: 100vh; height: 100dvh; }
+        .sidebar { padding-top: env(safe-area-inset-top); }
+        .app-header { padding-left: calc(22px + env(safe-area-inset-left)); padding-right: calc(22px + env(safe-area-inset-right)); }
         @media (max-width: 768px) {
-          .sidebar { transform: translateX(-100%); transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1); position: fixed !important; z-index: 100; height: 100vh; }
+          .sidebar { transform: translateX(-100%); transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1); position: fixed !important; z-index: 100; height: 100vh; height: 100dvh; }
           .sidebar.open { transform: translateX(0); }
           .sidebar-overlay.open { display: block; }
           .main-content { margin-left: 0 !important; }
+          .app-header { padding-top: calc(13px + env(safe-area-inset-top)); padding-left: calc(14px + env(safe-area-inset-left)); padding-right: calc(14px + env(safe-area-inset-right)); }
+          .page-content { padding: 14px 14px calc(16px + env(safe-area-inset-bottom)) !important; }
         }
         /* 'backwards' (not 'both') so the entry transform is NOT retained after the
            animation — a lingering transform creates a containing block that breaks
@@ -292,7 +297,7 @@ export default function App() {
 
       {/* Main content */}
       <div className="main-content" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', marginLeft: 0 }}>
-        <div style={{
+        <div className="app-header" style={{
           background: '#fff', borderBottom: '1px solid #f0f0f0', padding: '13px 22px',
           display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0,
           boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
@@ -309,7 +314,7 @@ export default function App() {
           </span>
         </div>
 
-        <div key={page} className="page-content" style={{ flex: 1, overflowY: 'auto', padding: '22px 26px' }}>
+        <div key={page} className="page-content" style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '22px 26px' }}>
           {ITEMS[page]?.render || <Dashboard />}
         </div>
       </div>

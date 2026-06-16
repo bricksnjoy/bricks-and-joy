@@ -139,7 +139,7 @@ export default function Categories() {
       {loading ? <Spinner /> : (
         <>
           {/* Stats */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
+          <div className="grid-collapse" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
             {[
               { label: 'Managed categories', value: managed.length, color: '#FFA500' },
               { label: 'Legacy (unmanaged)', value: legacy.length, color: '#7F77DD' },

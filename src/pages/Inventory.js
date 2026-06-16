@@ -752,7 +752,7 @@ export default function Inventory() {
 
               {vm.description && <p style={{ fontSize: 16, color: '#555', lineHeight: 1.6, margin: '0 0 20px' }}>{vm.description}</p>}
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
+              <div className="grid-collapse" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
                 {stats.map((item, i) => (
                   <div key={i} style={{ background: '#f8f7f4', borderRadius: 14, padding: '14px 16px' }}>
                     <div style={{ fontSize: 11.5, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 5 }}>{item.label}</div>

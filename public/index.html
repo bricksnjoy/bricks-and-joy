@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#1a1a2e" />
     <meta name="description" content="Bricks & Joy — Toy Company Business Manager" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -15,8 +15,9 @@
     <title>Bricks & Joy</title>
     <style>
       * { box-sizing: border-box; }
-      body { margin: 0; font-family: 'Poppins', sans-serif; background: #f5f8ff; }
-      #root { min-height: 100vh; }
+      html { -webkit-text-size-adjust: 100%; }
+      body { margin: 0; font-family: 'Poppins', sans-serif; background: #f5f8ff; -webkit-tap-highlight-color: transparent; overscroll-behavior-y: none; }
+      #root { min-height: 100vh; min-height: 100dvh; }
       ::-webkit-scrollbar { width: 6px; height: 6px; }
       ::-webkit-scrollbar-track { background: transparent; }
       ::-webkit-scrollbar-thumb { background: #ddd; border-radius: 3px; }
@@ -66,6 +67,43 @@
       .filter-pill:hover { border-color: #0d1b2a; color: #0d1b2a; }
       .filter-pill.active { background: #0d1b2a; color: #fff; border-color: #0d1b2a; font-weight: 600; }
       .filter-pill.active-orange { background: #FFA500; color: #fff; border-color: #FFA500; font-weight: 600; }
+
+      /* Smooth momentum scrolling for any scroll container on iOS */
+      [style*="overflow"] { -webkit-overflow-scrolling: touch; }
+
+      /* ── Mobile / iPhone (Safari) adjustments ─────────────────────────── */
+      @media (max-width: 768px) {
+        /* 16px form fields stop iOS Safari from auto-zooming on focus */
+        input, select, textarea { font-size: 16px !important; }
+      }
+
+      /* Fixed multi-column metric/stat rows collapse instead of squishing */
+      @media (max-width: 640px) {
+        .grid-collapse { grid-template-columns: repeat(2, 1fr) !important; }
+      }
+      @media (max-width: 400px) {
+        .grid-collapse { grid-template-columns: 1fr !important; }
+      }
+
+      /* Modal: edge-to-edge sheet with safe-area padding on small screens */
+      @media (max-width: 600px) {
+        .modal-overlay { padding: 8px !important; align-items: flex-end !important; }
+        .modal-card {
+          max-height: 92dvh !important; border-radius: 18px !important;
+          margin-bottom: env(safe-area-inset-bottom);
+        }
+        .modal-head { padding: 16px 18px !important; }
+        .modal-body { padding: 18px 18px calc(18px + env(safe-area-inset-bottom)) !important; }
+      }
+
+      /* Toasts span the bottom and clear the home indicator */
+      @media (max-width: 600px) {
+        .toast-wrap {
+          left: 10px !important; right: 10px !important;
+          bottom: calc(10px + env(safe-area-inset-bottom)) !important;
+        }
+        .toast-wrap > div { min-width: 0 !important; width: 100%; }
+      }
     </style>
   </head>
   <body>

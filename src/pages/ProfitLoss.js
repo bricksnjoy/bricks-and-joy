@@ -703,7 +703,7 @@ export default function Accounting() {
 
         return (
           <div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 14, marginBottom: 20 }}>
+            <div className="grid-collapse" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 14, marginBottom: 20 }}>
               {[
                 { label: 'Total in', val: totalIn, color: '#1D9E75' },
                 { label: 'Total out', val: totalOut, color: '#c62828' },
