@@ -44,6 +44,13 @@ const KNOWN_IMPORT_HEADERS = new Set([
 const withValue = (options, val) =>
   val && !options.includes(val) ? [val, ...options] : options
 
+// Pull the offending column name out of a Postgres / PostgREST error message.
+// Handles both: column "x" does not exist  AND  Could not find the 'x' column ... in the schema cache
+function missingColumn(msg = '') {
+  const m = msg.match(/'([a-z_]+)' column/i) || msg.match(/column "?'?([a-z_]+)'?"?/i)
+  return m ? m[1] : null
+}
+
 // Custom line-art icons (match Inventory cards)
 const BrickIcon = ({ size = 16, color = '#FFA500' }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round">
@@ -129,6 +136,23 @@ export default function SupplierCatalog() {
     const matchSearch = !search || item.product_name?.toLowerCase().includes(search.toLowerCase()) || item.sku?.toLowerCase().includes(search.toLowerCase())
     return matchSupplier && matchSearch
   })
+
+  // Dropdown options grow from data: base presets + any value already used by a
+  // product (e.g. an age imported from Excel) so it's reusable on every product.
+  const ADD_NEW = '__add_new__'
+  const uniq = arr => [...new Set(arr.filter(Boolean).map(v => String(v).trim()).filter(Boolean))]
+  const dynCategories = uniq([...CATEGORIES, ...catalog.map(c => c.category)])
+  const dynAges = uniq([...AGE_RANGES, ...catalog.map(c => c.age_range)])
+  const dynUnits = uniq([...UNITS, ...catalog.map(c => c.unit)])
+  // When the user picks "➕ Add new…", prompt for a value and use it
+  const pickOrAdd = (field, value, label) => {
+    if (value === ADD_NEW) {
+      const v = window.prompt(`New ${label}:`)
+      if (v && v.trim()) setForm(p => ({ ...p, [field]: v.trim() }))
+      return
+    }
+    setForm(p => ({ ...p, [field]: value }))
+  }
 
   // Group by product name for comparison view
   const grouped = {}
@@ -228,7 +252,7 @@ export default function SupplierCatalog() {
     let { error } = await doSave(payload)
     // Gracefully drop any column the DB doesn't have yet
     while (error && /column .* does not exist|could not find/i.test(error.message || '')) {
-      const col = (error.message.match(/column "?([a-z_]+)"?/i) || [])[1]
+      const col = missingColumn(error.message)
       if (!col || !(col in payload)) break
       delete payload[col]
       const retry = await doSave(payload); error = retry.error
@@ -585,7 +609,7 @@ export default function SupplierCatalog() {
     let { error } = await supabase.from('supplier_products').insert(records)
     // Drop any missing columns and retry
     while (error && /column .* does not exist|could not find/i.test(error.message || '')) {
-      const col = (error.message.match(/column "?([a-z_]+)"?/i) || [])[1]
+      const col = missingColumn(error.message)
       if (!col) break
       records.forEach(rec => { delete rec[col] })
       const retry = await supabase.from('supplier_products').insert(records); error = retry.error
@@ -948,8 +972,8 @@ export default function SupplierCatalog() {
             <Input label="Product name *" value={form.product_name} onChange={e => setForm(p=>({...p,product_name:e.target.value}))} placeholder="e.g. LEGO Classic Bricks" style={{ gridColumn:'span 2' }} />
           </FormRow>
           <FormRow>
-            <Select label="Category" value={form.category} onChange={e => setForm(p=>({...p,category:e.target.value}))} options={withValue(CATEGORIES, form.category)} />
-            <Select label="Age range" value={form.age_range} onChange={e => setForm(p=>({...p,age_range:e.target.value}))} options={withValue(AGE_RANGES, form.age_range)} />
+            <Select label="Category" value={form.category} onChange={e => pickOrAdd('category', e.target.value, 'category')} options={[...withValue(dynCategories, form.category), { value: ADD_NEW, label: '➕ Add new category…' }]} />
+            <Select label="Age range" value={form.age_range} onChange={e => pickOrAdd('age_range', e.target.value, 'age range')} options={[...withValue(dynAges, form.age_range), { value: ADD_NEW, label: '➕ Add new age range…' }]} />
           </FormRow>
           <FormRow>
             <Input label="Brand" value={form.brand} onChange={e => setForm(p=>({...p,brand:e.target.value}))} placeholder="e.g. LEGO, Mattel" />
@@ -968,7 +992,7 @@ export default function SupplierCatalog() {
             <Input label="Sell price — what you charge (MVR)" type="number" min="0" step="0.01" value={form.sell_price} onChange={e => setForm(p=>({...p,sell_price:e.target.value}))} placeholder="0.00" />
           </FormRow>
           <FormRow>
-            <Select label="Unit" value={form.unit} onChange={e => setForm(p=>({...p,unit:e.target.value}))} options={withValue(UNITS, form.unit)} />
+            <Select label="Unit" value={form.unit} onChange={e => pickOrAdd('unit', e.target.value, 'unit')} options={[...withValue(dynUnits, form.unit), { value: ADD_NEW, label: '➕ Add new unit…' }]} />
             {form.cost_price && form.sell_price && (
               <div style={{ display:'flex', alignItems:'flex-end', paddingBottom:2 }}>
                 <div style={{ background:'#E1F5EE', borderRadius:9, padding:'9px 14px', fontSize:12, color:'#1D9E75', fontWeight:600 }}>
