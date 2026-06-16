@@ -341,6 +341,65 @@ export default function PurchaseOrders() {
     load()
   }
 
+  const [editGroupModal, setEditGroupModal] = useState(null) // group being edited
+
+  // Resolve contact name (primary) and company name (sub) from a supplier_id or supplier_name
+  function supplierDisplay(supplierId, fallbackName) {
+    const s = suppliers.find(x => x.id === supplierId)
+    const company = s?.name || fallbackName || ''
+    const contact = s?.contact_name || ''
+    return { main: contact || company, sub: contact ? company : '' }
+  }
+
+  function openEditGroup(group) {
+    const anchor = group.anchor
+    const productRows = group.rows.filter(r => r.cost_type !== 'extra')
+    const feeRows = group.rows.filter(r => r.cost_type === 'extra')
+    setEditGroupModal({
+      group,
+      batchId: anchor.batch_id || anchor.id,
+      supplier_id: anchor.supplier_id || '',
+      supplier_name: anchor.supplier_name || '',
+      order_date: anchor.order_date || new Date().toISOString().split('T')[0],
+      expected_date: anchor.expected_date || '',
+      newItems: [], // new products to add
+      extraCosts: feeRows.map(r => ({ _id: r.id, type: r.product_name, label: '', amount: String(r.unit_cost || '') })),
+    })
+  }
+
+  async function saveEditGroup() {
+    if (!editGroupModal) return
+    setSaving(true)
+    const { batchId, supplier_id, supplier_name, order_date, expected_date, newItems, extraCosts } = editGroupModal
+
+    // Insert new product rows
+    const newRecords = newItems.filter(i => i.product_id && i.qty > 0).map(item => ({
+      supplier_id: supplier_id || null,
+      supplier_name,
+      product_id: item.product_id?.startsWith('cat:') ? null : (item.product_id || null),
+      product_name: item.product_name,
+      qty: parseInt(item.qty),
+      unit_cost: parseFloat(item.unit_cost),
+      status: editGroupModal.group.anchor.status || 'pending',
+      order_date,
+      expected_date: expected_date || null,
+      image_url: item.image_url || null,
+      batch_id: batchId,
+    }))
+    if (newRecords.length > 0) {
+      const { error } = await supabase.from('purchase_orders').insert(newRecords)
+      if (error) { toast.error('Failed to add items: ' + error.message); setSaving(false); return }
+    }
+
+    // Update existing extra-cost rows and expected_date on all group rows
+    await supabase.from('purchase_orders').update({ expected_date: expected_date || null }).in('id', editGroupModal.group.rows.map(r => r.id))
+
+    setSaving(false)
+    toast.success('Order updated')
+    setEditGroupModal(null)
+    load()
+  }
+
   async function uploadSlip(file) {
     if (!file || !slipModal) return
     setSlipUploading(true)
@@ -425,12 +484,19 @@ export default function PurchaseOrders() {
       {/* Suppliers chips */}
       {suppliers.length > 0 && (
         <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
-          {suppliers.map(s => (
+          {suppliers.map(s => {
+            const main = s.contact_name || s.name
+            return (
             <div key={s.id} style={{ background: '#fff', border: '1px solid #eee', borderRadius: 99, padding: '5px 14px 5px 7px', fontSize: 12, color: '#555', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Avatar name={s.name} size={22} />
-              <span style={{ fontWeight: 500, color: '#0d1b2a' }}>{s.name}</span> {s.phone && <span style={{ color: '#aaa' }}>· {s.phone}</span>}
+              <Avatar name={main} size={22} />
+              <div>
+                <span style={{ fontWeight: 600, color: '#0d1b2a' }}>{main}</span>
+                {s.contact_name && <span style={{ color: '#aaa', marginLeft: 5 }}>{s.name}</span>}
+              </div>
+              {s.phone && <span style={{ color: '#aaa' }}>· {s.phone}</span>}
             </div>
-          ))}
+            )
+          })}
         </div>
       )}
 
@@ -471,9 +537,18 @@ export default function PurchaseOrders() {
                     <tr key={g.key} style={{ borderBottom: '1px solid #f0f0f0' }}>
                       {/* Supplier */}
                       <td style={{ padding: '12px 12px', verticalAlign: 'middle' }}>
-                        {anchor.supplier_name
-                          ? <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}><Avatar name={anchor.supplier_name} /><span style={{ fontWeight: 500, color: '#0d1b2a' }}>{anchor.supplier_name}</span></div>
-                          : <span style={{ color: '#aaa' }}>—</span>}
+                        {anchor.supplier_name ? (() => {
+                          const sd = supplierDisplay(anchor.supplier_id, anchor.supplier_name)
+                          return (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                              <Avatar name={sd.main} />
+                              <div>
+                                <div style={{ fontWeight: 600, color: '#0d1b2a', fontSize: 13 }}>{sd.main}</div>
+                                {sd.sub && <div style={{ fontSize: 11, color: '#aaa', fontWeight: 500 }}>{sd.sub}</div>}
+                              </div>
+                            </div>
+                          )
+                        })() : <span style={{ color: '#aaa' }}>—</span>}
                       </td>
                       {/* Products + fees summary */}
                       <td style={{ padding: '12px 12px', verticalAlign: 'middle', maxWidth: 260 }}>
@@ -538,9 +613,12 @@ export default function PurchaseOrders() {
                           <span style={{ fontSize: 10, fontWeight: 600 }}>{slipUrl ? 'View' : 'Attach'}</span>
                         </button>
                       </td>
-                      {/* Delete */}
+                      {/* Edit / Delete */}
                       <td style={{ padding: '12px 12px', verticalAlign: 'middle' }}>
-                        <Button variant="danger" size="sm" onClick={() => delGroup(g)}><Trash2 size={13} /></Button>
+                        <div style={{ display: 'flex', gap: 5 }}>
+                          <Button variant="ghost" size="sm" onClick={() => openEditGroup(g)} title="Edit batch order"><Plus size={13} /></Button>
+                          <Button variant="danger" size="sm" onClick={() => delGroup(g)}><Trash2 size={13} /></Button>
+                        </div>
                       </td>
                     </tr>
                   )
@@ -556,7 +634,7 @@ export default function PurchaseOrders() {
         <Modal title="Create batch purchase order" subtitle="Order multiple products from a supplier in one go" onClose={() => setBatchModal(false)} width={780}>
           <FormRow>
             <Select label="Supplier" value={batchForm.supplier_id} onChange={handleSupplierChange}
-              options={[{ value: '', label: '— Select or type below —' }, ...suppliers.map(s => ({ value: s.id, label: s.name }))]} />
+              options={[{ value: '', label: '— Select or type below —' }, ...suppliers.map(s => ({ value: s.id, label: s.contact_name ? `${s.contact_name} (${s.name})` : s.name }))]} />
             <Input label="Order date" type="date" value={batchForm.order_date} onChange={e => setBatchForm(p => ({ ...p, order_date: e.target.value }))} />
             <Input label="Expected delivery" type="date" value={batchForm.expected_date} onChange={e => setBatchForm(p => ({ ...p, expected_date: e.target.value }))} />
           </FormRow>
@@ -869,6 +947,166 @@ export default function PurchaseOrders() {
               <div style={{ fontSize: 12, color: '#aaa' }}>Payment receipt, bank slip, or invoice image</div>
             </label>
           )}
+        </Modal>
+      )}
+
+      {/* Edit batch order modal */}
+      {editGroupModal && (
+        <Modal title="Edit batch order" subtitle="Add more products to this order" onClose={() => setEditGroupModal(null)} width={780}>
+          <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
+            <div style={{ flex: 1 }}>
+              <label style={{ fontSize: 11, color: '#999', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.4px', display: 'block', marginBottom: 5 }}>Supplier</label>
+              <div style={{ padding: '8px 12px', border: '1px solid #eee', borderRadius: 8, fontSize: 13, color: '#0d1b2a', fontWeight: 600, background: '#fafafa' }}>
+                {(() => { const sd = supplierDisplay(editGroupModal.supplier_id, editGroupModal.supplier_name); return sd.sub ? `${sd.main} (${sd.sub})` : sd.main })()}
+              </div>
+            </div>
+            <Input label="Expected delivery" type="date" value={editGroupModal.expected_date}
+              onChange={e => setEditGroupModal(p => ({ ...p, expected_date: e.target.value }))} />
+          </div>
+
+          {/* Existing products (read-only) */}
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: '#666', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: 8 }}>
+              Existing items ({editGroupModal.group.rows.filter(r => r.cost_type !== 'extra').length})
+            </div>
+            <div style={{ border: '1px solid #eee', borderRadius: 10, overflow: 'hidden' }}>
+              <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ background: '#fafafa' }}>
+                    <th style={{ padding: '7px 10px', textAlign: 'left', fontWeight: 600, color: '#999', fontSize: 11, textTransform: 'uppercase' }}>Product</th>
+                    <th style={{ padding: '7px 10px', textAlign: 'right', fontWeight: 600, color: '#999', fontSize: 11, textTransform: 'uppercase', width: 70 }}>Qty</th>
+                    <th style={{ padding: '7px 10px', textAlign: 'right', fontWeight: 600, color: '#999', fontSize: 11, textTransform: 'uppercase', width: 110 }}>Unit cost</th>
+                    <th style={{ padding: '7px 10px', textAlign: 'right', fontWeight: 600, color: '#999', fontSize: 11, textTransform: 'uppercase', width: 100 }}>Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {editGroupModal.group.rows.filter(r => r.cost_type !== 'extra').map(r => (
+                    <tr key={r.id} style={{ borderTop: '1px solid #f5f5f5' }}>
+                      <td style={{ padding: '7px 10px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                          {r.image_url && <img src={r.image_url} style={{ width: 24, height: 24, objectFit: 'contain', borderRadius: 4 }} onError={e => e.target.style.display='none'} />}
+                          <span style={{ fontWeight: 500, color: '#0d1b2a' }}>{r.product_name}</span>
+                        </div>
+                      </td>
+                      <td style={{ padding: '7px 10px', textAlign: 'right', color: '#555' }}>×{r.qty}</td>
+                      <td style={{ padding: '7px 10px', textAlign: 'right', color: '#555' }}>MVR {Number(r.unit_cost).toFixed(2)}</td>
+                      <td style={{ padding: '7px 10px', textAlign: 'right', fontWeight: 600 }}>MVR {(r.qty * r.unit_cost).toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* New items to add */}
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: '#378ADD', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Add new items ({editGroupModal.newItems.length})</span>
+              <Button variant="ghost" size="sm" onClick={() => setEditGroupModal(p => ({ ...p, newItems: [...p.newItems, { product_id: '', product_name: '', qty: 1, unit_cost: 0, current_stock: 0 }] }))}><Plus size={13} /> Add item</Button>
+            </div>
+            {editGroupModal.newItems.length > 0 && (
+              <div style={{ border: '1px solid #d0e8ff', borderRadius: 10, overflow: 'visible', background: '#f8fbff' }}>
+                <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ background: '#edf5ff' }}>
+                      <th style={{ padding: '7px 10px', textAlign: 'left', fontWeight: 600, color: '#378ADD', fontSize: 11, textTransform: 'uppercase' }}>Product</th>
+                      <th style={{ padding: '7px 10px', textAlign: 'right', fontWeight: 600, color: '#378ADD', fontSize: 11, textTransform: 'uppercase', width: 80 }}>Qty</th>
+                      <th style={{ padding: '7px 10px', textAlign: 'right', fontWeight: 600, color: '#378ADD', fontSize: 11, textTransform: 'uppercase', width: 110 }}>Unit cost</th>
+                      <th style={{ padding: '7px 10px', textAlign: 'right', fontWeight: 600, color: '#378ADD', fontSize: 11, textTransform: 'uppercase', width: 100 }}>Total</th>
+                      <th style={{ width: 40 }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {editGroupModal.newItems.map((item, idx) => (
+                      <tr key={idx} style={{ borderTop: '1px solid #e0eefc' }}>
+                        <td style={{ padding: 6 }}>
+                          {item.product_id ? (
+                            <div style={{ display:'flex', alignItems:'center', gap:6, padding:'4px 8px', border:'1px solid #ddd', borderRadius:6, background:'#fff' }}>
+                              {item.image_url && <img src={item.image_url} style={{width:24,height:24,objectFit:'contain',borderRadius:4}} onError={e=>e.target.style.display='none'} />}
+                              <span style={{flex:1,fontSize:12,color:'#0d1b2a'}}>{item.product_name}</span>
+                              <button onClick={() => setEditGroupModal(p => ({ ...p, newItems: p.newItems.map((x,i) => i===idx ? {...x, product_id:'', product_name:''} : x) }))} style={{background:'none',border:'none',cursor:'pointer',color:'#aaa',padding:0}}><X size={12}/></button>
+                            </div>
+                          ) : (
+                            <div style={{position:'relative'}}>
+                              <input
+                                value={itemSearch[`edit_${idx}`]||''}
+                                onChange={e => setItemSearch(p=>({...p,[`edit_${idx}`]:e.target.value}))}
+                                onFocus={() => setFocusedRow(`edit_${idx}`)}
+                                onBlur={() => setTimeout(() => setFocusedRow(f => f === `edit_${idx}` ? null : f), 180)}
+                                placeholder="Search product..."
+                                style={{width:'100%',padding:'6px 8px',border:'1px solid #c8e0fc',borderRadius:6,fontSize:12,fontFamily:'inherit',boxSizing:'border-box',background:'#fff'}}
+                                autoFocus={idx===editGroupModal.newItems.length-1}
+                              />
+                              {(focusedRow === `edit_${idx}` || (itemSearch[`edit_${idx}`]||'').length > 0) && (() => {
+                                const q = (itemSearch[`edit_${idx}`]||'').toLowerCase()
+                                const suppId = editGroupModal.supplier_id
+                                const catItems = supplierCatalog.filter(p => (!suppId || p.supplier_id === suppId) && (!q || p.product_name?.toLowerCase().includes(q)))
+                                const invItems = products.filter(p => !q || p.name?.toLowerCase().includes(q)).slice(0, q ? 20 : 5)
+                                if (catItems.length + invItems.length === 0) return null
+                                return (
+                                  <div style={{position:'absolute',top:'100%',left:0,right:0,marginTop:4,background:'#fff',border:'1px solid #e0e0e0',borderRadius:8,boxShadow:'0 8px 28px rgba(0,0,0,0.16)',zIndex:9999,maxHeight:280,overflowY:'auto'}}>
+                                    {catItems.length > 0 && <div style={{padding:'4px 10px',fontSize:10,fontWeight:700,color:'#FFA500',textTransform:'uppercase',letterSpacing:'0.5px',borderBottom:'1px solid #f5f5f5'}}>Supplier Catalog</div>}
+                                    {catItems.map(p => (
+                                      <div key={'cat:'+p.id} onClick={() => {
+                                        setEditGroupModal(prev => ({ ...prev, newItems: prev.newItems.map((x,i) => i===idx ? {...x, product_id:'cat:'+p.id, product_name: p.product_name, unit_cost: p.cost_price || 0, image_url: p.image_url || ''} : x) }))
+                                        setItemSearch(s=>({...s,[`edit_${idx}`]:''}))
+                                      }} style={{display:'flex',alignItems:'center',gap:8,padding:'7px 10px',cursor:'pointer',fontSize:12,borderBottom:'1px solid #f9f9f9'}}
+                                      onMouseEnter={e=>e.currentTarget.style.background='#FFF8E0'}
+                                      onMouseLeave={e=>e.currentTarget.style.background=''}>
+                                        {p.image_url && <img src={p.image_url} style={{width:22,height:22,objectFit:'contain',borderRadius:4}} onError={e=>e.target.style.display='none'} />}
+                                        <div style={{flex:1}}><div>{p.product_name}</div>{p.cost_price && <div style={{fontSize:10,color:'#aaa'}}>MVR {Number(p.cost_price).toFixed(2)}</div>}</div>
+                                      </div>
+                                    ))}
+                                    {invItems.length > 0 && <div style={{padding:'4px 10px',fontSize:10,fontWeight:700,color:'#378ADD',textTransform:'uppercase',letterSpacing:'0.5px',borderBottom:'1px solid #f5f5f5'}}>Inventory</div>}
+                                    {invItems.map(p => (
+                                      <div key={p.id} onClick={() => {
+                                        setEditGroupModal(prev => ({ ...prev, newItems: prev.newItems.map((x,i) => i===idx ? {...x, product_id: p.id, product_name: p.name, unit_cost: p.cost_price || 0, current_stock: p.stock_qty || 0, image_url: p.image_url || ''} : x) }))
+                                        setItemSearch(s=>({...s,[`edit_${idx}`]:''}))
+                                      }} style={{display:'flex',alignItems:'center',gap:8,padding:'7px 10px',cursor:'pointer',fontSize:12,borderBottom:'1px solid #f9f9f9'}}
+                                      onMouseEnter={e=>e.currentTarget.style.background='#f0f7ff'}
+                                      onMouseLeave={e=>e.currentTarget.style.background=''}>
+                                        <div style={{flex:1}}><div>{p.name}</div><div style={{fontSize:10,color:'#aaa'}}>Stock: {p.stock_qty}</div></div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )
+                              })()}
+                            </div>
+                          )}
+                        </td>
+                        <td style={{ padding: 6 }}>
+                          <input type="number" min="1" value={item.qty}
+                            onChange={e => setEditGroupModal(p => ({ ...p, newItems: p.newItems.map((x,i) => i===idx ? {...x, qty: e.target.value} : x) }))}
+                            style={{ width:'100%', padding:'6px 8px', border:'1px solid #c8e0fc', borderRadius:6, fontSize:12, fontFamily:'inherit', textAlign:'right', background:'#fff' }} />
+                        </td>
+                        <td style={{ padding: 6 }}>
+                          <input type="number" step="0.01" min="0" value={item.unit_cost}
+                            onChange={e => setEditGroupModal(p => ({ ...p, newItems: p.newItems.map((x,i) => i===idx ? {...x, unit_cost: e.target.value} : x) }))}
+                            style={{ width:'100%', padding:'6px 8px', border:'1px solid #c8e0fc', borderRadius:6, fontSize:12, fontFamily:'inherit', textAlign:'right', background:'#fff' }} />
+                        </td>
+                        <td style={{ padding:'6px 10px', textAlign:'right', fontWeight:600 }}>
+                          MVR {(parseFloat(item.qty||0) * parseFloat(item.unit_cost||0)).toFixed(2)}
+                        </td>
+                        <td>
+                          <button onClick={() => setEditGroupModal(p => ({ ...p, newItems: p.newItems.filter((_,i) => i!==idx) }))} style={{ background:'none', border:'none', cursor:'pointer', color:'#c62828', padding:4 }}>
+                            <X size={14} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {editGroupModal.newItems.length === 0 && (
+              <div style={{ textAlign: 'center', padding: '18px 0', color: '#bbb', fontSize: 13 }}>Click "Add item" to add more products to this order</div>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+            <Button variant="ghost" onClick={() => setEditGroupModal(null)}>Cancel</Button>
+            <Button onClick={saveEditGroup} disabled={saving}>{saving ? 'Saving…' : 'Save changes'}</Button>
+          </div>
         </Modal>
       )}
 
