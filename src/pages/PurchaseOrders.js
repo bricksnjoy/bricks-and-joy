@@ -44,6 +44,7 @@ export default function PurchaseOrders() {
   const [viewTab, setViewTab] = useState('ongoing') // 'ongoing' | 'history'
   const [listView, setListView] = useState(() => localStorage.getItem('po_list_view') === 'table' ? 'table' : 'detailed') // 'detailed' (Card) | 'table' (List)
   const [supplierFilter, setSupplierFilter] = useState(null) // supplier id to filter by, or null
+  const [expandedPay, setExpandedPay] = useState(() => new Set()) // payment-history batch keys expanded to show individual payments
   const [search, setSearch] = useState('')
   const [productsModal, setProductsModal] = useState(null) // group whose products are shown in full
   const [editPayModal, setEditPayModal] = useState(null) // payment being edited
@@ -762,6 +763,33 @@ export default function PurchaseOrders() {
     const sd = supplierDisplay(p.supplier_id, p.supplier_name)
     return (p.batch_no || '').toLowerCase().includes(q) || `${sd.main} ${sd.sub}`.toLowerCase().includes(q) || (p.reference || '').toLowerCase().includes(q)
   })
+
+  // Group payment history by batch so all payments for one order (products + extra
+  // costs like the Alibaba charge) show as a single bill/row instead of separate
+  // transactions. The batch link still opens the full product + cost breakdown.
+  const paymentGroups = (() => {
+    const map = {}
+    const order = []
+    filteredPayments.forEach(p => {
+      const po = pos.find(o => o.id === p.purchase_order_id)
+      const batchNo = p.batch_no || po?.batch_no
+      const key = batchNo || `po:${p.purchase_order_id}`
+      if (!map[key]) { map[key] = { key, batchNo, payments: [] }; order.push(key) }
+      map[key].payments.push(p)
+    })
+    return order.map(k => {
+      const grpItem = map[k]
+      const payments = grpItem.payments
+      const grp = poGroups.find(g => payments.some(p => g.rows.some(r => r.id === p.purchase_order_id)) || (grpItem.batchNo && g.anchor.batch_no === grpItem.batchNo))
+      const totalPaid = payments.reduce((s, p) => s + Number(p.amount || 0), 0)
+      const slips = payments.flatMap(p => Array.isArray(p.slips) ? p.slips : [])
+      const methods = [...new Set(payments.map(p => p.payment_method).filter(Boolean))]
+      const references = payments.map(p => p.reference).filter(Boolean)
+      const latestDate = payments.map(p => p.payment_date).filter(Boolean).sort().slice(-1)[0] || ''
+      const sd = supplierDisplay(payments[0].supplier_id, payments[0].supplier_name)
+      return { ...grpItem, grp, payments, totalPaid, slips, methods, references, latestDate, sd }
+    })
+  })()
 
   // Render a single batch order as a clean card
   function renderBatchCard(g) {
@@ -1513,20 +1541,23 @@ export default function PurchaseOrders() {
                 ))}</tr>
               </thead>
               <tbody>
-                {filteredPayments.map((p, i) => {
-                  const po = pos.find(o => o.id === p.purchase_order_id)
-                  const batchNo = p.batch_no || po?.batch_no
-                  const grp = poGroups.find(g => g.rows.some(r => r.id === p.purchase_order_id) || (batchNo && g.anchor.batch_no === batchNo))
+                {paymentGroups.map(group => {
+                  const { grp, payments, totalPaid, slips, methods, references, latestDate, sd, batchNo, key } = group
+                  const multi = payments.length > 1
+                  const expanded = expandedPay.has(key)
+                  const toggle = () => setExpandedPay(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n })
+                  const single = payments[0]
                   return (
-                    <tr key={p.id} style={{ borderBottom: '1px solid #f5f5f5' }}>
-                      <td style={{ padding: '9px 12px', color: '#888', fontSize: 12 }}>{p.payment_date}</td>
+                    <React.Fragment key={key}>
+                    <tr style={{ borderBottom: expanded ? 'none' : '1px solid #f5f5f5' }}>
+                      <td style={{ padding: '9px 12px', color: '#888', fontSize: 12 }}>{latestDate}{multi && <div style={{ fontSize: 10.5, color: '#bbb' }}>{payments.length} payments</div>}</td>
                       <td style={{ padding: '9px 12px' }}>
                         {batchNo
-                          ? <button onClick={() => grp && setProductsModal(grp)} disabled={!grp} title={grp ? 'View products in this batch' : ''}
+                          ? <button onClick={() => grp && setProductsModal(grp)} disabled={!grp} title={grp ? 'View all products & costs in this batch' : ''}
                               style={{ fontSize: 11, fontWeight: 700, color: '#7F77DD', background: '#7F77DD18', padding: '3px 9px', borderRadius: 99, border: 'none', cursor: grp ? 'pointer' : 'default', fontFamily: 'inherit' }}>{batchNo}{grp ? ` · ${grp.rows.filter(r => r.cost_type !== 'extra').length}` : ''}</button>
                           : <span style={{ color: '#ddd', fontSize: 12 }}>—</span>}
                       </td>
-                      <td style={{ padding: '9px 12px', fontWeight: 500 }}>{(() => { const sd = supplierDisplay(p.supplier_id, p.supplier_name); return <div><div>{sd.main}</div>{sd.sub && <div style={{fontSize:11,color:'#aaa'}}>{sd.sub}</div>}</div> })()}</td>
+                      <td style={{ padding: '9px 12px', fontWeight: 500 }}><div>{sd.main}</div>{sd.sub && <div style={{fontSize:11,color:'#aaa'}}>{sd.sub}</div>}</td>
                       <td style={{ padding: '9px 12px' }}>
                         {grp ? (
                           <div>
@@ -1537,31 +1568,72 @@ export default function PurchaseOrders() {
                           </div>
                         ) : <span style={{ color: '#ddd', fontSize: 12 }}>—</span>}
                       </td>
-                      <td style={{ padding: '9px 12px', fontWeight: 700, color: '#1D9E75' }}>MVR {Number(p.amount).toFixed(2)}</td>
-                      <td style={{ padding: '9px 12px', fontSize: 12 }}><span style={{ background: '#f5f5f5', padding: '2px 8px', borderRadius: 99, fontWeight: 500 }}>{p.payment_method}</span></td>
-                      <td style={{ padding: '9px 12px', color: '#aaa', fontSize: 11 }}>{p.reference || '—'}</td>
+                      <td style={{ padding: '9px 12px', fontWeight: 700, color: '#1D9E75' }}>MVR {totalPaid.toFixed(2)}{multi && <div style={{ fontSize: 10.5, color: '#bbb', fontWeight: 500 }}>across {payments.length}</div>}</td>
+                      <td style={{ padding: '9px 12px', fontSize: 12 }}><span style={{ background: '#f5f5f5', padding: '2px 8px', borderRadius: 99, fontWeight: 500 }}>{methods.length === 1 ? methods[0] : (methods.length === 0 ? '—' : 'Multiple')}</span></td>
+                      <td style={{ padding: '9px 12px', color: '#aaa', fontSize: 11 }}>{references[0] || '—'}</td>
                       <td style={{ padding: '9px 12px' }}>
-                        {Array.isArray(p.slips) && p.slips.length > 0 ? (
-                          <button onClick={() => setViewSlips({ slips: p.slips, title: `Payslips · MVR ${Number(p.amount).toFixed(2)}` })}
-                            title={`View ${p.slips.length} payslip(s)`}
+                        {slips.length > 0 ? (
+                          <button onClick={() => setViewSlips({ slips, title: `Payslips${batchNo ? ` · ${batchNo}` : ''}` })}
+                            title={`View ${slips.length} payslip(s)`}
                             style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#E1F5EE', border: '1px solid #bfe6d6', borderRadius: 99, padding: '3px 9px', cursor: 'pointer', color: '#1D9E75', fontSize: 11, fontWeight: 600, fontFamily: 'inherit' }}>
-                            <Paperclip size={11} /> {p.slips.length}
+                            <Paperclip size={11} /> {slips.length}
                           </button>
                         ) : <span style={{ color: '#ddd', fontSize: 12 }}>—</span>}
                       </td>
                       <td style={{ padding: '9px 12px' }}>
                         <div style={{ display: 'flex', gap: 5, justifyContent: 'flex-end' }}>
-                          <button onClick={() => openEditPayment(p)} title="Edit payment / add costs"
-                            style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: 7, cursor: 'pointer', padding: 6, display: 'flex', color: '#666' }}>
-                            <Pencil size={13} />
-                          </button>
-                          <button onClick={() => deletePaymentRecord(p)} title="Delete payment"
-                            style={{ background: '#fff', border: '1px solid #f3d6d6', borderRadius: 7, cursor: 'pointer', padding: 6, display: 'flex', color: '#E24B4A' }}>
-                            <Trash2 size={13} />
-                          </button>
+                          {multi ? (
+                            <button onClick={toggle} title={expanded ? 'Hide individual payments' : 'Show individual payments'}
+                              style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: 7, cursor: 'pointer', padding: '6px 9px', display: 'flex', alignItems: 'center', gap: 4, color: '#666', fontSize: 11, fontWeight: 600, fontFamily: 'inherit' }}>
+                              <ChevronDown size={13} style={{ transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} /> {payments.length}
+                            </button>
+                          ) : (
+                            <>
+                              <button onClick={() => openEditPayment(single)} title="Edit payment / add costs"
+                                style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: 7, cursor: 'pointer', padding: 6, display: 'flex', color: '#666' }}>
+                                <Pencil size={13} />
+                              </button>
+                              <button onClick={() => deletePaymentRecord(single)} title="Delete payment"
+                                style={{ background: '#fff', border: '1px solid #f3d6d6', borderRadius: 7, cursor: 'pointer', padding: 6, display: 'flex', color: '#E24B4A' }}>
+                                <Trash2 size={13} />
+                              </button>
+                            </>
+                          )}
                         </div>
                       </td>
                     </tr>
+                    {multi && expanded && payments.map(p => (
+                      <tr key={p.id} style={{ borderBottom: '1px solid #f5f5f5', background: '#fcfcfc' }}>
+                        <td style={{ padding: '7px 12px', color: '#888', fontSize: 12 }}>{p.payment_date}</td>
+                        <td style={{ padding: '7px 12px', color: '#ccc', fontSize: 13, textAlign: 'right' }}>↳</td>
+                        <td style={{ padding: '7px 12px', color: '#aaa', fontSize: 11 }}>{p.notes || ''}</td>
+                        <td></td>
+                        <td style={{ padding: '7px 12px', fontWeight: 600, color: '#1D9E75' }}>MVR {Number(p.amount).toFixed(2)}</td>
+                        <td style={{ padding: '7px 12px', fontSize: 12 }}><span style={{ background: '#f5f5f5', padding: '2px 8px', borderRadius: 99, fontWeight: 500 }}>{p.payment_method}</span></td>
+                        <td style={{ padding: '7px 12px', color: '#aaa', fontSize: 11 }}>{p.reference || '—'}</td>
+                        <td style={{ padding: '7px 12px' }}>
+                          {Array.isArray(p.slips) && p.slips.length > 0 ? (
+                            <button onClick={() => setViewSlips({ slips: p.slips, title: `Payslips · MVR ${Number(p.amount).toFixed(2)}` })}
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#E1F5EE', border: '1px solid #bfe6d6', borderRadius: 99, padding: '3px 9px', cursor: 'pointer', color: '#1D9E75', fontSize: 11, fontWeight: 600, fontFamily: 'inherit' }}>
+                              <Paperclip size={11} /> {p.slips.length}
+                            </button>
+                          ) : <span style={{ color: '#ddd', fontSize: 12 }}>—</span>}
+                        </td>
+                        <td style={{ padding: '7px 12px' }}>
+                          <div style={{ display: 'flex', gap: 5, justifyContent: 'flex-end' }}>
+                            <button onClick={() => openEditPayment(p)} title="Edit payment / add costs"
+                              style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: 7, cursor: 'pointer', padding: 6, display: 'flex', color: '#666' }}>
+                              <Pencil size={13} />
+                            </button>
+                            <button onClick={() => deletePaymentRecord(p)} title="Delete payment"
+                              style={{ background: '#fff', border: '1px solid #f3d6d6', borderRadius: 7, cursor: 'pointer', padding: 6, display: 'flex', color: '#E24B4A' }}>
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    </React.Fragment>
                   )
                 })}
               </tbody>
