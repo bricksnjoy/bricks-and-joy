@@ -18,6 +18,27 @@ const CATEGORIES = ['Building & Blocks','Action Figures','Dolls & Plush','Board 
 const AGE_RANGES = ['0–2','3–5','6–8','9–12','12+','All ages']
 const UNITS = ['piece','box','set','pack','dozen','kg','litre']
 
+// Header aliases the importer already understands — any Excel column NOT in this
+// set is imported into the product's custom_fields under its original name.
+const KNOWN_IMPORT_HEADERS = new Set([
+  'product name','product','name','item','item name','product title','title',
+  'cost price (mvr)','cost price','cost','buying price','purchase price','unit cost','buy price','our price','supplier price',
+  'sell price (mvr)','sell price','delivery price','selling price','sale price','retail price','unit price','price','mrp','rate',
+  'amount','value',
+  'image url','image','photo url','photo','picture url','picture','img url','img',
+  'sku','item code','product code','part no','part number','ref',
+  'category','cat','type','group','dept','department',
+  'brand','make','manufacturer',
+  'age range','age','ages','age group',
+  'pieces','piece','pcs','piece count','no of pieces',
+  'sizes','size','weight','wt',
+  'dimensions','dimension','size (cm)','measurements',
+  'unit','uom','unit of measure','sold per',
+  'description','desc','details','about',
+  'tags','tag','labels',
+  'notes','note','remarks','remark','comment',
+])
+
 // Custom line-art icons (match Inventory cards)
 const BrickIcon = ({ size = 16, color = '#FFA500' }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round">
@@ -59,7 +80,7 @@ export default function SupplierCatalog() {
   const [compareMode, setCompareMode] = useState(false)
   const [addModal, setAddModal] = useState(false)
   const [editItem, setEditItem] = useState(null)
-  const EMPTY_FORM = { product_name:'', sku:'', category:'Building & Blocks', brand:'', age_range:'All ages', pieces:'', sizes:'', weight:'', dimensions:'', cost_price:'', sell_price:'', unit:'piece', notes:'', description:'', tags:'', image_url:'' }
+  const EMPTY_FORM = { product_name:'', sku:'', category:'Building & Blocks', brand:'', age_range:'All ages', pieces:'', sizes:'', weight:'', dimensions:'', cost_price:'', sell_price:'', unit:'piece', notes:'', description:'', tags:'', image_url:'', customFields:[] }
   const [form, setForm] = useState(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState(false)
@@ -135,7 +156,10 @@ export default function SupplierCatalog() {
       sizes: item.sizes||'', weight: item.weight||'', dimensions: item.dimensions||'',
       cost_price: item.cost_price||'', sell_price: item.sell_price||'',
       unit: item.unit||'piece', notes: item.notes||'', description: item.description||'',
-      tags: item.tags||'', image_url: item.image_url||''
+      tags: item.tags||'', image_url: item.image_url||'',
+      customFields: item.custom_fields && typeof item.custom_fields === 'object'
+        ? Object.entries(item.custom_fields).map(([key, value]) => ({ key, value: String(value ?? '') }))
+        : []
     })
     setEditItem(item)
     setAddModal(true)
@@ -186,6 +210,13 @@ export default function SupplierCatalog() {
       barcode,
       image_url: form.image_url.trim() || null,
     }
+    // Custom fields: collapse the editable [{key,value}] list into an object
+    const customObj = {}
+    ;(form.customFields || []).forEach(({ key, value }) => {
+      const k = (key || '').trim()
+      if (k) customObj[k] = value
+    })
+    payload.custom_fields = Object.keys(customObj).length ? customObj : null
     const doSave = pl => editItem
       ? supabase.from('supplier_products').update(pl).eq('id', editItem.id)
       : supabase.from('supplier_products').insert(pl)
@@ -485,6 +516,15 @@ export default function SupplierCatalog() {
       // Image URL column takes priority (guaranteed correct match); fallback to embedded image by row
       const imageUrl = get('image url','image','photo url','photo','picture url','picture','img url','img')
         || rowImageMap[idx] || ''
+      // Any column not understood above is captured as a custom field
+      const custom = {}
+      Object.keys(row).forEach(k => {
+        const norm = k.toLowerCase().trim()
+        if (!norm || KNOWN_IMPORT_HEADERS.has(norm)) return
+        const val = row[k]
+        if (val === '' || val == null) return
+        custom[k.trim()] = String(val).trim()
+      })
       return {
         product_name: productName,
         sku: (() => { const v = get('sku','item code','product code','part no','part number','ref'); return v && /\D/.test(v) ? v : '' })(),
@@ -502,6 +542,7 @@ export default function SupplierCatalog() {
         tags: get('tags','tag','labels'),
         notes: get('notes','note','remarks','remark','comment') || '',
         image_url: imageUrl,
+        custom_fields: Object.keys(custom).length ? custom : null,
         _selected: true,
       }
     }).filter(r => r.product_name)
@@ -534,6 +575,7 @@ export default function SupplierCatalog() {
       notes: r.notes || null,
       barcode: genBarcode(r.product_name, activeSupplier.id + r.product_name),
       image_url: r.image_url || null,
+      custom_fields: r.custom_fields || null,
     }))
     let { error } = await supabase.from('supplier_products').insert(records)
     // Drop any missing columns and retry
@@ -936,7 +978,31 @@ export default function SupplierCatalog() {
               style={{ width:'100%', padding:'9px 12px', border:'1px solid #ddd', borderRadius:8, fontSize:13, fontFamily:'inherit', resize:'vertical', minHeight:60, boxSizing:'border-box', outline:'none' }} />
           </div>
           <Input label="Tags (comma separated)" value={form.tags} onChange={e => setForm(p=>({...p,tags:e.target.value}))} placeholder="e.g. popular, new arrival, sale" style={{ marginBottom:12 }} />
-          <Input label="Notes" value={form.notes} onChange={e => setForm(p=>({...p,notes:e.target.value}))} placeholder="Any notes about this product from this supplier" style={{ marginBottom:20 }} />
+          <Input label="Notes" value={form.notes} onChange={e => setForm(p=>({...p,notes:e.target.value}))} placeholder="Any notes about this product from this supplier" style={{ marginBottom:16 }} />
+
+          {/* Custom fields */}
+          <div style={{ marginBottom:20 }}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
+              <label style={{ fontSize:12, color:'#666', fontWeight:500, textTransform:'uppercase', letterSpacing:'0.4px' }}>Custom fields ({(form.customFields||[]).length})</label>
+              <Button variant="ghost" size="sm" onClick={() => setForm(p => ({ ...p, customFields:[...(p.customFields||[]), { key:'', value:'' }] }))}><Plus size={13} /> Add field</Button>
+            </div>
+            {(form.customFields||[]).map((cf, idx) => (
+              <div key={idx} style={{ display:'flex', gap:8, marginBottom:8 }}>
+                <input value={cf.key} onChange={e => setForm(p => ({ ...p, customFields: p.customFields.map((x,i)=> i===idx ? {...x, key:e.target.value} : x) }))}
+                  placeholder="Field name (e.g. Material)"
+                  style={{ flex:'0 0 38%', padding:'9px 12px', border:'1px solid #ddd', borderRadius:8, fontSize:13, fontFamily:'inherit', boxSizing:'border-box', outline:'none' }} />
+                <input value={cf.value} onChange={e => setForm(p => ({ ...p, customFields: p.customFields.map((x,i)=> i===idx ? {...x, value:e.target.value} : x) }))}
+                  placeholder="Value"
+                  style={{ flex:1, padding:'9px 12px', border:'1px solid #ddd', borderRadius:8, fontSize:13, fontFamily:'inherit', boxSizing:'border-box', outline:'none' }} />
+                <button onClick={() => setForm(p => ({ ...p, customFields: p.customFields.filter((_,i)=> i!==idx) }))}
+                  style={{ background:'none', border:'1px solid #f3d6d6', borderRadius:8, cursor:'pointer', color:'#E24B4A', padding:'0 11px', display:'flex', alignItems:'center' }}><X size={14} /></button>
+              </div>
+            ))}
+            {(form.customFields||[]).length === 0 && (
+              <div style={{ fontSize:12, color:'#bbb' }}>Add your own attributes (extra ages, material, colour…). They save per product and show on the product, and Excel columns that don't match a standard field import here automatically.</div>
+            )}
+          </div>
+
           <div style={{ display:'flex', gap:10, justifyContent:'flex-end' }}>
             <Button variant="ghost" onClick={() => setAddModal(false)}>Cancel</Button>
             <Button onClick={save} disabled={saving}>{saving ? 'Saving…' : editItem ? 'Save changes' : 'Add to catalog'}</Button>
@@ -1217,6 +1283,16 @@ export default function SupplierCatalog() {
                   </div>
                 ))}
               </div>
+              {vm.custom_fields && typeof vm.custom_fields === 'object' && Object.keys(vm.custom_fields).length > 0 && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10, marginBottom: 20 }}>
+                  {Object.entries(vm.custom_fields).map(([k, v]) => (
+                    <div key={k} style={{ background: '#f8f7f4', borderRadius: 12, padding: '10px 14px' }}>
+                      <div style={{ fontSize: 11, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>{k}</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: '#0d1b2a' }}>{String(v)}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
               {vm.tags && (
                 <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginBottom: 22 }}>
                   {vm.tags.split(',').map(t => t.trim()).filter(Boolean).map(tag => (

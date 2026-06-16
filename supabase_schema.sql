@@ -114,8 +114,10 @@ create table supplier_products (
   unit text default 'piece',
   barcode text,
   notes text,
+  custom_fields jsonb,
   created_at timestamptz default now()
 );
+-- For existing databases: alter table supplier_products add column if not exists custom_fields jsonb;
 
 -- PRODUCT CATEGORIES
 create table categories (
