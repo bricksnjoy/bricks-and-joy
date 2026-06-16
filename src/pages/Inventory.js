@@ -727,10 +727,10 @@ export default function Inventory() {
             <style>{`@media (max-width: 860px){ .vm-grid { grid-template-columns: 1fr !important; } }`}</style>
             {/* Hero image */}
             <div style={{ position: 'relative', width: '100%', aspectRatio: '372 / 443', borderRadius: 26, overflow: 'hidden',
-              background: 'linear-gradient(160deg, #f6f6f8, #e9e9ed)',
+              background: '#fff', padding: 25, boxSizing: 'border-box',
               boxShadow: 'inset 0 2px 0 rgba(255,255,255,0.95), inset 0 -4px 10px rgba(0,0,0,0.08), inset 0 0 0 1px rgba(0,0,0,0.04), 0 10px 30px rgba(13,27,42,0.12)' }}>
               {vm.photo_url
-                ? <img src={vm.photo_url} alt={vm.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                ? <img src={vm.photo_url} alt={vm.name} style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#fff', borderRadius: 12 }} />
                 : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Package size={80} color="#cfcfd6" /></div>}
               {vm.discontinued && <div style={{ position: 'absolute', top: 16, left: 16, background: 'rgba(102,102,102,0.92)', color: '#fff', fontSize: 11, fontWeight: 700, padding: '5px 12px', borderRadius: 999, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Discontinued</div>}
             </div>
@@ -930,7 +930,7 @@ function ProductGrid({ products, onView, onEdit, onBarcode, onDelete, onToggle, 
         .prod-card { animation: cardIn 0.35s ease both; position:relative; }
         .prod-tile {
           position: relative; width: 100%; aspect-ratio: 372 / 443; min-height: 443px; border-radius: 22px; overflow: hidden;
-          background: linear-gradient(160deg, #f6f6f8 0%, #e9e9ed 100%);
+          background: #fff;
           box-shadow: inset 0 1.5px 0 rgba(255,255,255,0.95), inset 0 -3px 8px rgba(0,0,0,0.07),
                       inset 0 0 0 1px rgba(0,0,0,0.04), 0 2px 6px rgba(0,0,0,0.05);
           transition: transform 0.28s cubic-bezier(.2,.7,.3,1), box-shadow 0.28s; cursor: pointer;
@@ -941,7 +941,7 @@ function ProductGrid({ products, onView, onEdit, onBarcode, onDelete, onToggle, 
                       inset 0 0 0 1px rgba(0,0,0,0.04), 0 16px 34px rgba(13,27,42,0.16);
         }
         .prod-tile-sel { outline: 3px solid #FFA500 !important; outline-offset: 2px; }
-        .prod-tile img { width:100%; height:100%; object-fit: cover; display:block; }
+        .prod-tile img { width:100%; height:100%; object-fit: contain; background:#fff; display:block; padding:25px; box-sizing:border-box; }
         /* slide-out kebab */
         .kebab-wrap { position:absolute; top:12px; right:12px; display:flex; align-items:center; gap:7px; opacity:0; transition: opacity 0.2s; }
         .prod-card:hover .kebab-wrap, .kebab-wrap.pinned { opacity:1; }

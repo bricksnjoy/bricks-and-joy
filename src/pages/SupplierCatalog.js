@@ -77,6 +77,7 @@ export default function SupplierCatalog() {
   const [batchPoModal, setBatchPoModal] = useState(false)
   const [batchPoItems, setBatchPoItems] = useState([])
   const [batchPoDate, setBatchPoDate] = useState('')
+  const [batchPoExtras, setBatchPoExtras] = useState([])
   const fileRef = useRef()
   const toast = useToast()
 
@@ -241,12 +242,16 @@ export default function SupplierCatalog() {
     }))
     setBatchPoItems(items)
     setBatchPoDate('')
+    setBatchPoExtras([])
     setBatchPoModal(true)
   }
 
   async function saveBatchPO() {
     if (batchPoItems.length === 0) return
     setSaving(true)
+    const orderDate = new Date().toISOString().split('T')[0]
+    // Single batch_id groups everything into one purchase order — one invoice, arrives once.
+    const batchId = (window.crypto?.randomUUID?.() || `b${Date.now()}${Math.random().toString(36).slice(2, 8)}`)
     const records = batchPoItems.map(item => {
       const supplier = suppliers.find(s => s.id === item.supplier_id)
       return {
@@ -257,16 +262,41 @@ export default function SupplierCatalog() {
         qty: parseInt(item.qty) || 1,
         unit_cost: parseFloat(item.order_cost) || 0,
         status: 'pending',
-        order_date: new Date().toISOString().split('T')[0],
+        order_date: orderDate,
         expected_date: batchPoDate || null,
         image_url: item.image_url || null,
+        batch_id: batchId,
         notes: `From supplier catalog — SKU: ${item.sku || 'N/A'}`,
       }
     })
-    const { error } = await supabase.from('purchase_orders').insert(records)
+    // Extra costs (shipping, fees) become their own grouped line items — one shared payment.
+    const supplierName = batchPoItems[0]?.supplier_name || suppliers.find(s => s.id === batchPoItems[0]?.supplier_id)?.name || ''
+    const costRecords = (batchPoExtras || [])
+      .filter(c => Number(c.amount) > 0)
+      .map(c => ({
+        supplier_id: batchPoItems[0]?.supplier_id || null,
+        supplier_name: supplierName,
+        product_id: null,
+        product_name: c.type === 'Other' ? (c.label || 'Other cost') : c.type,
+        qty: 1,
+        unit_cost: parseFloat(c.amount),
+        status: 'pending',
+        order_date: orderDate,
+        expected_date: batchPoDate || null,
+        cost_type: 'extra',
+        batch_id: batchId,
+      }))
+    let { error } = await supabase.from('purchase_orders').insert([...records, ...costRecords])
+    // Gracefully retry if optional columns (batch_id / cost_type) don't exist yet
+    while (error && /column .* does not exist|could not find/i.test(error.message || '')) {
+      const col = (error.message.match(/column "?([a-z_]+)"?/i) || [])[1]
+      if (!col) break
+      ;[...records, ...costRecords].forEach(r => { delete r[col] })
+      const retry = await supabase.from('purchase_orders').insert([...records, ...costRecords]); error = retry.error
+    }
     setSaving(false)
     if (error) { toast.error('Failed: ' + error.message); return }
-    toast.success(`${records.length} purchase orders created!`)
+    toast.success(`Batch order created — ${records.length} item${records.length > 1 ? 's' : ''}${costRecords.length ? ` + ${costRecords.length} cost${costRecords.length > 1 ? 's' : ''}` : ''}`)
     setBatchPoModal(false)
     exitSelectMode()
   }
@@ -617,10 +647,6 @@ export default function SupplierCatalog() {
         subtitle="Track which suppliers offer which products and compare prices"
         action={
           <div style={{ display: 'flex', gap: 8 }}>
-            <Button variant="ghost" onClick={() => { setActiveSupplier(null); setCompareMode(false) }}
-              style={{ background: (!activeSupplier && !compareMode) ? '#FFF3E0' : undefined, color: (!activeSupplier && !compareMode) ? '#FFA500' : undefined }}>
-              <Building2 size={14} /> All catalogs
-            </Button>
             <Button variant="ghost" onClick={() => setCompareMode(m => !m)} style={{ background: compareMode ? '#e8f5e9' : undefined, color: compareMode ? '#1D9E75' : undefined }}>
               <ArrowUpDown size={14} /> {compareMode ? 'Exit compare' : 'Price compare'}
             </Button>
@@ -645,7 +671,16 @@ export default function SupplierCatalog() {
           {/* Left: supplier list */}
           <div>
             <Card style={{ padding: '12px 8px' }}>
-              <div style={{ padding: '0 8px 10px', fontSize: 11, fontWeight: 700, color: '#bbb', textTransform: 'uppercase', letterSpacing: '0.6px' }}>Suppliers</div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 8px 10px' }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: '#bbb', textTransform: 'uppercase', letterSpacing: '0.6px' }}>Suppliers</span>
+                <button onClick={() => { setActiveSupplier(null); setCompareMode(false) }}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 4, border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                    fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 99, transition: 'all 0.15s',
+                    background: (!activeSupplier && !compareMode) ? '#FFA500' : '#f0f0f0',
+                    color: (!activeSupplier && !compareMode) ? '#fff' : '#888' }}>
+                  <Building2 size={12} /> All
+                </button>
+              </div>
 
               {suppliers.map(s => {
                 const display = s.contact_name || s.name
@@ -1028,7 +1063,7 @@ export default function SupplierCatalog() {
       )}
 
       {batchPoModal && (
-        <Modal title={`Batch Purchase Order — ${batchPoItems.length} items`} subtitle="Creates POs for selected catalog products" onClose={() => setBatchPoModal(false)} width={680}>
+        <Modal title={`Batch Purchase Order — ${batchPoItems.length} items`} subtitle="One grouped order · single invoice · arrives together · shared extra costs" onClose={() => setBatchPoModal(false)} width={680}>
           <Input label="Expected delivery date" type="date" value={batchPoDate} onChange={e=>setBatchPoDate(e.target.value)} style={{marginBottom:16}} />
           <div style={{border:'1px solid #f0f0f0',borderRadius:10,overflow:'hidden',marginBottom:16,maxHeight:360,overflowY:'auto'}}>
             <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
@@ -1080,9 +1115,59 @@ export default function SupplierCatalog() {
               </tfoot>
             </table>
           </div>
-          <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+
+          {/* Additional costs — shared across the batch (one payment) */}
+          <div style={{ marginTop: 18 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: '#666', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Additional costs ({batchPoExtras.length})</span>
+              <Button variant="ghost" onClick={() => setBatchPoExtras(prev => [...prev, { type: 'Shipping / Freight', label: '', amount: '' }])} style={{ fontSize: 12, padding: '4px 10px' }}><Plus size={13} /> Add cost</Button>
+            </div>
+            {batchPoExtras.length > 0 && (
+              <div style={{ border: '1px solid #eee', borderRadius: 10, overflow: 'hidden' }}>
+                <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ background: '#fafafa' }}>
+                      <th style={{ padding: '8px 10px', textAlign: 'left', fontWeight: 600, color: '#999', fontSize: 11, textTransform: 'uppercase' }}>Cost type</th>
+                      <th style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 600, color: '#999', fontSize: 11, textTransform: 'uppercase', width: 140 }}>Amount (MVR)</th>
+                      <th style={{ width: 40 }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {batchPoExtras.map((c, idx) => (
+                      <tr key={idx} style={{ borderTop: '1px solid #f5f5f5' }}>
+                        <td style={{ padding: 6 }}>
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <select value={c.type} onChange={e => setBatchPoExtras(prev => prev.map((x,j) => j===idx ? {...x, type: e.target.value} : x))}
+                              style={{ flex: c.type === 'Other' ? '0 0 130px' : 1, padding: '6px 8px', border: '1px solid #ddd', borderRadius: 6, fontSize: 12, fontFamily: 'inherit', background: '#fff' }}>
+                              {['Alibaba transaction charge', 'China local delivery', 'Shipping / Freight', 'Customs / Duty', 'Other'].map(o => <option key={o} value={o}>{o}</option>)}
+                            </select>
+                            {c.type === 'Other' && (
+                              <input value={c.label} onChange={e => setBatchPoExtras(prev => prev.map((x,j) => j===idx ? {...x, label: e.target.value} : x))} placeholder="Specify cost..."
+                                style={{ flex: 1, padding: '6px 8px', border: '1px solid #ddd', borderRadius: 6, fontSize: 12, fontFamily: 'inherit' }} />
+                            )}
+                          </div>
+                        </td>
+                        <td style={{ padding: 6 }}>
+                          <input type="number" step="0.01" min="0" value={c.amount} onChange={e => setBatchPoExtras(prev => prev.map((x,j) => j===idx ? {...x, amount: e.target.value} : x))} placeholder="0.00"
+                            style={{ width: '100%', padding: '6px 8px', border: '1px solid #ddd', borderRadius: 6, fontSize: 12, textAlign: 'right', fontFamily: 'inherit' }} />
+                        </td>
+                        <td style={{ textAlign: 'center' }}>
+                          <button className="icon-btn" onClick={() => setBatchPoExtras(prev => prev.filter((_,j) => j!==idx))}><Trash2 size={13} color="#E24B4A" /></button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12, fontSize: 14, fontWeight: 700, color: '#0d1b2a' }}>
+              Grand total: <span style={{ color: '#FFA500', marginLeft: 8 }}>MVR {(batchPoItems.reduce((s,i)=>s+(parseFloat(i.qty||0)*parseFloat(i.order_cost||0)),0) + batchPoExtras.reduce((s,c)=>s+parseFloat(c.amount||0),0)).toFixed(2)}</span>
+            </div>
+          </div>
+
+          <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:16}}>
             <Button variant="ghost" onClick={() => setBatchPoModal(false)}>Cancel</Button>
-            <Button onClick={saveBatchPO} disabled={saving}>{saving?'Creating…':`Create ${batchPoItems.length} purchase orders`}</Button>
+            <Button onClick={saveBatchPO} disabled={saving}>{saving?'Creating…':`Create batch order (${batchPoItems.length} item${batchPoItems.length>1?'s':''})`}</Button>
           </div>
         </Modal>
       )}
@@ -1106,7 +1191,7 @@ export default function SupplierCatalog() {
           <div style={{ display: 'grid', gridTemplateColumns: '420px 1fr', gap: 34, alignItems: 'start' }} className="cat-vm-grid">
             <style>{`@media (max-width: 820px){ .cat-vm-grid { grid-template-columns: 1fr !important; } }`}</style>
             <div style={{ position: 'relative', width: '100%', aspectRatio: '372 / 443', borderRadius: 24, overflow: 'hidden',
-              background: '#fff', padding: 15, boxSizing: 'border-box',
+              background: '#fff', padding: 25, boxSizing: 'border-box',
               boxShadow: 'inset 0 2px 0 rgba(255,255,255,0.95), inset 0 -4px 10px rgba(0,0,0,0.08), 0 10px 30px rgba(13,27,42,0.12)' }}>
               {vm.image_url
                 ? <img src={vm.image_url} alt={vm.product_name} style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#fff', borderRadius: 12 }} onError={e=>e.target.style.display='none'} />
@@ -1176,7 +1261,7 @@ function CatalogGrid({ items, activeSupplier, suppliers, selectMode, selectedIds
           transition: transform .28s cubic-bezier(.2,.7,.3,1), box-shadow .28s; }
         .cat-card:hover .cat-tile { transform: translateY(-6px) scale(1.012); box-shadow: inset 0 1.5px 0 rgba(255,255,255,0.95), 0 16px 34px rgba(13,27,42,0.16); }
         .cat-tile.sel { outline:3px solid #FFA500; outline-offset:2px; }
-        .cat-tile img { width:100%; height:100%; object-fit:contain; background:#fff; display:block; }
+        .cat-tile img { width:100%; height:100%; object-fit:contain; background:#fff; display:block; padding:25px; box-sizing:border-box; }
         .cat-meta { position:absolute; bottom:12px; left:12px; right:12px; display:flex; gap:8px; flex-wrap:wrap; }
         .cat-chip { display:inline-flex; align-items:center; gap:4px; font-size:11.5px; font-weight:700; color:#4a5568; background:rgba(255,255,255,0.9); backdrop-filter:blur(6px); padding:5px 10px; border-radius:999px; box-shadow:0 2px 6px rgba(0,0,0,0.08); }
         .cat-kebab { position:absolute; top:12px; right:12px; display:flex; align-items:center; gap:7px; opacity:0; transition:opacity .2s; }
