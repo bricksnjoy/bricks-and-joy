@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Button, Input, Select, Table, Modal, Spinner, FormRow, useToast, Toasts, Badge } from '../components/UI'
-import { Plus, Trash2, Package, Truck, X, Info, AlertTriangle, CreditCard, Wallet, CheckCircle, Paperclip, Eye, Pencil, LayoutGrid, List, LayoutList } from 'lucide-react'
+import { Plus, Trash2, Package, Truck, X, Info, AlertTriangle, CreditCard, Wallet, CheckCircle, Paperclip, Eye, Pencil, LayoutGrid, List, LayoutList, Clock } from 'lucide-react'
 
 const AVATAR_COLORS = ['#7F77DD', '#1D9E75', '#FFA500', '#378ADD', '#E24B4A', '#0F6E56']
 function avatarColor(name = '') {
@@ -551,6 +551,22 @@ export default function PurchaseOrders() {
     return { main: contact || company, sub: contact ? company : '' }
   }
 
+  // Resolve rich attributes (age, pieces, brand, category) for a PO line item by
+  // connecting it to the inventory product or supplier catalog entry.
+  function productMeta(row) {
+    let src = row.product_id ? products.find(p => p.id === row.product_id) : null
+    if (!src) src = products.find(p => (p.name || '').toLowerCase() === (row.product_name || '').toLowerCase())
+    if (!src) src = supplierCatalog.find(c => (c.product_name || '').toLowerCase() === (row.product_name || '').toLowerCase())
+    if (!src) return {}
+    return {
+      age_range: src.age_range || '',
+      pieces: src.pieces || '',
+      brand: src.brand || '',
+      category: src.category || '',
+      sizes: src.sizes || '',
+    }
+  }
+
   function openEditGroup(group) {
     const anchor = group.anchor
     const productRows = group.rows.filter(r => r.cost_type !== 'extra')
@@ -815,6 +831,10 @@ export default function PurchaseOrders() {
             </button>
           )}
           <div style={{ flex: 1 }} />
+          <button onClick={() => setProductsModal(g)} title="Full history — products, costs & quantities"
+            style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: 8, cursor: 'pointer', padding: '6px 11px', display: 'flex', alignItems: 'center', gap: 5, color: '#666', fontSize: 11, fontWeight: 600, fontFamily: 'inherit' }}>
+            <Clock size={13} /> More
+          </button>
           <button onClick={() => setSlipModal({ ...anchor, slip_url: slipUrl, _anchorId: slipAnchorId })}
             style={{ background: slipUrl ? '#E1F5EE' : '#fff', border: `1px solid ${slipUrl ? '#1D9E75' : '#e0e0e0'}`, borderRadius: 8, cursor: 'pointer', padding: '6px 11px', display: 'flex', alignItems: 'center', gap: 5, color: slipUrl ? '#1D9E75' : '#999', fontSize: 11, fontWeight: 600, fontFamily: 'inherit' }}>
             {slipUrl ? <Eye size={13} /> : <Paperclip size={13} />}{slipUrl ? 'View slip' : 'Attach slip'}
@@ -874,6 +894,7 @@ export default function PurchaseOrders() {
         </div>
         <div style={{ display: 'flex', gap: 6, borderTop: '1px solid #f5f5f5', paddingTop: 10 }}>
           <button onClick={() => openGroupPayModal(g)} title="Record payment" style={{ flex: 1, background: '#FFA500', border: 'none', borderRadius: 8, cursor: 'pointer', padding: '7px 0', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, color: '#fff', fontSize: 11, fontWeight: 700, fontFamily: 'inherit' }}><CreditCard size={13} /> Pay</button>
+          <button onClick={() => setProductsModal(g)} title="Full history" style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: 8, cursor: 'pointer', padding: '7px 10px', display: 'flex', alignItems: 'center', color: '#666' }}><Clock size={14} /></button>
           <button onClick={() => setSlipModal({ ...anchor, slip_url: slipUrl, _anchorId: slipAnchorId })} title={slipUrl ? 'View slip' : 'Attach slip'} style={{ background: slipUrl ? '#E1F5EE' : '#fff', border: `1px solid ${slipUrl ? '#1D9E75' : '#e0e0e0'}`, borderRadius: 8, cursor: 'pointer', padding: '7px 10px', display: 'flex', alignItems: 'center', color: slipUrl ? '#1D9E75' : '#999' }}>{slipUrl ? <Eye size={14} /> : <Paperclip size={14} />}</button>
           <button onClick={() => openEditGroup(g)} title="Edit order" style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: 8, cursor: 'pointer', padding: '7px 10px', display: 'flex', alignItems: 'center', color: '#666' }}><Pencil size={14} /></button>
           <button onClick={() => delGroup(g)} title="Delete order" style={{ background: '#fff', border: '1px solid #f3d6d6', borderRadius: 8, cursor: 'pointer', padding: '7px 10px', display: 'flex', alignItems: 'center', color: '#E24B4A' }}><Trash2 size={14} /></button>
@@ -924,6 +945,7 @@ export default function PurchaseOrders() {
         <td style={{ padding: '10px 12px', verticalAlign: 'middle' }}>{payStatusBadgeForGroup(g)}</td>
         <td style={{ padding: '10px 12px', verticalAlign: 'middle' }}>
           <div style={{ display: 'flex', gap: 5 }}>
+            <button onClick={() => setProductsModal(g)} title="Full history" style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: 7, cursor: 'pointer', padding: 6, display: 'flex', color: '#666' }}><Clock size={13} /></button>
             <button onClick={() => openGroupPayModal(g)} title="Record payment" className="icon-btn primary" style={{ background: '#FFA500', border: 'none', borderRadius: 7, cursor: 'pointer', padding: 6, display: 'flex', color: '#fff' }}><CreditCard size={13} /></button>
             <button onClick={() => setSlipModal({ ...anchor, slip_url: slipUrl, _anchorId: slipAnchorId })} title={slipUrl ? 'View slip' : 'Attach slip'} style={{ background: slipUrl ? '#E1F5EE' : '#fff', border: `1px solid ${slipUrl ? '#1D9E75' : '#e0e0e0'}`, borderRadius: 7, cursor: 'pointer', padding: 6, display: 'flex', color: slipUrl ? '#1D9E75' : '#999' }}>{slipUrl ? <Eye size={13} /> : <Paperclip size={13} />}</button>
             <button onClick={() => openEditGroup(g)} title="Edit order" style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: 7, cursor: 'pointer', padding: 6, display: 'flex', color: '#666' }}><Pencil size={13} /></button>
@@ -1827,43 +1849,73 @@ export default function PurchaseOrders() {
         </Modal>
       )}
 
-      {/* All products in a batch */}
+      {/* Batch history — full product/cost/qty/date/status breakdown */}
       {productsModal && (() => {
         const g = productsModal
-        const productRows = g.rows.filter(r => r.cost_type !== 'extra')
-        const feeRows = g.rows.filter(r => r.cost_type === 'extra')
+        // Most recent first
+        const byNewest = (a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0)
+        const productRows = g.rows.filter(r => r.cost_type !== 'extra').slice().sort(byNewest)
+        const feeRows = g.rows.filter(r => r.cost_type === 'extra').slice().sort(byNewest)
         const sd = supplierDisplay(g.anchor.supplier_id, g.anchor.supplier_name)
+        const statusColors = { pending: { bg: '#FFF8E1', fg: '#b8740a' }, ordered: { bg: '#EAF2FD', fg: '#2f6fc0' }, received: { bg: '#E1F5EE', fg: '#1D9E75' }, cancelled: { bg: '#fef2f2', fg: '#E24B4A' } }
+        const sc = statusColors[g.anchor.status] || statusColors.pending
+        const paid = paidForGroup(g)
         return (
-          <Modal title={`${g.anchor.batch_no || 'Batch order'}`} subtitle={`${sd.main}${sd.sub ? ` · ${sd.sub}` : ''} — ${productRows.length} product${productRows.length === 1 ? '' : 's'} · MVR ${g.total.toFixed(2)}`} onClose={() => setProductsModal(null)} width={620}>
-            <div style={{ border: '1px solid #eee', borderRadius: 10, overflow: 'hidden' }}>
+          <Modal title={`${g.anchor.batch_no || 'Batch order'} · History`} subtitle={`${sd.main}${sd.sub ? ` · ${sd.sub}` : ''} — ${productRows.length} product${productRows.length === 1 ? '' : 's'}`} onClose={() => setProductsModal(null)} width={720}>
+            {/* Summary header */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
+              {[
+                { label: 'Status', node: <span style={{ fontSize: 12, fontWeight: 700, color: sc.fg, background: sc.bg, padding: '2px 9px', borderRadius: 99 }}>{g.anchor.status}</span> },
+                { label: 'Ordered', node: g.anchor.order_date || '—' },
+                { label: 'Expected', node: g.anchor.expected_date || '—' },
+                { label: 'Paid', node: `MVR ${paid.toFixed(2)}` },
+                { label: 'Total', node: `MVR ${g.total.toFixed(2)}` },
+              ].map((s, i) => (
+                <div key={i} style={{ background: '#f8f7f4', borderRadius: 10, padding: '8px 14px', minWidth: 90 }}>
+                  <div style={{ fontSize: 10, color: '#bbb', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 3 }}>{s.label}</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#0d1b2a' }}>{s.node}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Products table (scrollable) */}
+            <div style={{ border: '1px solid #eee', borderRadius: 10, overflow: 'hidden', maxHeight: 380, overflowY: 'auto' }}>
               <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
                 <thead>
-                  <tr style={{ background: '#fafafa' }}>
-                    <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, color: '#999', fontSize: 11, textTransform: 'uppercase' }}>Product</th>
-                    <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, color: '#999', fontSize: 11, textTransform: 'uppercase' }}>Qty</th>
-                    <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, color: '#999', fontSize: 11, textTransform: 'uppercase' }}>Unit</th>
-                    <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, color: '#999', fontSize: 11, textTransform: 'uppercase' }}>Total</th>
+                  <tr style={{ background: '#fafafa', position: 'sticky', top: 0 }}>
+                    {['Product', 'Date', 'Unit', 'Qty', 'Total'].map((h, i) => (
+                      <th key={h} style={{ padding: '8px 12px', textAlign: i > 1 ? 'right' : 'left', fontWeight: 600, color: '#999', fontSize: 11, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {productRows.map(r => (
-                    <tr key={r.id} style={{ borderTop: '1px solid #f5f5f5' }}>
-                      <td style={{ padding: '8px 12px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-                          {r.image_url
-                            ? <img src={r.image_url} alt="" style={{ width: 34, height: 34, objectFit: 'contain', borderRadius: 6, border: '1px solid #f0f0f0', background: '#fff', flexShrink: 0 }} onError={e => e.target.style.display = 'none'} />
-                            : <div style={{ width: 34, height: 34, borderRadius: 6, background: '#f0f0f0', flexShrink: 0 }} />}
-                          <span style={{ fontWeight: 500, color: '#0d1b2a' }}>{r.product_name}</span>
-                        </div>
-                      </td>
-                      <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700 }}>{r.qty}</td>
-                      <td style={{ padding: '8px 12px', textAlign: 'right', color: '#888' }}>MVR {Number(r.unit_cost).toFixed(2)}</td>
-                      <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600 }}>MVR {Number(r.total_cost || r.qty * r.unit_cost).toFixed(2)}</td>
-                    </tr>
-                  ))}
+                  {productRows.map(r => {
+                    const m = productMeta(r)
+                    const chips = [m.brand, m.age_range && `Age ${m.age_range}`, m.pieces && `${m.pieces} pcs`, m.sizes].filter(Boolean)
+                    return (
+                      <tr key={r.id} style={{ borderTop: '1px solid #f5f5f5' }}>
+                        <td style={{ padding: '8px 12px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                            {r.image_url
+                              ? <img src={r.image_url} alt="" style={{ width: 36, height: 36, objectFit: 'contain', borderRadius: 6, border: '1px solid #f0f0f0', background: '#fff', flexShrink: 0 }} onError={e => e.target.style.display = 'none'} />
+                              : <div style={{ width: 36, height: 36, borderRadius: 6, background: '#f0f0f0', flexShrink: 0 }} />}
+                            <div>
+                              <div style={{ fontWeight: 500, color: '#0d1b2a' }}>{r.product_name}</div>
+                              {chips.length > 0 && <div style={{ fontSize: 11, color: '#aaa' }}>{chips.join(' · ')}</div>}
+                            </div>
+                          </div>
+                        </td>
+                        <td style={{ padding: '8px 12px', color: '#888', fontSize: 12, whiteSpace: 'nowrap' }}>{r.order_date || (r.created_at ? new Date(r.created_at).toISOString().split('T')[0] : '—')}</td>
+                        <td style={{ padding: '8px 12px', textAlign: 'right', color: '#888' }}>MVR {Number(r.unit_cost).toFixed(2)}</td>
+                        <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700 }}>{r.qty}</td>
+                        <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600 }}>MVR {Number(r.total_cost || r.qty * r.unit_cost).toFixed(2)}</td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
+
             {feeRows.length > 0 && (
               <div style={{ marginTop: 14 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: '#bbb', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>Additional costs</div>
