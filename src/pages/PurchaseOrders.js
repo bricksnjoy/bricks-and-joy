@@ -362,6 +362,9 @@ export default function PurchaseOrders() {
       supplier_name: anchor.supplier_name || '',
       order_date: anchor.order_date || new Date().toISOString().split('T')[0],
       expected_date: anchor.expected_date || '',
+      // Editable copies of existing product rows
+      existingItems: productRows.map(r => ({ id: r.id, product_name: r.product_name, qty: r.qty, unit_cost: r.unit_cost, image_url: r.image_url, _origQty: r.qty })),
+      removedIds: [],
       newItems: [], // new products to add
       extraCosts: feeRows.map(r => ({ _id: r.id, type: r.product_name, label: '', amount: String(r.unit_cost || '') })),
     })
@@ -370,7 +373,7 @@ export default function PurchaseOrders() {
   async function saveEditGroup() {
     if (!editGroupModal) return
     setSaving(true)
-    const { batchId, supplier_id, supplier_name, order_date, expected_date, newItems, extraCosts } = editGroupModal
+    const { batchId, supplier_id, supplier_name, order_date, expected_date, newItems, existingItems, removedIds } = editGroupModal
 
     // Insert new product rows
     const newRecords = newItems.filter(i => i.product_id && i.qty > 0).map(item => ({
@@ -391,8 +394,24 @@ export default function PurchaseOrders() {
       if (error) { toast.error('Failed to add items: ' + error.message); setSaving(false); return }
     }
 
-    // Update existing extra-cost rows and expected_date on all group rows
-    await supabase.from('purchase_orders').update({ expected_date: expected_date || null }).in('id', editGroupModal.group.rows.map(r => r.id))
+    // Update quantities on existing rows that changed
+    for (const it of existingItems) {
+      if (Number(it.qty) !== Number(it._origQty)) {
+        const qty = parseInt(it.qty) || 0
+        await supabase.from('purchase_orders').update({ qty, total_cost: qty * Number(it.unit_cost || 0) }).eq('id', it.id)
+      }
+    }
+
+    // Remove deleted line items
+    if (removedIds.length > 0) {
+      await supabase.from('purchase_orders').delete().in('id', removedIds)
+    }
+
+    // Update expected_date on all remaining group rows
+    const remainingIds = editGroupModal.group.rows.map(r => r.id).filter(id => !removedIds.includes(id))
+    if (remainingIds.length > 0) {
+      await supabase.from('purchase_orders').update({ expected_date: expected_date || null }).in('id', remainingIds)
+    }
 
     setSaving(false)
     toast.success('Order updated')
@@ -964,38 +983,53 @@ export default function PurchaseOrders() {
               onChange={e => setEditGroupModal(p => ({ ...p, expected_date: e.target.value }))} />
           </div>
 
-          {/* Existing products (read-only) */}
+          {/* Existing products (editable qty + remove) */}
           <div style={{ marginBottom: 16 }}>
             <div style={{ fontSize: 12, fontWeight: 600, color: '#666', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: 8 }}>
-              Existing items ({editGroupModal.group.rows.filter(r => r.cost_type !== 'extra').length})
+              Existing items ({editGroupModal.existingItems.length})
             </div>
+            {editGroupModal.existingItems.length > 0 ? (
             <div style={{ border: '1px solid #eee', borderRadius: 10, overflow: 'hidden' }}>
               <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ background: '#fafafa' }}>
                     <th style={{ padding: '7px 10px', textAlign: 'left', fontWeight: 600, color: '#999', fontSize: 11, textTransform: 'uppercase' }}>Product</th>
-                    <th style={{ padding: '7px 10px', textAlign: 'right', fontWeight: 600, color: '#999', fontSize: 11, textTransform: 'uppercase', width: 70 }}>Qty</th>
+                    <th style={{ padding: '7px 10px', textAlign: 'right', fontWeight: 600, color: '#999', fontSize: 11, textTransform: 'uppercase', width: 90 }}>Qty</th>
                     <th style={{ padding: '7px 10px', textAlign: 'right', fontWeight: 600, color: '#999', fontSize: 11, textTransform: 'uppercase', width: 110 }}>Unit cost</th>
                     <th style={{ padding: '7px 10px', textAlign: 'right', fontWeight: 600, color: '#999', fontSize: 11, textTransform: 'uppercase', width: 100 }}>Total</th>
+                    <th style={{ width: 40 }}></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {editGroupModal.group.rows.filter(r => r.cost_type !== 'extra').map(r => (
-                    <tr key={r.id} style={{ borderTop: '1px solid #f5f5f5' }}>
+                  {editGroupModal.existingItems.map((it, idx) => (
+                    <tr key={it.id} style={{ borderTop: '1px solid #f5f5f5' }}>
                       <td style={{ padding: '7px 10px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                          {r.image_url && <img src={r.image_url} style={{ width: 24, height: 24, objectFit: 'contain', borderRadius: 4 }} onError={e => e.target.style.display='none'} />}
-                          <span style={{ fontWeight: 500, color: '#0d1b2a' }}>{r.product_name}</span>
+                          {it.image_url && <img src={it.image_url} style={{ width: 24, height: 24, objectFit: 'contain', borderRadius: 4 }} onError={e => e.target.style.display='none'} />}
+                          <span style={{ fontWeight: 500, color: '#0d1b2a' }}>{it.product_name}</span>
                         </div>
                       </td>
-                      <td style={{ padding: '7px 10px', textAlign: 'right', color: '#555' }}>×{r.qty}</td>
-                      <td style={{ padding: '7px 10px', textAlign: 'right', color: '#555' }}>MVR {Number(r.unit_cost).toFixed(2)}</td>
-                      <td style={{ padding: '7px 10px', textAlign: 'right', fontWeight: 600 }}>MVR {(r.qty * r.unit_cost).toFixed(2)}</td>
+                      <td style={{ padding: 6 }}>
+                        <input type="number" min="1" value={it.qty}
+                          onChange={e => setEditGroupModal(p => ({ ...p, existingItems: p.existingItems.map((x,i) => i===idx ? {...x, qty: e.target.value} : x) }))}
+                          style={{ width:'100%', padding:'6px 8px', border:'1px solid #ddd', borderRadius:6, fontSize:12, fontFamily:'inherit', textAlign:'right' }} />
+                      </td>
+                      <td style={{ padding: '7px 10px', textAlign: 'right', color: '#555' }}>MVR {Number(it.unit_cost).toFixed(2)}</td>
+                      <td style={{ padding: '7px 10px', textAlign: 'right', fontWeight: 600 }}>MVR {(parseFloat(it.qty||0) * Number(it.unit_cost||0)).toFixed(2)}</td>
+                      <td style={{ textAlign: 'center' }}>
+                        <button onClick={() => setEditGroupModal(p => ({ ...p, existingItems: p.existingItems.filter((_,i) => i!==idx), removedIds: [...p.removedIds, it.id] }))}
+                          title="Remove item" style={{ background:'none', border:'none', cursor:'pointer', color:'#c62828', padding:4 }}>
+                          <Trash2 size={13} />
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+            ) : (
+              <div style={{ textAlign: 'center', padding: '14px 0', color: '#E24B4A', fontSize: 12, background: '#fef6f6', borderRadius: 8 }}>All items removed — add new items below or deleting will empty this order</div>
+            )}
           </div>
 
           {/* New items to add */}
