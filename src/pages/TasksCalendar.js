@@ -140,7 +140,7 @@ export default function TasksCalendar() {
         .summary-card { transition: box-shadow 0.15s, transform 0.15s; }
         .summary-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.06); transform: translateY(-1px); }
         .event-label { display: flex; align-items: center; gap: 3px; }
-        @media (max-width: 768px) { .cal-cell { min-height: 60px; padding: 4px; } .cal-cell .event-label { display: none; } }
+        @media (max-width: 768px) { .cal-cell { min-height: 60px; padding: 4px; } .cal-cell .event-label { display: none; } .cal-split { grid-template-columns: 1fr !important; } }
       `}</style>
 
       <PageHeader title="Tasks & Calendar"
@@ -176,7 +176,7 @@ export default function TasksCalendar() {
 
         {/* ── CALENDAR ── */}
         {activeTab === 'calendar' && (
-          <div style={{ display: 'grid', gridTemplateColumns: selectedDay ? '1fr 300px' : '1fr', gap: 16 }}>
+          <div className="cal-split" style={{ display: 'grid', gridTemplateColumns: selectedDay ? '1fr 300px' : '1fr', gap: 16 }}>
             <Card style={{ padding: 0, overflow: 'hidden' }}>
               {/* Month nav */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', borderBottom: '1px solid #f0f0f0' }}>
@@ -294,7 +294,7 @@ export default function TasksCalendar() {
 
         {/* ── TASK LIST ── */}
         {activeTab === 'tasks' && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', gap: 16 }}>
+          <div className="cal-split" style={{ display: 'grid', gridTemplateColumns: '1fr 280px', gap: 16 }}>
             <Card>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                 <h3 style={{ fontSize: 14, fontWeight: 700, color: '#0d1b2a', margin: 0 }}>Pending tasks ({pendingTasks.length})</h3>
