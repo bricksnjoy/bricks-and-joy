@@ -543,6 +543,16 @@ export default function PurchaseOrders() {
     load()
   }
 
+  // Delete the whole batch's payment transaction (all underlying payment records)
+  async function deletePaymentGroup(group) {
+    const ids = group.payments.map(p => p.id)
+    if (!window.confirm(`Delete this payment of MVR ${group.totalPaid.toFixed(2)}${ids.length > 1 ? ` (${ids.length} records)` : ''}? The order will become payable again.`)) return
+    const { error } = await supabase.from('supplier_payments').delete().in('id', ids)
+    if (error) { toast.error('Failed to delete payment'); return }
+    toast.success('Payment deleted — order is payable again')
+    load()
+  }
+
   const [editGroupModal, setEditGroupModal] = useState(null) // group being edited
 
   // Resolve contact name (primary) and company name (sub) from a supplier_id or supplier_name
@@ -838,31 +848,25 @@ export default function PurchaseOrders() {
           </div>
         </div>
 
-        {/* Products + fees */}
-        <div style={{ padding: '14px 16px' }}>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {productRows.map(r => (
-              <div key={r.id} title={r.product_name} style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#fafafa', border: '1px solid #f0f0f0', borderRadius: 9, padding: '4px 11px 4px 4px' }}>
-                {r.image_url
-                  ? <img src={r.image_url} alt="" style={{ width: 30, height: 30, objectFit: 'contain', borderRadius: 6, background: '#fff', flexShrink: 0 }} onError={e => e.target.style.display = 'none'} />
-                  : <div style={{ width: 30, height: 30, borderRadius: 6, background: '#eee', flexShrink: 0 }} />}
-                <span style={{ fontSize: 12.5, fontWeight: 500, color: '#0d1b2a', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.product_name}</span>
-                <span style={{ fontSize: 11, fontWeight: 800, color: '#FFA500' }}>×{r.qty}</span>
-              </div>
+        {/* Products preview — compact thumbnail strip */}
+        <div onClick={() => setProductsModal(g)} title="View all products & costs"
+          style={{ padding: '11px 16px', display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, flex: 1, minWidth: 0, overflow: 'hidden' }}>
+            {productRows.slice(0, 14).map(r => (
+              r.image_url
+                ? <img key={r.id} src={r.image_url} alt="" title={`${r.product_name} ×${r.qty}`} style={{ width: 30, height: 30, objectFit: 'contain', borderRadius: 7, border: '1px solid #f0f0f0', background: '#fff', flexShrink: 0 }} onError={e => e.target.style.display = 'none'} />
+                : <div key={r.id} title={r.product_name} style={{ width: 30, height: 30, borderRadius: 7, background: '#f2f2f2', flexShrink: 0 }} />
             ))}
+            {productRows.length > 14 && <span style={{ fontSize: 12, color: '#888', fontWeight: 700, flexShrink: 0, marginLeft: 2 }}>+{productRows.length - 14}</span>}
           </div>
           {feeRows.length > 0 && (
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
-              {feeRows.map(f => (
-                <span key={f.id} style={{ fontSize: 11, fontWeight: 600, color: '#b8740a', background: '#FFF3D6', padding: '3px 9px', borderRadius: 99 }}>
-                  {f.product_name} · MVR {Number(f.unit_cost).toFixed(2)}
-                </span>
-              ))}
-            </div>
+            <span style={{ fontSize: 11, fontWeight: 600, color: '#b8740a', background: '#FFF3D6', padding: '3px 9px', borderRadius: 99, flexShrink: 0, whiteSpace: 'nowrap' }}>
+              +{feeRows.length} cost{feeRows.length > 1 ? 's' : ''} · MVR {feeRows.reduce((s, f) => s + Number(f.total_cost || f.unit_cost || 0), 0).toFixed(2)}
+            </span>
           )}
-          <button onClick={() => setProductsModal(g)} style={{ marginTop: 12, background: 'none', border: 'none', cursor: 'pointer', color: '#FFA500', fontSize: 12, fontWeight: 700, fontFamily: 'inherit', padding: 0, display: 'flex', alignItems: 'center', gap: 4 }}>
-            <Eye size={13} /> View all {productRows.length} product{productRows.length === 1 ? '' : 's'}
-          </button>
+          <span style={{ color: '#FFA500', fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 4 }}>
+            <Eye size={13} /> View all {productRows.length}
+          </span>
         </div>
 
         {/* Action bar */}
@@ -1543,18 +1547,22 @@ export default function PurchaseOrders() {
               <tbody>
                 {paymentGroups.map(group => {
                   const { grp, payments, totalPaid, slips, methods, references, latestDate, sd, batchNo, key } = group
-                  const multi = payments.length > 1
                   const expanded = expandedPay.has(key)
                   const toggle = () => setExpandedPay(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n })
-                  const single = payments[0]
+                  // The "transaction" is edited via its main payment (the one holding the slip / largest amount)
+                  const primary = [...payments].sort((a, b) => (b.slips?.length || 0) - (a.slips?.length || 0) || Number(b.amount) - Number(a.amount))[0]
+                  const productRows = grp ? grp.rows.filter(r => r.cost_type !== 'extra') : []
+                  const feeRows = grp ? grp.rows.filter(r => r.cost_type === 'extra') : []
+                  const productsSubtotal = productRows.reduce((s, r) => s + Number(r.total_cost || 0), 0)
+                  const productQty = productRows.reduce((s, r) => s + Number(r.qty || 0), 0)
                   return (
                     <React.Fragment key={key}>
                     <tr style={{ borderBottom: expanded ? 'none' : '1px solid #f5f5f5' }}>
-                      <td style={{ padding: '9px 12px', color: '#888', fontSize: 12 }}>{latestDate}{multi && <div style={{ fontSize: 10.5, color: '#bbb' }}>{payments.length} payments</div>}</td>
+                      <td style={{ padding: '9px 12px', color: '#888', fontSize: 12 }}>{latestDate}</td>
                       <td style={{ padding: '9px 12px' }}>
                         {batchNo
                           ? <button onClick={() => grp && setProductsModal(grp)} disabled={!grp} title={grp ? 'View all products & costs in this batch' : ''}
-                              style={{ fontSize: 11, fontWeight: 700, color: '#7F77DD', background: '#7F77DD18', padding: '3px 9px', borderRadius: 99, border: 'none', cursor: grp ? 'pointer' : 'default', fontFamily: 'inherit' }}>{batchNo}{grp ? ` · ${grp.rows.filter(r => r.cost_type !== 'extra').length}` : ''}</button>
+                              style={{ fontSize: 11, fontWeight: 700, color: '#7F77DD', background: '#7F77DD18', padding: '3px 9px', borderRadius: 99, border: 'none', cursor: grp ? 'pointer' : 'default', fontFamily: 'inherit' }}>{batchNo}{grp ? ` · ${productRows.length}` : ''}</button>
                           : <span style={{ color: '#ddd', fontSize: 12 }}>—</span>}
                       </td>
                       <td style={{ padding: '9px 12px', fontWeight: 500 }}><div>{sd.main}</div>{sd.sub && <div style={{fontSize:11,color:'#aaa'}}>{sd.sub}</div>}</td>
@@ -1568,7 +1576,7 @@ export default function PurchaseOrders() {
                           </div>
                         ) : <span style={{ color: '#ddd', fontSize: 12 }}>—</span>}
                       </td>
-                      <td style={{ padding: '9px 12px', fontWeight: 700, color: '#1D9E75' }}>MVR {totalPaid.toFixed(2)}{multi && <div style={{ fontSize: 10.5, color: '#bbb', fontWeight: 500 }}>across {payments.length}</div>}</td>
+                      <td style={{ padding: '9px 12px', fontWeight: 700, color: '#1D9E75' }}>MVR {totalPaid.toFixed(2)}</td>
                       <td style={{ padding: '9px 12px', fontSize: 12 }}><span style={{ background: '#f5f5f5', padding: '2px 8px', borderRadius: 99, fontWeight: 500 }}>{methods.length === 1 ? methods[0] : (methods.length === 0 ? '—' : 'Multiple')}</span></td>
                       <td style={{ padding: '9px 12px', color: '#aaa', fontSize: 11 }}>{references[0] || '—'}</td>
                       <td style={{ padding: '9px 12px' }}>
@@ -1582,57 +1590,49 @@ export default function PurchaseOrders() {
                       </td>
                       <td style={{ padding: '9px 12px' }}>
                         <div style={{ display: 'flex', gap: 5, justifyContent: 'flex-end' }}>
-                          {multi ? (
-                            <button onClick={toggle} title={expanded ? 'Hide individual payments' : 'Show individual payments'}
-                              style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: 7, cursor: 'pointer', padding: '6px 9px', display: 'flex', alignItems: 'center', gap: 4, color: '#666', fontSize: 11, fontWeight: 600, fontFamily: 'inherit' }}>
-                              <ChevronDown size={13} style={{ transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} /> {payments.length}
-                            </button>
-                          ) : (
-                            <>
-                              <button onClick={() => openEditPayment(single)} title="Edit payment / add costs"
-                                style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: 7, cursor: 'pointer', padding: 6, display: 'flex', color: '#666' }}>
-                                <Pencil size={13} />
-                              </button>
-                              <button onClick={() => deletePaymentRecord(single)} title="Delete payment"
-                                style={{ background: '#fff', border: '1px solid #f3d6d6', borderRadius: 7, cursor: 'pointer', padding: 6, display: 'flex', color: '#E24B4A' }}>
-                                <Trash2 size={13} />
-                              </button>
-                            </>
-                          )}
+                          <button onClick={toggle} title={expanded ? 'Hide details' : 'Show products & cost breakdown'}
+                            style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: 7, cursor: 'pointer', padding: '6px 8px', display: 'flex', alignItems: 'center', color: '#666' }}>
+                            <ChevronDown size={13} style={{ transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} />
+                          </button>
+                          <button onClick={() => openEditPayment(primary)} title="Edit payment / add costs"
+                            style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: 7, cursor: 'pointer', padding: 6, display: 'flex', color: '#666' }}>
+                            <Pencil size={13} />
+                          </button>
+                          <button onClick={() => deletePaymentGroup(group)} title="Delete payment"
+                            style={{ background: '#fff', border: '1px solid #f3d6d6', borderRadius: 7, cursor: 'pointer', padding: 6, display: 'flex', color: '#E24B4A' }}>
+                            <Trash2 size={13} />
+                          </button>
                         </div>
                       </td>
                     </tr>
-                    {multi && expanded && payments.map(p => (
-                      <tr key={p.id} style={{ borderBottom: '1px solid #f5f5f5', background: '#fcfcfc' }}>
-                        <td style={{ padding: '7px 12px', color: '#888', fontSize: 12 }}>{p.payment_date}</td>
-                        <td style={{ padding: '7px 12px', color: '#ccc', fontSize: 13, textAlign: 'right' }}>↳</td>
-                        <td style={{ padding: '7px 12px', color: '#aaa', fontSize: 11 }}>{p.notes || ''}</td>
-                        <td></td>
-                        <td style={{ padding: '7px 12px', fontWeight: 600, color: '#1D9E75' }}>MVR {Number(p.amount).toFixed(2)}</td>
-                        <td style={{ padding: '7px 12px', fontSize: 12 }}><span style={{ background: '#f5f5f5', padding: '2px 8px', borderRadius: 99, fontWeight: 500 }}>{p.payment_method}</span></td>
-                        <td style={{ padding: '7px 12px', color: '#aaa', fontSize: 11 }}>{p.reference || '—'}</td>
-                        <td style={{ padding: '7px 12px' }}>
-                          {Array.isArray(p.slips) && p.slips.length > 0 ? (
-                            <button onClick={() => setViewSlips({ slips: p.slips, title: `Payslips · MVR ${Number(p.amount).toFixed(2)}` })}
-                              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#E1F5EE', border: '1px solid #bfe6d6', borderRadius: 99, padding: '3px 9px', cursor: 'pointer', color: '#1D9E75', fontSize: 11, fontWeight: 600, fontFamily: 'inherit' }}>
-                              <Paperclip size={11} /> {p.slips.length}
-                            </button>
-                          ) : <span style={{ color: '#ddd', fontSize: 12 }}>—</span>}
-                        </td>
-                        <td style={{ padding: '7px 12px' }}>
-                          <div style={{ display: 'flex', gap: 5, justifyContent: 'flex-end' }}>
-                            <button onClick={() => openEditPayment(p)} title="Edit payment / add costs"
-                              style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: 7, cursor: 'pointer', padding: 6, display: 'flex', color: '#666' }}>
-                              <Pencil size={13} />
-                            </button>
-                            <button onClick={() => deletePaymentRecord(p)} title="Delete payment"
-                              style={{ background: '#fff', border: '1px solid #f3d6d6', borderRadius: 7, cursor: 'pointer', padding: 6, display: 'flex', color: '#E24B4A' }}>
-                              <Trash2 size={13} />
-                            </button>
+                    {expanded && (
+                      <tr style={{ borderBottom: '1px solid #f5f5f5', background: '#fcfcfc' }}>
+                        <td colSpan={9} style={{ padding: '4px 16px 14px 40px' }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: '#bbb', textTransform: 'uppercase', letterSpacing: '0.4px', margin: '8px 0 8px' }}>This transaction covers</div>
+                          <div style={{ maxWidth: 460, display: 'flex', flexDirection: 'column', gap: 7 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5 }}>
+                              <span style={{ color: '#555' }}>Products · {productQty} item{productQty === 1 ? '' : 's'} ({productRows.length} line{productRows.length === 1 ? '' : 's'})</span>
+                              <span style={{ fontWeight: 600, color: '#0d1b2a' }}>MVR {productsSubtotal.toFixed(2)}</span>
+                            </div>
+                            {feeRows.map(f => (
+                              <div key={f.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5 }}>
+                                <span style={{ color: '#b8740a' }}>{f.product_name}</span>
+                                <span style={{ fontWeight: 600, color: '#0d1b2a' }}>MVR {Number(f.total_cost || f.unit_cost || 0).toFixed(2)}</span>
+                              </div>
+                            ))}
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, borderTop: '1px solid #eee', paddingTop: 7 }}>
+                              <span style={{ fontWeight: 700, color: '#0d1b2a' }}>Total</span>
+                              <span style={{ fontWeight: 700, color: '#FFA500' }}>MVR {(grp ? grp.total : totalPaid).toFixed(2)}</span>
+                            </div>
+                            {grp && (
+                              <button onClick={() => setProductsModal(grp)} style={{ alignSelf: 'flex-start', marginTop: 2, background: 'none', border: 'none', cursor: 'pointer', color: '#FFA500', fontSize: 12, fontWeight: 700, fontFamily: 'inherit', padding: 0, display: 'flex', alignItems: 'center', gap: 4 }}>
+                                <Eye size={13} /> View all products & costs
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
-                    ))}
+                    )}
                     </React.Fragment>
                   )
                 })}
