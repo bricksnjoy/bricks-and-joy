@@ -180,21 +180,40 @@ export function generateCampaignPlan({ name, dateISO, leadDays = 90 }, catalog =
 
   const matchCount = stockUpExisting.length
   const summary = preset
-    ? `${name} is a high-opportunity occasion. People shop for ${kw.slice(0, 4).join(', ')}. ` +
+    ? `${name} is a high-opportunity occasion for a toy shop. Shoppers look for ${kw.slice(0, 4).join(', ')}. ` +
       (matchCount
-        ? `You already carry ${matchCount} matching product${matchCount === 1 ? '' : 's'} — make sure ${matchCount === 1 ? 'it is' : 'they are'} well stocked and front-and-centre. `
-        : `You don't carry obvious ${name} products yet — bringing some in could open a new revenue stream. `) +
+        ? `You already carry ${matchCount} matching toy${matchCount === 1 ? '' : 's'} — make sure ${matchCount === 1 ? 'it is' : 'they are'} well stocked and front-and-centre. `
+        : `You don't carry obvious ${name} toys yet — bringing some in could open a new revenue stream. `) +
       `Start prep ~${leadDays} days ahead so stock arrives in time.`
-    : `Plan for ${name}: feature your best-sellers, build a themed bundle, and start promoting ~${leadDays} days ahead so everything is ready on the day.`
+    : `Plan for ${name}: feature your best-selling toys, build a themed gift bundle, and start promoting ~${leadDays} days ahead so everything is ready on the day.`
+
+  // Evergreen toy-trend pointers (the Claude generator replaces these with live ones)
+  const trending = [
+    `Check TikTok & Instagram Reels for viral ${name} toy ideas trending right now`,
+    `Watch what big brands (LEGO, Mattel, Hot Wheels) push for ${name} and ride the wave`,
+    `Building sets & collectibles tied to current movies/shows tend to spike this season`,
+    `"Blind box" surprise toys and sensory/fidget toys keep selling fast`,
+  ]
+
+  // How the campaign should actually run, phase by phase
+  const howToRun = [
+    `Phase 1 (≈${leadDays}–45 days out): Lock in stock — order your hero ${name} toys from suppliers.`,
+    `Phase 2 (45–21 days out): Build gift bundles, set pricing/discounts, shoot product photos & reels.`,
+    `Phase 3 (21–7 days out): Tease on social, email subscribers, and start light promos.`,
+    `Phase 4 (final week): Go all-in — daily posts/stories, countdown deals, eye-catching in-store display.`,
+    `Phase 5 (the day): Flash deals on best-sellers, free gift wrap, and capture customer photos for next year.`,
+  ]
 
   return {
     themeName: preset ? preset.name : name,
     emoji: theme.emoji,
     summary,
+    trending,
     stockUpExisting,
-    stockUpNew: theme.stockUpNew || [],
+    newProducts: (theme.stockUpNew || []).map(s => ({ name: s })),
     packages: theme.packages || [],
     marketing: theme.marketing || [],
+    howToRun,
     checklist,
     generatedAt: new Date().toISOString(),
     source: 'built-in',

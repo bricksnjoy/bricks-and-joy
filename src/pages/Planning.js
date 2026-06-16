@@ -4,10 +4,11 @@ import { sendEmailJS, BNJ_EMAIL } from '../lib/email'
 import { PageHeader, Card, Button, Input, Modal, Spinner, useToast, Toasts } from '../components/UI'
 import {
   Plus, Trash2, Edit2, Mail, CheckCircle, Circle, Sparkles, RefreshCw,
-  Package, Megaphone, ShoppingBag, Calendar, AlertTriangle, X, Bot
+  Package, Megaphone, Calendar, AlertTriangle, Bot, TrendingUp, Globe, Route
 } from 'lucide-react'
 import {
   OCCASION_LIBRARY, generateCampaignPlan, campaignStatus, nextOccurrence,
+  detectOccasion, addDays, toISODate,
 } from '../lib/campaignEngine'
 
 const LS_KEY = 'bnj_campaigns_v1'
@@ -29,17 +30,22 @@ function checklistProgress(plan) {
   return { done, total: list.length, pct: list.length ? Math.round(done / list.length * 100) : 0 }
 }
 
+const npName = x => (typeof x === 'string' ? x : x?.name || '')
+
 function buildEmailBody(camp, st, plan) {
+  const trend = (plan?.trending || []).slice(0, 5).map(s => `• ${s}`).join('\n')
   const items = (plan?.stockUpExisting || []).slice(0, 8).map(p => `• ${p.name}${p.inInventory ? '' : ' (not in inventory yet)'}`).join('\n')
-  const newIdeas = (plan?.stockUpNew || []).slice(0, 6).map(s => `• ${s}`).join('\n')
+  const newIdeas = (plan?.newProducts || []).slice(0, 6).map(s => `• ${npName(s)}${s.where ? ` — ${s.where}` : ''}`).join('\n')
+  const run = (plan?.howToRun || []).slice(0, 6).map(s => `• ${s}`).join('\n')
   const next = (plan?.checklist || []).filter(c => !c.done).slice(0, 5).map(c => `☐ ${c.text} (by ${fmt(c.due)})`).join('\n')
   return [
     `${plan?.emoji || ''} ${camp.name} is coming up on ${fmt(st.occ)} — about ${st.daysUntil} days away.`,
     ``,
     plan?.summary || '',
-    ``,
-    items ? `STOCK UP ON (you already carry):\n${items}` : '',
-    newIdeas ? `\nNEW PRODUCTS TO CONSIDER:\n${newIdeas}` : '',
+    trend ? `\nTRENDING NOW:\n${trend}` : '',
+    items ? `\nSTOCK UP ON (you already carry):\n${items}` : '',
+    newIdeas ? `\nNEW PRODUCTS TO BRING IN:\n${newIdeas}` : '',
+    run ? `\nHOW TO RUN IT:\n${run}` : '',
     next ? `\nNEXT STEPS:\n${next}` : '',
     ``,
     `— Brick's & Joy Planning`,
@@ -97,6 +103,48 @@ export default function Planning() {
     })()
   }, [loading])
 
+  // Try Claude (web-search, toy-aware) first; fall back to the built-in generator
+  async function buildPlan(name, dateISO, leadDays) {
+    try {
+      const slim = catalog.slice(0, 150).map(p => ({
+        name: p.product_name, category: p.category,
+        inInventory: inventoryNames.has((p.product_name || '').toLowerCase().trim()),
+      }))
+      const { data, error } = await supabase.functions.invoke('campaign-ai', { body: { name, dateISO, leadDays, catalog: slim } })
+      if (error || !data || data.error || !data.summary) throw new Error('ai unavailable')
+      return normalizeAiPlan(data, name, dateISO, leadDays)
+    } catch {
+      return generateCampaignPlan({ name, dateISO, leadDays }, catalog, inventoryNames)
+    }
+  }
+
+  function normalizeAiPlan(ai, name, dateISO, leadDays) {
+    const occ = nextOccurrence(dateISO) || new Date()
+    const stockUpExisting = (ai.stockUpExisting || []).map(n => {
+      const key = String(n).toLowerCase().trim()
+      const p = catalog.find(c => (c.product_name || '').toLowerCase().trim() === key)
+      return { name: p?.product_name || n, supplier: p?.supplier_name || '', cost: p?.cost_price || null, inInventory: inventoryNames.has(key) }
+    })
+    const checklist = (ai.checklist || []).map((c, i) => ({
+      id: 'c' + i, text: c.text || String(c),
+      due: toISODate(addDays(occ, -(Number(c.offsetDays) || 0))), done: false,
+    }))
+    return {
+      themeName: name,
+      emoji: detectOccasion(name)?.emoji || '🧸',
+      summary: ai.summary || '',
+      trending: ai.trending || [],
+      stockUpExisting,
+      newProducts: (ai.newProducts || []).map(x => (typeof x === 'string' ? { name: x } : x)),
+      packages: ai.packages || [],
+      marketing: ai.marketing || [],
+      howToRun: ai.howToRun || [],
+      checklist,
+      generatedAt: new Date().toISOString(),
+      source: 'claude',
+    }
+  }
+
   const isLocalRec = c => usingLocal || String(c.id).startsWith('local-')
 
   async function patch(camp, changes) {
@@ -141,7 +189,7 @@ export default function Planning() {
     if (!form.date) { toast.error('Pick the date'); return }
     setSaving(true)
     const leadDays = Number(form.lead_days) || 90
-    const plan = generateCampaignPlan({ name: form.name.trim(), dateISO: form.date, leadDays }, catalog, inventoryNames)
+    const plan = await buildPlan(form.name.trim(), form.date, leadDays)
     // Preserve checklist completion when editing
     if (editing?.plan?.checklist) {
       const doneByText = new Set(editing.plan.checklist.filter(c => c.done).map(c => c.text))
@@ -180,12 +228,15 @@ export default function Planning() {
     setAddModal(false)
   }
 
+  const [regenId, setRegenId] = useState(null)
   async function regenerate(camp) {
-    const plan = generateCampaignPlan({ name: camp.name, dateISO: camp.occasion_date, leadDays: camp.lead_days || 90 }, catalog, inventoryNames)
+    setRegenId(camp.id)
+    const plan = await buildPlan(camp.name, camp.occasion_date, camp.lead_days || 90)
     const doneByText = new Set((camp.plan?.checklist || []).filter(c => c.done).map(c => c.text))
     plan.checklist = plan.checklist.map(c => doneByText.has(c.text) ? { ...c, done: true } : c)
     await patch(camp, { plan, emoji: plan.emoji })
-    toast.success('Plan regenerated from your latest catalog')
+    setRegenId(null)
+    toast.success(plan.source === 'claude' ? 'Plan regenerated with Claude AI + live trends' : 'Plan regenerated (built-in)')
   }
 
   async function remove(camp) {
@@ -336,11 +387,25 @@ export default function Planning() {
         const prog = checklistProgress(plan)
         return (
           <Modal title={`${camp.emoji || ''} ${camp.name}`} subtitle={`${fmt(st.occ)} · ${st.daysUntil} days away · prep from ${fmt(st.prepDate)}`} onClose={() => setPlanModal(null)} width={720}>
+            {/* source badge */}
+            <div style={{ marginBottom: 12 }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 99,
+                background: plan.source === 'claude' ? '#EEF0FF' : '#f0f0f0', color: plan.source === 'claude' ? '#5b5bd6' : '#888' }}>
+                <Bot size={12} /> {plan.source === 'claude' ? 'Generated by Claude AI · live trends' : 'Built-in plan'}
+              </span>
+            </div>
+
             {/* summary */}
             <div style={{ background: '#FFF8E0', border: '1px solid #FAEEDA', borderRadius: 12, padding: '14px 16px', marginBottom: 18, display: 'flex', gap: 10 }}>
-              <Bot size={18} color="#FFA500" style={{ flexShrink: 0, marginTop: 1 }} />
+              <Sparkles size={18} color="#FFA500" style={{ flexShrink: 0, marginTop: 1 }} />
               <div style={{ fontSize: 13, color: '#7a5b13', lineHeight: 1.55 }}>{plan.summary}</div>
             </div>
+
+            {(plan.trending || []).length > 0 && (
+              <Section icon={TrendingUp} title="Trending now">
+                <ul style={ulStyle}>{plan.trending.map((s, i) => <li key={i} style={liStyle}>{s}</li>)}</ul>
+              </Section>
+            )}
 
             <Section icon={Package} title={`Stock up — products you already carry (${(plan.stockUpExisting || []).length})`}>
               {(plan.stockUpExisting || []).length === 0
@@ -356,8 +421,21 @@ export default function Planning() {
                   </div>}
             </Section>
 
-            <Section icon={ShoppingBag} title="New products to consider bringing">
-              <ul style={ulStyle}>{(plan.stockUpNew || []).map((s, i) => <li key={i} style={liStyle}>{s}</li>)}</ul>
+            <Section icon={Globe} title="New products to bring in (from around the web)">
+              {(plan.newProducts || []).length === 0
+                ? <Empty text="No suggestions." />
+                : <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+                    {plan.newProducts.map((s, i) => {
+                      const it = typeof s === 'string' ? { name: s } : s
+                      return (
+                        <div key={i} style={{ fontSize: 13, color: '#0d1b2a' }}>
+                          <span style={{ fontWeight: 600 }}>{it.name}</span>
+                          {it.why && <span style={{ color: '#777' }}> — {it.why}</span>}
+                          {it.where && <div style={{ fontSize: 11.5, color: '#5b5bd6', marginTop: 1 }}>Source: {it.where}</div>}
+                        </div>
+                      )
+                    })}
+                  </div>}
             </Section>
 
             <Section icon={Sparkles} title="Package & bundle ideas">
@@ -367,6 +445,12 @@ export default function Planning() {
             <Section icon={Megaphone} title="Marketing & posts to bring in customers">
               <ul style={ulStyle}>{(plan.marketing || []).map((s, i) => <li key={i} style={liStyle}>{s}</li>)}</ul>
             </Section>
+
+            {(plan.howToRun || []).length > 0 && (
+              <Section icon={Route} title="How to run the campaign">
+                <ul style={ulStyle}>{plan.howToRun.map((s, i) => <li key={i} style={liStyle}>{s}</li>)}</ul>
+              </Section>
+            )}
 
             {/* checklist */}
             <div style={{ marginTop: 8, marginBottom: 16 }}>
@@ -386,7 +470,7 @@ export default function Planning() {
             </div>
 
             <div style={{ display: 'flex', gap: 10, justifyContent: 'space-between', alignItems: 'center' }}>
-              <Button variant="ghost" onClick={() => regenerate(camp)} title="Rebuild from your latest catalog"><RefreshCw size={13} /> Regenerate</Button>
+              <Button variant="ghost" onClick={() => regenerate(camp)} disabled={regenId === camp.id} title="Rebuild with Claude AI + live trends"><RefreshCw size={13} /> {regenId === camp.id ? 'Regenerating…' : 'Regenerate'}</Button>
               <div style={{ display: 'flex', gap: 10 }}>
                 <Button variant="ghost" onClick={() => emailPlan(camp)}><Mail size={13} /> Email plan</Button>
                 <Button onClick={() => setPlanModal(null)}>Done</Button>
