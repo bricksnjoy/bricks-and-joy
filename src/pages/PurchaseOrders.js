@@ -20,6 +20,8 @@ function Avatar({ name, size = 30 }) {
   )
 }
 
+const COST_TYPES = ['Alibaba transaction charge', 'China local delivery', 'Shipping / Freight', 'Customs / Duty', 'Other']
+
 const STATUSES = [
   { value: 'pending', label: 'Pending' },
   { value: 'ordered', label: 'Ordered' },
@@ -39,6 +41,7 @@ export default function PurchaseOrders() {
   const [payForm, setPayForm] = useState({ amount: '', payment_date: new Date().toISOString().split('T')[0], payment_method: 'Bank Transfer', reference: '', notes: '', slips: [] })
   const [paymentsTab, setPaymentsTab] = useState(false)
   const [viewSlips, setViewSlips] = useState(null) // { slips: [...], title } for fullscreen viewer
+  const [viewTab, setViewTab] = useState('ongoing') // 'ongoing' | 'history'
   const [batchForm, setBatchForm] = useState({ supplier_id: '', supplier_name: '', order_date: new Date().toISOString().split('T')[0], expected_date: '', items: [], extraCosts: [] })
   const [supplierForm, setSupplierForm] = useState({ name: '', contact_name: '', email: '', phone: '', address: '' })
   const [saving, setSaving] = useState(false)
@@ -401,7 +404,11 @@ export default function PurchaseOrders() {
       existingItems: productRows.map(r => ({ id: r.id, product_name: r.product_name, qty: r.qty, unit_cost: r.unit_cost, image_url: r.image_url, _origQty: r.qty })),
       removedIds: [],
       newItems: [], // new products to add
-      extraCosts: feeRows.map(r => ({ _id: r.id, type: r.product_name, label: '', amount: String(r.unit_cost || '') })),
+      extraCosts: feeRows.map(r => {
+        const isPreset = COST_TYPES.includes(r.product_name)
+        return { _id: r.id, type: isPreset ? r.product_name : 'Other', label: isPreset ? '' : (r.product_name || ''), amount: String(r.unit_cost || '') }
+      }),
+      removedCostIds: [],
     })
   }
 
@@ -446,6 +453,37 @@ export default function PurchaseOrders() {
     // Remove deleted line items
     if (removedIds.length > 0) {
       await supabase.from('purchase_orders').delete().in('id', removedIds)
+    }
+
+    // Extra costs: update existing fee rows, insert new ones, delete removed/zeroed
+    const status = editGroupModal.group.anchor.status || 'pending'
+    for (const c of (editGroupModal.extraCosts || [])) {
+      const amount = parseFloat(c.amount || 0)
+      const name = c.type === 'Other' ? (c.label || 'Other cost') : c.type
+      if (c._id) {
+        if (amount > 0) {
+          await supabase.from('purchase_orders').update({ product_name: name, qty: 1, unit_cost: amount }).eq('id', c._id)
+        } else {
+          await supabase.from('purchase_orders').delete().eq('id', c._id)
+        }
+      } else if (amount > 0) {
+        await supabase.from('purchase_orders').insert({
+          supplier_id: supplier_id || null,
+          supplier_name,
+          product_id: null,
+          product_name: name,
+          qty: 1,
+          unit_cost: amount,
+          status,
+          order_date,
+          expected_date: expected_date || null,
+          cost_type: 'extra',
+          batch_id: batchId,
+        })
+      }
+    }
+    if ((editGroupModal.removedCostIds || []).length > 0) {
+      await supabase.from('purchase_orders').delete().in('id', editGroupModal.removedCostIds)
     }
 
     // Update expected_date on all remaining group rows
@@ -509,6 +547,108 @@ export default function PurchaseOrders() {
     })
   })()
 
+  // Ongoing = still being processed; History = received or cancelled
+  const ongoingGroups = poGroups.filter(g => g.anchor.status === 'pending' || g.anchor.status === 'ordered')
+  const historyGroups = poGroups.filter(g => g.anchor.status === 'received' || g.anchor.status === 'cancelled')
+  const displayGroups = viewTab === 'history' ? historyGroups : ongoingGroups
+
+  // Render a single batch order as a clean card
+  function renderBatchCard(g) {
+    const { anchor, rows } = g
+    const productRows = rows.filter(r => r.cost_type !== 'extra')
+    const feeRows = rows.filter(r => r.cost_type === 'extra')
+    const totalQty = productRows.reduce((s, r) => s + Number(r.qty || 0), 0)
+    const slipUrl = rows.find(r => r.slip_url)?.slip_url || null
+    const slipAnchorId = rows.find(r => r.slip_url)?.id || anchor.id
+    const needsStockSync = anchor.status === 'received' && productRows.some(r => !r.stock_added)
+    const sd = supplierDisplay(anchor.supplier_id, anchor.supplier_name)
+    const statusColors = {
+      pending: { bg: '#FFF8E1', fg: '#b8740a' },
+      ordered: { bg: '#EAF2FD', fg: '#2f6fc0' },
+      received: { bg: '#E1F5EE', fg: '#1D9E75' },
+      cancelled: { bg: '#fef2f2', fg: '#E24B4A' },
+    }
+    const sc = statusColors[anchor.status] || statusColors.pending
+
+    return (
+      <div key={g.key} style={{ border: '1px solid #eee', borderRadius: 14, overflow: 'hidden', background: '#fff' }}>
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 16px', borderBottom: '1px solid #f5f5f5' }}>
+          <Avatar name={sd.main} size={36} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 700, color: '#0d1b2a', fontSize: 14 }}>{sd.main || '—'}</div>
+            <div style={{ fontSize: 11, color: '#aaa', fontWeight: 500 }}>
+              {sd.sub ? `${sd.sub} · ` : ''}Ordered {anchor.order_date}{anchor.expected_date ? ` · Expected ${anchor.expected_date}` : ''}
+            </div>
+          </div>
+          {/* Status pill with embedded select */}
+          <div style={{ position: 'relative', background: sc.bg, borderRadius: 99, padding: '5px 10px' }}>
+            <select value={anchor.status} onChange={e => updateBatchStatus(g, e.target.value)}
+              style={{ border: 'none', background: 'transparent', fontSize: 12, fontWeight: 700, color: sc.fg, cursor: 'pointer', fontFamily: 'inherit', appearance: 'none', paddingRight: 2 }}>
+              {STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+            </select>
+          </div>
+          {payStatusBadgeForGroup(g)}
+          <div style={{ textAlign: 'right', minWidth: 110 }}>
+            <div style={{ fontSize: 16, fontWeight: 800, color: '#0d1b2a' }}>MVR {g.total.toFixed(2)}</div>
+            <div style={{ fontSize: 11, color: '#bbb', fontWeight: 600 }}>{totalQty} item{totalQty === 1 ? '' : 's'}</div>
+          </div>
+        </div>
+
+        {/* Products + fees */}
+        <div style={{ padding: '14px 16px' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {productRows.map(r => (
+              <div key={r.id} title={r.product_name} style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#fafafa', border: '1px solid #f0f0f0', borderRadius: 9, padding: '4px 11px 4px 4px' }}>
+                {r.image_url
+                  ? <img src={r.image_url} alt="" style={{ width: 30, height: 30, objectFit: 'contain', borderRadius: 6, background: '#fff', flexShrink: 0 }} onError={e => e.target.style.display = 'none'} />
+                  : <div style={{ width: 30, height: 30, borderRadius: 6, background: '#eee', flexShrink: 0 }} />}
+                <span style={{ fontSize: 12.5, fontWeight: 500, color: '#0d1b2a', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.product_name}</span>
+                <span style={{ fontSize: 11, fontWeight: 800, color: '#FFA500' }}>×{r.qty}</span>
+              </div>
+            ))}
+          </div>
+          {feeRows.length > 0 && (
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
+              {feeRows.map(f => (
+                <span key={f.id} style={{ fontSize: 11, fontWeight: 600, color: '#b8740a', background: '#FFF3D6', padding: '3px 9px', borderRadius: 99 }}>
+                  {f.product_name} · MVR {Number(f.unit_cost).toFixed(2)}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Action bar */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', borderTop: '1px solid #f5f5f5', background: '#fcfcfc' }}>
+          {needsStockSync && (
+            <button onClick={() => manualSyncStock(g)} title="Add these items to inventory"
+              style={{ background: '#FFF3D6', color: '#b8740a', border: '1px solid #f0d9a8', borderRadius: 8, cursor: 'pointer', padding: '6px 11px', fontSize: 11, fontWeight: 700, fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 5 }}>
+              <Truck size={13} /> Add to stock
+            </button>
+          )}
+          <div style={{ flex: 1 }} />
+          <button onClick={() => setSlipModal({ ...anchor, slip_url: slipUrl, _anchorId: slipAnchorId })}
+            style={{ background: slipUrl ? '#E1F5EE' : '#fff', border: `1px solid ${slipUrl ? '#1D9E75' : '#e0e0e0'}`, borderRadius: 8, cursor: 'pointer', padding: '6px 11px', display: 'flex', alignItems: 'center', gap: 5, color: slipUrl ? '#1D9E75' : '#999', fontSize: 11, fontWeight: 600, fontFamily: 'inherit' }}>
+            {slipUrl ? <Eye size={13} /> : <Paperclip size={13} />}{slipUrl ? 'View slip' : 'Attach slip'}
+          </button>
+          <button onClick={() => openGroupPayModal(g)}
+            style={{ background: '#FFA500', border: 'none', borderRadius: 8, cursor: 'pointer', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: 5, color: '#fff', fontSize: 11, fontWeight: 700, fontFamily: 'inherit' }}>
+            <CreditCard size={13} /> Payment
+          </button>
+          <button onClick={() => openEditGroup(g)} title="Edit order"
+            style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: 8, cursor: 'pointer', padding: '6px 9px', display: 'flex', alignItems: 'center', color: '#666' }}>
+            <Plus size={14} />
+          </button>
+          <button onClick={() => delGroup(g)} title="Delete order"
+            style={{ background: '#fff', border: '1px solid #f3d6d6', borderRadius: 8, cursor: 'pointer', padding: '6px 9px', display: 'flex', alignItems: 'center', color: '#E24B4A' }}>
+            <Trash2 size={14} />
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div>
       <PageHeader
@@ -561,130 +701,45 @@ export default function PurchaseOrders() {
       )}
 
       <Card>
-        {pos.filter(p => p.status === 'pending' || p.status === 'ordered').length > 0 && (
-          <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'flex-end' }}>
-            <Button variant="ghost" size="sm" onClick={markAllReceived}>
-              <Truck size={13} /> Mark all pending as received
-            </Button>
-          </div>
-        )}
+        {/* Tabs: Ongoing | History */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 18, borderBottom: '1px solid #f0f0f0' }}>
+          {[{ k: 'ongoing', label: 'Ongoing', count: ongoingGroups.length }, { k: 'history', label: 'History', count: historyGroups.length }].map(t => {
+            const active = viewTab === t.k
+            return (
+              <button key={t.k} onClick={() => setViewTab(t.k)} style={{
+                background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                padding: '9px 16px', fontSize: 13, fontWeight: 700, marginBottom: -1,
+                color: active ? '#FFA500' : '#999',
+                borderBottom: active ? '2px solid #FFA500' : '2px solid transparent',
+                display: 'flex', alignItems: 'center', gap: 7,
+              }}>
+                {t.label}
+                <span style={{ fontSize: 11, fontWeight: 700, background: active ? '#FFF3D6' : '#f0f0f0', color: active ? '#b8740a' : '#aaa', borderRadius: 99, padding: '1px 7px' }}>{t.count}</span>
+              </button>
+            )
+          })}
+          {viewTab === 'ongoing' && ongoingGroups.length > 0 && (
+            <div style={{ marginLeft: 'auto' }}>
+              <Button variant="ghost" size="sm" onClick={markAllReceived}>
+                <Truck size={13} /> Mark all received
+              </Button>
+            </div>
+          )}
+        </div>
+
         {loading ? <Spinner /> : poGroups.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '56px 0', color: '#c4c4c4', fontSize: 14 }}>
             <Package size={36} color="#e0e0e0" style={{ marginBottom: 12 }} />
             <div style={{ fontWeight: 500 }}>No purchase orders yet. Click 'Batch order' to create one.</div>
           </div>
+        ) : displayGroups.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '48px 0', color: '#c4c4c4', fontSize: 14 }}>
+            <Package size={32} color="#e0e0e0" style={{ marginBottom: 10 }} />
+            <div style={{ fontWeight: 500 }}>{viewTab === 'history' ? 'No completed orders yet. Received orders appear here.' : 'No ongoing orders. All caught up!'}</div>
+          </div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-              <thead>
-                <tr>
-                  {['Supplier','Products','Qty','Total','Ordered','Expected','Status','Payment','Slip',''].map(h => (
-                    <th key={h} style={{ textAlign: 'left', padding: '8px 12px', fontSize: 10, color: '#bbb', borderBottom: '2px solid #f0f0f0', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.6px', whiteSpace: 'nowrap' }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {poGroups.map(g => {
-                  const { anchor, rows } = g
-                  const productRows = rows.filter(r => r.cost_type !== 'extra')
-                  const feeRows = rows.filter(r => r.cost_type === 'extra')
-                  const totalQty = productRows.reduce((s, r) => s + Number(r.qty || 0), 0)
-                  const slipUrl = rows.find(r => r.slip_url)?.slip_url || null
-                  const slipAnchorId = rows.find(r => r.slip_url)?.id || anchor.id
-                  const needsStockSync = anchor.status === 'received' && productRows.some(r => !r.stock_added)
-
-                  return (
-                    <tr key={g.key} style={{ borderBottom: '1px solid #f0f0f0' }}>
-                      {/* Supplier */}
-                      <td style={{ padding: '12px 12px', verticalAlign: 'middle' }}>
-                        {anchor.supplier_name ? (() => {
-                          const sd = supplierDisplay(anchor.supplier_id, anchor.supplier_name)
-                          return (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-                              <Avatar name={sd.main} />
-                              <div>
-                                <div style={{ fontWeight: 600, color: '#0d1b2a', fontSize: 13 }}>{sd.main}</div>
-                                {sd.sub && <div style={{ fontSize: 11, color: '#aaa', fontWeight: 500 }}>{sd.sub}</div>}
-                              </div>
-                            </div>
-                          )
-                        })() : <span style={{ color: '#aaa' }}>—</span>}
-                      </td>
-                      {/* Products + fees summary */}
-                      <td style={{ padding: '12px 12px', verticalAlign: 'middle', maxWidth: 260 }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                          {productRows.map(r => (
-                            <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                              {r.image_url
-                                ? <img src={r.image_url} style={{ width: 32, height: 32, objectFit: 'contain', borderRadius: 6, border: '1px solid #f0f0f0', flexShrink: 0 }} onError={e => e.target.style.display='none'} />
-                                : <div style={{ width: 32, height: 32, borderRadius: 6, background: '#f5f5f5', flexShrink: 0 }} />}
-                              <span style={{ fontWeight: 500, color: '#0d1b2a' }}>{r.product_name}</span>
-                              <span style={{ color: '#aaa', fontSize: 11 }}>×{r.qty}</span>
-                            </div>
-                          ))}
-                          {feeRows.length > 0 && (
-                            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 2 }}>
-                              {feeRows.map(f => (
-                                <span key={f.id} style={{ fontSize: 10, fontWeight: 600, color: '#b8740a', background: '#FFF3D6', padding: '2px 7px', borderRadius: 99 }}>
-                                  {f.product_name} MVR {Number(f.unit_cost).toFixed(2)}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </td>
-                      {/* Total qty */}
-                      <td style={{ padding: '12px 12px', verticalAlign: 'middle' }}>
-                        <strong>{totalQty}</strong>
-                      </td>
-                      {/* Total cost */}
-                      <td style={{ padding: '12px 12px', verticalAlign: 'middle', fontWeight: 700, color: '#0d1b2a' }}>
-                        MVR {g.total.toFixed(2)}
-                      </td>
-                      {/* Dates */}
-                      <td style={{ padding: '12px 12px', verticalAlign: 'middle', color: '#888', fontSize: 12 }}>{anchor.order_date}</td>
-                      <td style={{ padding: '12px 12px', verticalAlign: 'middle', color: '#888', fontSize: 12 }}>{anchor.expected_date || '—'}</td>
-                      {/* Status — updates all rows */}
-                      <td style={{ padding: '12px 12px', verticalAlign: 'middle' }}>
-                        <select value={anchor.status} onChange={e => updateBatchStatus(g, e.target.value)}
-                          style={{ border: 'none', background: 'transparent', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>
-                          {STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-                        </select>
-                        {needsStockSync && (
-                          <button onClick={() => manualSyncStock(g)} title="Add these items to inventory"
-                            style={{ display: 'block', marginTop: 4, background: '#FFF3D6', color: '#b8740a', border: '1px solid #f0d9a8', borderRadius: 6, cursor: 'pointer', padding: '3px 8px', fontSize: 10, fontWeight: 700, fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
-                            <Truck size={11} style={{ verticalAlign: '-1px' }} /> Add to stock
-                          </button>
-                        )}
-                      </td>
-                      {/* Payment — for whole batch */}
-                      <td style={{ padding: '12px 12px', verticalAlign: 'middle' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          {payStatusBadgeForGroup(g)}
-                          <button className="icon-btn primary" title="Record payment" onClick={() => openGroupPayModal(g)}><CreditCard size={12} /></button>
-                        </div>
-                      </td>
-                      {/* Slip — one per batch */}
-                      <td style={{ padding: '12px 12px', verticalAlign: 'middle' }}>
-                        <button
-                          onClick={() => setSlipModal({ ...anchor, slip_url: slipUrl, _anchorId: slipAnchorId })}
-                          style={{ background: slipUrl ? '#E1F5EE' : '#fafafa', border: `1px solid ${slipUrl ? '#1D9E75' : '#e0e0e0'}`, borderRadius: 6, cursor: 'pointer', padding: '5px 8px', display: 'flex', alignItems: 'center', gap: 4, color: slipUrl ? '#1D9E75' : '#aaa' }}>
-                          {slipUrl ? <Eye size={13} /> : <Paperclip size={13} />}
-                          <span style={{ fontSize: 10, fontWeight: 600 }}>{slipUrl ? 'View' : 'Attach'}</span>
-                        </button>
-                      </td>
-                      {/* Edit / Delete */}
-                      <td style={{ padding: '12px 12px', verticalAlign: 'middle' }}>
-                        <div style={{ display: 'flex', gap: 5 }}>
-                          <Button variant="ghost" size="sm" onClick={() => openEditGroup(g)} title="Edit batch order"><Plus size={13} /></Button>
-                          <Button variant="danger" size="sm" onClick={() => delGroup(g)}><Trash2 size={13} /></Button>
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {displayGroups.map(g => renderBatchCard(g))}
           </div>
         )}
       </Card>
@@ -838,7 +893,7 @@ export default function PurchaseOrders() {
                           <div style={{ display: 'flex', gap: 6 }}>
                             <select value={c.type} onChange={e => updateCost(idx, 'type', e.target.value)}
                               style={{ flex: c.type === 'Other' ? '0 0 130px' : 1, padding: '6px 8px', border: '1px solid #ddd', borderRadius: 6, fontSize: 12, fontFamily: 'inherit', background: '#fff' }}>
-                              {['Alibaba transaction charge', 'China local delivery', 'Shipping / Freight', 'Customs / Duty', 'Other'].map(o => <option key={o} value={o}>{o}</option>)}
+                              {COST_TYPES.map(o => <option key={o} value={o}>{o}</option>)}
                             </select>
                             {c.type === 'Other' && (
                               <input value={c.label} onChange={e => updateCost(idx, 'label', e.target.value)} placeholder="Specify cost..."
@@ -1032,7 +1087,7 @@ export default function PurchaseOrders() {
           {paymentsTab && (
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
-                <tr>{['Date','Supplier','PO Product','Amount','Method','Reference'].map(h => (
+                <tr>{['Date','Supplier','PO Product','Amount','Method','Reference','Slip'].map(h => (
                   <th key={h} style={{ textAlign: 'left', padding: '7px 12px', fontSize: 11, color: '#bbb', borderBottom: '1px solid #f0f0f0', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.4px' }}>{h}</th>
                 ))}</tr>
               </thead>
@@ -1047,6 +1102,15 @@ export default function PurchaseOrders() {
                       <td style={{ padding: '9px 12px', fontWeight: 700, color: '#1D9E75' }}>MVR {Number(p.amount).toFixed(2)}</td>
                       <td style={{ padding: '9px 12px', fontSize: 12 }}><span style={{ background: '#f5f5f5', padding: '2px 8px', borderRadius: 99, fontWeight: 500 }}>{p.payment_method}</span></td>
                       <td style={{ padding: '9px 12px', color: '#aaa', fontSize: 11 }}>{p.reference || '—'}</td>
+                      <td style={{ padding: '9px 12px' }}>
+                        {Array.isArray(p.slips) && p.slips.length > 0 ? (
+                          <button onClick={() => setViewSlips({ slips: p.slips, title: `Payslips · MVR ${Number(p.amount).toFixed(2)}` })}
+                            title={`View ${p.slips.length} payslip(s)`}
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#E1F5EE', border: '1px solid #bfe6d6', borderRadius: 99, padding: '3px 9px', cursor: 'pointer', color: '#1D9E75', fontSize: 11, fontWeight: 600, fontFamily: 'inherit' }}>
+                            <Paperclip size={11} /> {p.slips.length}
+                          </button>
+                        ) : <span style={{ color: '#ddd', fontSize: 12 }}>—</span>}
+                      </td>
                     </tr>
                   )
                 })}
@@ -1253,6 +1317,58 @@ export default function PurchaseOrders() {
             )}
             {editGroupModal.newItems.length === 0 && (
               <div style={{ textAlign: 'center', padding: '18px 0', color: '#bbb', fontSize: 13 }}>Click "Add item" to add more products to this order</div>
+            )}
+          </div>
+
+          {/* Additional costs (editable) */}
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: '#666', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Additional costs ({(editGroupModal.extraCosts || []).length})</span>
+              <Button variant="ghost" size="sm" onClick={() => setEditGroupModal(p => ({ ...p, extraCosts: [...(p.extraCosts || []), { type: 'Alibaba transaction charge', label: '', amount: '' }] }))}><Plus size={13} /> Add cost</Button>
+            </div>
+            {(editGroupModal.extraCosts || []).length > 0 && (
+              <div style={{ border: '1px solid #eee', borderRadius: 10, overflow: 'hidden' }}>
+                <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ background: '#fafafa' }}>
+                      <th style={{ padding: '8px 10px', textAlign: 'left', fontWeight: 600, color: '#999', fontSize: 11, textTransform: 'uppercase' }}>Cost type</th>
+                      <th style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 600, color: '#999', fontSize: 11, textTransform: 'uppercase', width: 140 }}>Amount (MVR)</th>
+                      <th style={{ width: 40 }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(editGroupModal.extraCosts || []).map((c, idx) => (
+                      <tr key={idx} style={{ borderTop: '1px solid #f5f5f5' }}>
+                        <td style={{ padding: 6 }}>
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <select value={c.type} onChange={e => setEditGroupModal(p => ({ ...p, extraCosts: p.extraCosts.map((x, i) => i === idx ? { ...x, type: e.target.value } : x) }))}
+                              style={{ flex: c.type === 'Other' ? '0 0 130px' : 1, padding: '6px 8px', border: '1px solid #ddd', borderRadius: 6, fontSize: 12, fontFamily: 'inherit', background: '#fff' }}>
+                              {COST_TYPES.map(o => <option key={o} value={o}>{o}</option>)}
+                            </select>
+                            {c.type === 'Other' && (
+                              <input value={c.label} onChange={e => setEditGroupModal(p => ({ ...p, extraCosts: p.extraCosts.map((x, i) => i === idx ? { ...x, label: e.target.value } : x) }))} placeholder="Specify cost..."
+                                style={{ flex: 1, padding: '6px 8px', border: '1px solid #ddd', borderRadius: 6, fontSize: 12, fontFamily: 'inherit' }} />
+                            )}
+                          </div>
+                        </td>
+                        <td style={{ padding: 6 }}>
+                          <input type="number" step="0.01" min="0" value={c.amount} onChange={e => setEditGroupModal(p => ({ ...p, extraCosts: p.extraCosts.map((x, i) => i === idx ? { ...x, amount: e.target.value } : x) }))} placeholder="0.00"
+                            style={{ width: '100%', padding: '6px 8px', border: '1px solid #ddd', borderRadius: 6, fontSize: 12, fontFamily: 'inherit', textAlign: 'right', boxSizing: 'border-box' }} />
+                        </td>
+                        <td>
+                          <button onClick={() => setEditGroupModal(p => ({
+                            ...p,
+                            extraCosts: p.extraCosts.filter((_, i) => i !== idx),
+                            removedCostIds: c._id ? [...(p.removedCostIds || []), c._id] : (p.removedCostIds || []),
+                          }))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#c62828', padding: 4 }}>
+                            <X size={14} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
 
