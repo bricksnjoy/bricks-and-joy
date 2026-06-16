@@ -39,6 +39,11 @@ const KNOWN_IMPORT_HEADERS = new Set([
   'notes','note','remarks','remark','comment',
 ])
 
+// Ensure a select can display a value imported from Excel even when it isn't one
+// of the predefined options (e.g. an unusual age range like "14+" or "8-12").
+const withValue = (options, val) =>
+  val && !options.includes(val) ? [val, ...options] : options
+
 // Custom line-art icons (match Inventory cards)
 const BrickIcon = ({ size = 16, color = '#FFA500' }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round">
@@ -943,8 +948,8 @@ export default function SupplierCatalog() {
             <Input label="Product name *" value={form.product_name} onChange={e => setForm(p=>({...p,product_name:e.target.value}))} placeholder="e.g. LEGO Classic Bricks" style={{ gridColumn:'span 2' }} />
           </FormRow>
           <FormRow>
-            <Select label="Category" value={form.category} onChange={e => setForm(p=>({...p,category:e.target.value}))} options={CATEGORIES} />
-            <Select label="Age range" value={form.age_range} onChange={e => setForm(p=>({...p,age_range:e.target.value}))} options={AGE_RANGES} />
+            <Select label="Category" value={form.category} onChange={e => setForm(p=>({...p,category:e.target.value}))} options={withValue(CATEGORIES, form.category)} />
+            <Select label="Age range" value={form.age_range} onChange={e => setForm(p=>({...p,age_range:e.target.value}))} options={withValue(AGE_RANGES, form.age_range)} />
           </FormRow>
           <FormRow>
             <Input label="Brand" value={form.brand} onChange={e => setForm(p=>({...p,brand:e.target.value}))} placeholder="e.g. LEGO, Mattel" />
@@ -963,7 +968,7 @@ export default function SupplierCatalog() {
             <Input label="Sell price — what you charge (MVR)" type="number" min="0" step="0.01" value={form.sell_price} onChange={e => setForm(p=>({...p,sell_price:e.target.value}))} placeholder="0.00" />
           </FormRow>
           <FormRow>
-            <Select label="Unit" value={form.unit} onChange={e => setForm(p=>({...p,unit:e.target.value}))} options={UNITS} />
+            <Select label="Unit" value={form.unit} onChange={e => setForm(p=>({...p,unit:e.target.value}))} options={withValue(UNITS, form.unit)} />
             {form.cost_price && form.sell_price && (
               <div style={{ display:'flex', alignItems:'flex-end', paddingBottom:2 }}>
                 <div style={{ background:'#E1F5EE', borderRadius:9, padding:'9px 14px', fontSize:12, color:'#1D9E75', fontWeight:600 }}>
