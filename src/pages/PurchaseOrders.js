@@ -770,7 +770,7 @@ export default function PurchaseOrders() {
     return (
       <div key={g.key} style={{ border: '1px solid #eee', borderRadius: 14, overflow: 'hidden', background: '#fff' }}>
         {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 16px', borderBottom: '1px solid #f5f5f5' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 16px', borderBottom: '1px solid #f5f5f5', flexWrap: 'wrap' }}>
           <Avatar name={sd.main} size={36} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -823,7 +823,7 @@ export default function PurchaseOrders() {
         </div>
 
         {/* Action bar */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', borderTop: '1px solid #f5f5f5', background: '#fcfcfc' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', borderTop: '1px solid #f5f5f5', background: '#fcfcfc', flexWrap: 'wrap', rowGap: 8 }}>
           {needsStockSync && (
             <button onClick={() => manualSyncStock(g)} title="Add these items to inventory"
               style={{ background: '#FFF3D6', color: '#b8740a', border: '1px solid #f0d9a8', borderRadius: 8, cursor: 'pointer', padding: '6px 11px', fontSize: 11, fontWeight: 700, fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -1023,7 +1023,7 @@ export default function PurchaseOrders() {
           )}
         </div>
         {/* Tabs: Ongoing | History */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 18, borderBottom: '1px solid #f0f0f0' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 18, borderBottom: '1px solid #f0f0f0', flexWrap: 'wrap', rowGap: 6 }}>
           {[{ k: 'ongoing', label: 'Ongoing', count: ongoingGroups.length }, { k: 'history', label: 'History', count: historyGroups.length }].map(t => {
             const active = viewTab === t.k
             return (
