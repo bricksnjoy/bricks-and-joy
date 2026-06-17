@@ -1,8 +1,9 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Button, Input, Select, Table, Modal, StatusBadge, StockBadge, Spinner, FormRow, useToast, Toasts, Badge } from '../components/UI'
-import { Plus, Trash2, AlertTriangle, Package, Upload, Eye, CreditCard, X, Camera, Edit2, RotateCcw } from 'lucide-react'
+import { Plus, Trash2, AlertTriangle, Package, Upload, Eye, CreditCard, X, Camera, Edit2, RotateCcw, MessageSquare } from 'lucide-react'
 import BarcodeScanner from '../components/BarcodeScanner'
+import { sendSMS } from '../lib/sms'
 
 const CHANNELS = ['Retail store','Online','Wholesale','Pop-up / Market','Instagram','Phone']
 const STATUSES = [{ value: 'pending', label: 'Pending' },{ value: 'transit', label: 'Dispatched' },{ value: 'delivered', label: 'Delivered' },{ value: 'cancelled', label: 'Cancelled' }]
@@ -31,20 +32,26 @@ export default function Orders() {
   const [scanning, setScanning] = useState(null) // index of cart item being scanned
   const [deliveryStaff, setDeliveryStaff] = useState(() => { try { return JSON.parse(localStorage.getItem('deliveryStaff') || '[]') } catch { return [] } })
   const [newStaff, setNewStaff] = useState('')
+  const [contacts, setContacts] = useState([])
+  const [smsModal, setSmsModal] = useState(null)   // order being texted
+  const [smsForm, setSmsForm] = useState({ mode: 'customer', to: '', message: '', contactId: '' })
+  const [smsSending, setSmsSending] = useState(false)
   const toast = useToast()
 
   useEffect(() => { load() }, [])
 
   async function load() {
     setLoading(true)
-    const [o, c, p] = await Promise.all([
+    const [o, c, p, ct] = await Promise.all([
       supabase.from('orders').select('*').order('created_at', { ascending: false }),
-      supabase.from('customers').select('id, name').order('name'),
+      supabase.from('customers').select('id, name, phone, address').order('name'),
       supabase.from('products').select('*').order('name'),
+      supabase.from('email_contacts').select('*').order('name'),
     ])
     setOrders(o.data || [])
     setCustomers(c.data || [])
     setProducts(p.data || [])
+    setContacts(ct.data || [])
     setLoading(false)
   }
 
@@ -270,6 +277,41 @@ export default function Orders() {
     toast.success('Deleted'); load()
   }
 
+  // ── SMS (Message Owl) ──────────────────────────────────────────────────────
+  function customerMsg(o) {
+    return `Hi ${o.customer_name || 'there'}, your order ${o.invoice_number || ''} (${o.product_name} ×${o.qty}) total MVR ${Number(o.total_price || 0).toFixed(2)} is ${o.status}. Thank you! — Brick's & Joy`
+  }
+  function deliveryMsg(o, cust) {
+    return `DELIVERY — ${o.customer_name || 'Walk-in'}\nPhone: ${cust?.phone || '—'}\nAddress: ${cust?.address || '—'}\nOrder ${o.invoice_number || ''}: ${o.product_name} ×${o.qty}\nTotal: MVR ${Number(o.total_price || 0).toFixed(2)} (${o.payment_status || 'unpaid'})`
+  }
+  function openSms(order) {
+    const cust = customers.find(c => c.id === order.customer_id)
+    setSmsForm({ mode: 'customer', to: cust?.phone || '', contactId: '', message: customerMsg(order) })
+    setSmsModal({ ...order, _cust: cust })
+  }
+  function smsModeSwitch(mode) {
+    const o = smsModal
+    if (mode === 'customer') setSmsForm({ mode, to: o._cust?.phone || '', contactId: '', message: customerMsg(o) })
+    else setSmsForm({ mode, to: '', contactId: '', message: deliveryMsg(o, o._cust) })
+  }
+  function pickContact(id) {
+    const c = contacts.find(x => x.id === id)
+    setSmsForm(p => ({ ...p, contactId: id, to: c?.phone || p.to }))
+  }
+  async function sendSms() {
+    if (!smsForm.to) { toast.error('Enter a phone number'); return }
+    if (!smsForm.message.trim()) { toast.error('Message is empty'); return }
+    setSmsSending(true)
+    try {
+      await sendSMS(smsForm.to, smsForm.message)
+      toast.success('SMS sent!')
+      setSmsModal(null)
+    } catch (e) {
+      toast.error('SMS failed: ' + e.message)
+    }
+    setSmsSending(false)
+  }
+
   const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
   const pf = k => e => setPayForm(p => ({ ...p, [k]: e.target.value }))
 
@@ -345,6 +387,7 @@ export default function Orders() {
       <div style={{ display: 'flex', gap: 3 }}>
         <button className="icon-btn primary" onClick={() => setViewModal(r)} title="View"><Eye size={13} /></button>
         <button className="icon-btn" onClick={() => openEdit(r)} title="Edit"><Edit2 size={13} /></button>
+        <button className="icon-btn" onClick={() => openSms(r)} title="Send SMS" style={{ color: '#1D9E75' }}><MessageSquare size={13} /></button>
         <button className="icon-btn primary" onClick={() => { setPayModal(r); setPayForm({ payment_method: r.payment_method || 'Cash', transfer_reference: r.transfer_reference || '', transfer_slip_url: r.transfer_slip_url || '', payment_status: r.payment_status || 'paid' }) }} title="Record payment"><CreditCard size={13} /></button>
         {r.status !== 'cancelled' && <button className="icon-btn warning" onClick={() => { setReturnModal(r); setReturnForm({ reason: '', refund_amount: r.total_price || 0 }) }} title="Process return"><RotateCcw size={13} /></button>}
         <button className="icon-btn danger" onClick={() => del(r.id)} title="Delete"><Trash2 size={13} /></button>
@@ -653,6 +696,50 @@ export default function Orders() {
           </div>
         </Modal>
       )}
+      {/* ── SMS MODAL ── */}
+      {smsModal && (
+        <Modal title={`Send SMS — ${smsModal.invoice_number || smsModal.customer_name || 'Order'}`} onClose={() => setSmsModal(null)} width={480}>
+          {/* Mode toggle */}
+          <div style={{ display: 'flex', background: '#f5f5f5', borderRadius: 10, padding: 3, gap: 2, marginBottom: 14 }}>
+            {[{ k: 'customer', label: 'Notify customer' }, { k: 'delivery', label: 'Delivery / staff' }].map(m => (
+              <button key={m.k} onClick={() => smsModeSwitch(m.k)} style={{
+                flex: 1, padding: '7px 12px', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                fontSize: 12.5, fontWeight: smsForm.mode === m.k ? 700 : 500,
+                background: smsForm.mode === m.k ? '#fff' : 'transparent',
+                color: smsForm.mode === m.k ? '#0d1b2a' : '#999',
+                boxShadow: smsForm.mode === m.k ? '0 1px 4px rgba(0,0,0,0.08)' : 'none',
+              }}>{m.label}</button>
+            ))}
+          </div>
+
+          {smsForm.mode === 'delivery' && (
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: 12, color: '#666', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.4px', display: 'block', marginBottom: 5 }}>Send to (saved contact)</label>
+              <select value={smsForm.contactId} onChange={e => pickContact(e.target.value)}
+                style={{ width: '100%', padding: '9px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', background: '#fff', outline: 'none' }}>
+                <option value="">— Pick a delivery person / staff / director —</option>
+                {contacts.filter(c => c.phone).map(c => <option key={c.id} value={c.id}>{c.name}{c.role ? ` (${c.role})` : ''} · {c.phone}</option>)}
+              </select>
+              {contacts.filter(c => c.phone).length === 0 && <div style={{ fontSize: 11.5, color: '#E24B4A', marginTop: 5 }}>No contacts with phone numbers — add them in the Email Center.</div>}
+            </div>
+          )}
+
+          <Input label="Phone number" value={smsForm.to} onChange={e => setSmsForm(p => ({ ...p, to: e.target.value }))} placeholder="7-digit or with 960" style={{ marginBottom: 12 }} />
+
+          <div style={{ marginBottom: 8 }}>
+            <label style={{ fontSize: 12, color: '#666', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.4px', display: 'block', marginBottom: 5 }}>Message</label>
+            <textarea value={smsForm.message} onChange={e => setSmsForm(p => ({ ...p, message: e.target.value }))}
+              style={{ width: '100%', padding: '9px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', resize: 'vertical', minHeight: 90, boxSizing: 'border-box', outline: 'none' }} />
+            <div style={{ fontSize: 11, color: '#aaa', marginTop: 4 }}>{smsForm.message.length} characters · ~{Math.max(1, Math.ceil(smsForm.message.length / 160))} SMS</div>
+          </div>
+
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 14 }}>
+            <Button variant="ghost" onClick={() => setSmsModal(null)}>Cancel</Button>
+            <Button onClick={sendSms} disabled={smsSending}><MessageSquare size={13} /> {smsSending ? 'Sending…' : 'Send SMS'}</Button>
+          </div>
+        </Modal>
+      )}
+
       <Toasts toasts={toast.toasts} />
     </div>
   )
