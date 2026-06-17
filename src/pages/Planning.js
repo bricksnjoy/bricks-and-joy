@@ -4,7 +4,8 @@ import { sendEmailJS, BNJ_EMAIL } from '../lib/email'
 import { PageHeader, Card, Button, Input, Modal, Spinner, useToast, Toasts } from '../components/UI'
 import {
   Plus, Trash2, Edit2, Mail, CheckCircle, Circle, Sparkles, RefreshCw,
-  Package, Megaphone, Calendar, AlertTriangle, Bot, TrendingUp, Globe, Route
+  Package, Megaphone, Calendar, AlertTriangle, Bot, TrendingUp, Globe, Route,
+  ShoppingBag, Tag, Users, Target, ExternalLink
 } from 'lucide-react'
 import {
   OCCASION_LIBRARY, generateCampaignPlan, campaignStatus, nextOccurrence,
@@ -43,7 +44,8 @@ const npName = x => (typeof x === 'string' ? x : x?.name || '')
 function buildEmailBody(camp, st, plan) {
   const trend = (plan?.trending || []).slice(0, 5).map(s => `• ${s}`).join('\n')
   const items = (plan?.stockUpExisting || []).slice(0, 8).map(p => `• ${p.name}${p.inInventory ? '' : ' (not in inventory yet)'}`).join('\n')
-  const newIdeas = (plan?.newProducts || []).slice(0, 6).map(s => `• ${npName(s)}${s.where ? ` — ${s.where}` : ''}`).join('\n')
+  const newIdeas = (plan?.newProducts || []).slice(0, 6).map(s => `• ${npName(s)}${s.where && !/^https?:/.test(s.where) ? ` — ${s.where}` : ''}`).join('\n')
+  const links = (plan?.shopLinks || []).slice(0, 5).map(l => `• ${l.label}: ${l.url}`).join('\n')
   const run = (plan?.howToRun || []).slice(0, 6).map(s => `• ${s}`).join('\n')
   const next = (plan?.checklist || []).filter(c => !c.done).slice(0, 5).map(c => `☐ ${c.text} (by ${fmt(c.due)})`).join('\n')
   return [
@@ -53,6 +55,7 @@ function buildEmailBody(camp, st, plan) {
     trend ? `\nTRENDING NOW:\n${trend}` : '',
     items ? `\nSTOCK UP ON (you already carry):\n${items}` : '',
     newIdeas ? `\nNEW PRODUCTS TO BRING IN:\n${newIdeas}` : '',
+    links ? `\nWHERE TO FIND PRODUCTS:\n${links}` : '',
     run ? `\nHOW TO RUN IT:\n${run}` : '',
     next ? `\nNEXT STEPS:\n${next}` : '',
     ``,
@@ -482,30 +485,70 @@ export default function Planning() {
                   </div>}
             </Section>
 
-            <Section icon={Globe} title="New products to bring in (from around the web)">
+            <Section icon={Globe} title="New products to bring in">
               {(plan.newProducts || []).length === 0
                 ? <Empty text="No suggestions." />
                 : <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
                     {plan.newProducts.map((s, i) => {
                       const it = typeof s === 'string' ? { name: s } : s
+                      const isUrl = typeof it.where === 'string' && /^https?:\/\//.test(it.where)
                       return (
                         <div key={i} style={{ fontSize: 13, color: '#0d1b2a' }}>
                           <span style={{ fontWeight: 600 }}>{it.name}</span>
                           {it.why && <span style={{ color: '#777' }}> — {it.why}</span>}
-                          {it.where && <div style={{ fontSize: 11.5, color: '#5b5bd6', marginTop: 1 }}>Source: {it.where}</div>}
+                          {it.where && (isUrl
+                            ? <a href={it.where} target="_blank" rel="noreferrer" style={{ fontSize: 11.5, color: '#5b5bd6', marginLeft: 6, fontWeight: 600, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 3 }}>Find it <ExternalLink size={11} /></a>
+                            : <div style={{ fontSize: 11.5, color: '#5b5bd6', marginTop: 1 }}>Source: {it.where}</div>)}
                         </div>
                       )
                     })}
                   </div>}
             </Section>
 
+            {(plan.shopLinks || []).length > 0 && (
+              <Section icon={ShoppingBag} title="Where to find products">
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                  {plan.shopLinks.map((l, i) => (
+                    <a key={i} href={l.url} target="_blank" rel="noreferrer"
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600, color: '#0d1b2a', background: '#f5f5f7', border: '1px solid #eee', borderRadius: 99, padding: '5px 12px', textDecoration: 'none' }}>
+                      {l.label} <ExternalLink size={11} color="#888" />
+                    </a>
+                  ))}
+                </div>
+              </Section>
+            )}
+
             <Section icon={Sparkles} title="Package & bundle ideas">
               <ul style={ulStyle}>{(plan.packages || []).map((s, i) => <li key={i} style={liStyle}>{s}</li>)}</ul>
             </Section>
 
+            {(plan.pricing || []).length > 0 && (
+              <Section icon={Tag} title="Pricing & discount strategy">
+                <ul style={ulStyle}>{plan.pricing.map((s, i) => <li key={i} style={liStyle}>{s}</li>)}</ul>
+              </Section>
+            )}
+
             <Section icon={Megaphone} title="Marketing & posts to bring in customers">
               <ul style={ulStyle}>{(plan.marketing || []).map((s, i) => <li key={i} style={liStyle}>{s}</li>)}</ul>
             </Section>
+
+            {plan.audience && (
+              <Section icon={Users} title="Who to target">
+                <div style={liStyle}>{Array.isArray(plan.audience) ? plan.audience.join(', ') : plan.audience}</div>
+              </Section>
+            )}
+
+            {(plan.display || []).length > 0 && (
+              <Section icon={Package} title="In-store / online display ideas">
+                <ul style={ulStyle}>{plan.display.map((s, i) => <li key={i} style={liStyle}>{s}</li>)}</ul>
+              </Section>
+            )}
+
+            {(plan.kpis || []).length > 0 && (
+              <Section icon={Target} title="Track these to measure success">
+                <ul style={ulStyle}>{plan.kpis.map((s, i) => <li key={i} style={liStyle}>{s}</li>)}</ul>
+              </Section>
+            )}
 
             {(plan.howToRun || []).length > 0 && (
               <Section icon={Route} title="How to run the campaign">
