@@ -19,7 +19,8 @@ const URL_ = Deno.env.get('MESSAGEOWL_URL')
 const KEY = Deno.env.get('MESSAGEOWL_API_KEY')
 const SENDER = Deno.env.get('MESSAGEOWL_SENDER') ?? ''
 const AUTH = (Deno.env.get('MESSAGEOWL_AUTH') ?? 'bearer').toLowerCase()
-const FIELDS = Deno.env.get('MESSAGEOWL_FIELDS') ?? 'to=recipient,message=message,sender=sender'
+// Message Owl REST API shape: { recipients, sender_id, body }, auth = Bearer access key
+const FIELDS = Deno.env.get('MESSAGEOWL_FIELDS') ?? 'to=recipients,message=body,sender=sender_id'
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
