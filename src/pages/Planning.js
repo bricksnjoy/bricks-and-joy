@@ -152,7 +152,11 @@ export default function Planning() {
         inInventory: inventoryNames.has((p.product_name || '').toLowerCase().trim()),
       }))
       const { data, error } = await supabase.functions.invoke('campaign-ai', { body: { name, dateISO, leadDays, catalog: slim, provider: aiMode } })
-      if (error) throw new Error(error.message || 'campaign-ai function not reachable (is it deployed?)')
+      if (error) {
+        let detail = error.message || 'campaign-ai not reachable'
+        try { const body = await error.context?.text?.(); if (body) detail = body.slice(0, 200) } catch { /* noop */ }
+        throw new Error(detail)
+      }
       if (data?.error) throw new Error(data.error === 'no_api_key' ? `No ${aiMode} API key set on the server` : `${data.error}${data.detail ? ': ' + data.detail : ''}`)
       if (!data?.summary) throw new Error('AI returned an empty plan')
       return normalizeAiPlan(data, name, dateISO, leadDays, aiMode)
