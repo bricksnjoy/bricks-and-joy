@@ -109,13 +109,15 @@ Deno.serve(async (req) => {
     const { name, dateISO, leadDays = 90, catalog = [], provider = 'claude' } = await req.json()
     const prompts = buildPrompts(name, dateISO, leadDays, catalog)
 
+    // Errors are returned with HTTP 200 + an `error` field so the browser client
+    // (supabase.functions.invoke) can read the reason instead of an opaque non-2xx.
     if (provider === 'gemini') {
-      if (!GEMINI_API_KEY) return json({ error: 'no_api_key', provider }, 400)
+      if (!GEMINI_API_KEY) return json({ error: 'no_api_key', provider })
       return json(await runGemini(prompts))
     }
-    if (!ANTHROPIC_API_KEY) return json({ error: 'no_api_key', provider: 'claude' }, 400)
+    if (!ANTHROPIC_API_KEY) return json({ error: 'no_api_key', provider: 'claude' })
     return json(await runClaude(prompts))
   } catch (e) {
-    return json({ error: 'failed', detail: String(e) }, 500)
+    return json({ error: 'failed', detail: String(e).slice(0, 300) })
   }
 })

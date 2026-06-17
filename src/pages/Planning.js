@@ -93,7 +93,14 @@ export default function Planning() {
     setCatalog(cat.data || [])
     setInventoryNames(new Set((prod.data || []).map(p => (p.name || '').toLowerCase().trim()).filter(Boolean)))
     if (c.error) { setUsingLocal(true); setCampaigns(readLocal()) }
-    else { setUsingLocal(false); setCampaigns(c.data || []) }
+    else {
+      const rows = c.data || []
+      const local = readLocal()
+      // If the table reads empty but we have local plans, the table isn't really
+      // persisting (e.g. RLS blocks writes) — keep showing the local data.
+      if (rows.length === 0 && local.length > 0) { setUsingLocal(true); setCampaigns(local) }
+      else { setUsingLocal(false); setCampaigns(rows) }
+    }
     setLoading(false)
   }
 
@@ -145,9 +152,12 @@ export default function Planning() {
         inInventory: inventoryNames.has((p.product_name || '').toLowerCase().trim()),
       }))
       const { data, error } = await supabase.functions.invoke('campaign-ai', { body: { name, dateISO, leadDays, catalog: slim, provider: aiMode } })
-      if (error || !data || data.error || !data.summary) throw new Error('ai unavailable')
+      if (error) throw new Error(error.message || 'campaign-ai function not reachable (is it deployed?)')
+      if (data?.error) throw new Error(data.error === 'no_api_key' ? `No ${aiMode} API key set on the server` : `${data.error}${data.detail ? ': ' + data.detail : ''}`)
+      if (!data?.summary) throw new Error('AI returned an empty plan')
       return normalizeAiPlan(data, name, dateISO, leadDays, aiMode)
-    } catch {
+    } catch (e) {
+      toast.error(`AI (${aiMode}) failed — used built-in. ${String(e.message || e)}`.slice(0, 170))
       return generateCampaignPlan({ name, dateISO, leadDays }, catalog, inventoryNames)
     }
   }
