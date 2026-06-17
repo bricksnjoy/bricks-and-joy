@@ -132,6 +132,14 @@ export default function Orders() {
     }
   }
 
+  // Apply a stock change to a product (delta negative = reduce). Reads fresh so
+  // concurrent edits don't clobber each other.
+  async function applyStockDelta(productId, delta) {
+    if (!productId || !delta) return
+    const { data: prod } = await supabase.from('products').select('stock_qty').eq('id', productId).single()
+    if (prod) await supabase.from('products').update({ stock_qty: (prod.stock_qty || 0) + delta }).eq('id', productId)
+  }
+
   async function save() {
     const validItems = cartItems.filter(i => i.product_id && i.qty)
     if (validItems.length === 0) { toast.error('Add at least one product'); return }
@@ -141,15 +149,26 @@ export default function Orders() {
       const item = validItems[0]
       const payload = buildPayload(item, discountAmount)
       const { error } = await supabase.from('orders').update(payload).eq('id', editOrder.id)
+      if (error) { console.error(error); setSaving(false); toast.error('Failed to update: ' + error.message); return }
+      // Keep inventory in sync with quantity/product changes (a cancelled order's
+      // stock was already restored, so don't double-count it).
+      if (editOrder.status !== 'cancelled') {
+        const oldQty = parseInt(editOrder.qty) || 0
+        const newQty = parseInt(item.qty) || 0
+        if (editOrder.product_id === item.product_id) {
+          await applyStockDelta(item.product_id, -(newQty - oldQty))
+        } else {
+          await applyStockDelta(editOrder.product_id, oldQty)   // restore the old product
+          await applyStockDelta(item.product_id, -newQty)       // deduct from the new one
+        }
+      }
       setSaving(false)
-      if (error) { console.error(error); toast.error('Failed to update: ' + error.message); return }
       toast.success('Order updated!')
       setModal(false); load(); return
     }
 
     // New order — insert one row per cart item
     for (const item of validItems) {
-      const prod = products.find(p => p.id === item.product_id)
       const itemSubtotal = parseFloat(item.unit_price) * parseInt(item.qty)
       // Each item gets the full discount applied individually
       const itemDiscount = form.discount_type === 'percent'
@@ -158,8 +177,10 @@ export default function Orders() {
       const payload = buildPayload(item, itemDiscount)
       const { error } = await supabase.from('orders').insert(payload)
       if (error) { console.error(error); setSaving(false); toast.error('Failed to save: ' + error.message); return }
+      // Read fresh so repeated products / concurrent sales don't clobber stock
+      const { data: prod } = await supabase.from('products').select('stock_qty, name, low_stock_threshold').eq('id', item.product_id).single()
       if (prod) {
-        const newStock = prod.stock_qty - parseInt(item.qty)
+        const newStock = (prod.stock_qty || 0) - parseInt(item.qty)
         await supabase.from('products').update({ stock_qty: newStock }).eq('id', item.product_id)
         if (newStock <= 0) toast.error(`⚠️ ${prod.name} OUT OF STOCK!`)
         else if (newStock <= (prod.low_stock_threshold || 10)) toast.info(`⚠️ Low stock: ${prod.name} — ${newStock} left`)
