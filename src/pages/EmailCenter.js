@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Button, Input, Modal, Spinner, useToast, Toasts, Badge } from '../components/UI'
-import { Mail, Send, Plus, Trash2, AlertTriangle, Package, ClipboardList, Truck, Edit2, CheckCircle, User, Bike, Calendar, XCircle, Lightbulb, Users, AtSign, Phone } from 'lucide-react'
+import { Mail, Send, Plus, Trash2, AlertTriangle, Package, ClipboardList, Truck, Edit2, CheckCircle, User, Bike, Calendar, XCircle, Lightbulb, Users, AtSign, Phone, MessageSquare } from 'lucide-react'
+import { sendSMS } from '../lib/sms'
 
 const EMAILJS_SERVICE = 'service_pt7xkma'
 const EMAILJS_TEMPLATE = 'template_9zgrhkb'
@@ -43,6 +44,11 @@ export default function EmailCenter() {
   const [composeModal, setComposeModal] = useState(null) // { type, prefill }
   const [composeForm, setComposeForm] = useState({ to: '', subject: '', body: '' })
   const [activeTab, setActiveTab] = useState('compose')
+  const [smsModal, setSmsModal] = useState(null) // { mode: 'one' | 'all' }
+  const [smsTo, setSmsTo] = useState('')
+  const [smsMsg, setSmsMsg] = useState('')
+  const [smsSel, setSmsSel] = useState(() => new Set())
+  const [smsSending, setSmsSending] = useState(false)
   const [sending, setSending] = useState(false)
   const toast = useToast()
 
@@ -125,6 +131,30 @@ export default function EmailCenter() {
     await supabase.from('email_contacts').delete().eq('id', contact.id)
     setContacts(c => c.filter(x => x.id !== contact.id))
     toast.success('Deleted')
+  }
+
+  // ── SMS (Message Owl) ──────────────────────────────────────────────────────
+  function openSmsOne(c) { setSmsModal({ mode: 'one' }); setSmsTo(c.phone || ''); setSmsMsg('') }
+  function openSmsBroadcast() { setSmsModal({ mode: 'all' }); setSmsSel(new Set()); setSmsMsg('') }
+  function toggleSmsSel(id) { setSmsSel(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n }) }
+  async function sendSmsBlast() {
+    if (!smsMsg.trim()) { toast.error('Message is empty'); return }
+    setSmsSending(true)
+    try {
+      if (smsModal.mode === 'one') {
+        if (!smsTo) { toast.error('Enter a phone number'); setSmsSending(false); return }
+        await sendSMS(smsTo, smsMsg)
+        toast.success('SMS sent!')
+      } else {
+        const targets = contacts.filter(c => smsSel.has(c.id) && c.phone)
+        if (targets.length === 0) { toast.error('Select at least one contact with a phone'); setSmsSending(false); return }
+        let ok = 0, fail = 0
+        for (const c of targets) { try { await sendSMS(c.phone, smsMsg); ok++ } catch { fail++ } }
+        toast[fail ? 'info' : 'success'](`Sent ${ok}/${targets.length}${fail ? ` · ${fail} failed` : ''}`)
+      }
+      setSmsModal(null)
+    } catch (e) { toast.error('SMS failed: ' + e.message) }
+    setSmsSending(false)
   }
 
   // Pre-built email templates
@@ -383,7 +413,8 @@ Please complete this by the due date.
         {/* ── CONTACTS ── */}
         {activeTab === 'contacts' && (
           <div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 16 }}>
+              <Button variant="ghost" onClick={openSmsBroadcast} disabled={contacts.filter(c => c.phone).length === 0}><MessageSquare size={14} /> SMS broadcast</Button>
               <Button onClick={() => { setContactForm({ name: '', email: '', role: '', phone: '', address: '' }); setEditContact(null); setContactModal(true) }}>
                 <Plus size={14} /> Add contact
               </Button>
@@ -401,6 +432,7 @@ Please complete this by the due date.
                   </div>
                   <div style={{ display: 'flex', gap: 6 }}>
                     <Button variant="ghost" size="sm" onClick={() => { setComposeForm({ to: c.email, subject: '', body: '' }); setActiveTab('compose') }}><Mail size={13} /></Button>
+                    {c.phone && <Button variant="ghost" size="sm" onClick={() => openSmsOne(c)} title="Send SMS"><MessageSquare size={13} /></Button>}
                     <Button variant="ghost" size="sm" onClick={() => { setContactForm({ name: c.name, email: c.email, role: c.role || '', phone: c.phone || '' }); setEditContact(c); setContactModal(true) }}><Edit2 size={13} /></Button>
                     <Button variant="danger" size="sm" onClick={() => deleteContact(c)}><Trash2 size={13} /></Button>
                   </div>
@@ -436,6 +468,42 @@ Please complete this by the due date.
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 18 }}>
             <Button variant="ghost" onClick={() => { setContactModal(false); setEditContact(null); setContactForm({ name: '', email: '', role: '', phone: '' }) }}>Cancel</Button>
             <Button onClick={saveContact}>Save contact</Button>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── SMS MODAL ── */}
+      {smsModal && (
+        <Modal title={smsModal.mode === 'all' ? 'SMS broadcast' : 'Send SMS'} subtitle={smsModal.mode === 'all' ? 'Text multiple staff / directors at once' : undefined} onClose={() => setSmsModal(null)} width={500}>
+          {smsModal.mode === 'one' ? (
+            <Input label="Phone number" value={smsTo} onChange={e => setSmsTo(e.target.value)} placeholder="7-digit or with 960" style={{ marginBottom: 12 }} />
+          ) : (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <label style={{ fontSize: 12, color: '#666', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.4px' }}>Recipients ({smsSel.size})</label>
+                <button onClick={() => setSmsSel(new Set(contacts.filter(c => c.phone).map(c => c.id)))} style={{ background: 'none', border: 'none', color: '#FFA500', fontWeight: 700, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>Select all</button>
+              </div>
+              <div style={{ border: '1px solid #eee', borderRadius: 10, maxHeight: 200, overflowY: 'auto' }}>
+                {contacts.filter(c => c.phone).map((c, i) => (
+                  <label key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderTop: i ? '1px solid #f5f5f5' : 'none', cursor: 'pointer', fontSize: 13 }}>
+                    <input type="checkbox" checked={smsSel.has(c.id)} onChange={() => toggleSmsSel(c.id)} />
+                    <span style={{ fontWeight: 600, color: '#0d1b2a' }}>{c.name}</span>
+                    {c.role && <span style={{ fontSize: 11, color: '#aaa' }}>{c.role}</span>}
+                    <span style={{ marginLeft: 'auto', fontSize: 11, color: '#aaa' }}>{c.phone}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+          <div style={{ marginBottom: 8 }}>
+            <label style={{ fontSize: 12, color: '#666', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.4px', display: 'block', marginBottom: 5 }}>Message</label>
+            <textarea value={smsMsg} onChange={e => setSmsMsg(e.target.value)} placeholder="Type your SMS…"
+              style={{ width: '100%', padding: '9px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', resize: 'vertical', minHeight: 90, boxSizing: 'border-box', outline: 'none' }} />
+            <div style={{ fontSize: 11, color: '#aaa', marginTop: 4 }}>{smsMsg.length} characters · ~{Math.max(1, Math.ceil(smsMsg.length / 160))} SMS each</div>
+          </div>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 14 }}>
+            <Button variant="ghost" onClick={() => setSmsModal(null)}>Cancel</Button>
+            <Button onClick={sendSmsBlast} disabled={smsSending}><MessageSquare size={13} /> {smsSending ? 'Sending…' : 'Send SMS'}</Button>
           </div>
         </Modal>
       )}
