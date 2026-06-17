@@ -94,10 +94,10 @@ export default function Costs() {
 
   const f = k => e => setForm(prev => ({ ...prev, [k]: e.target.value }))
 
-  // Convert display amount
+  // Convert display amount, labelled with the currently selected currency
   function displayAmt(usdAmount) {
-    const amt = displayCurrency === 'MVR' ? usdAmount * MVR_RATE : usdAmount
-    return `MVR ${amt.toFixed(2)}`
+    if (displayCurrency === 'MVR') return `MVR ${(usdAmount * MVR_RATE).toFixed(2)}`
+    return `$${Number(usdAmount).toFixed(2)}`
   }
 
   // Filter

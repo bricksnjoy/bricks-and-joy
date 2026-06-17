@@ -104,6 +104,22 @@
         }
         .toast-wrap > div { min-width: 0 !important; width: 100%; }
       }
+
+      /* ── App-wide polish ─────────────────────────────────────────────── */
+      html { scroll-behavior: smooth; }
+      /* Tactile press feedback on clickable controls */
+      button:active:not(:disabled) { filter: brightness(0.97); }
+      /* Keyboard-only focus ring for accessibility (won't show on mouse clicks) */
+      button:focus-visible, a:focus-visible, [role="button"]:focus-visible {
+        outline: 2px solid #FFA500; outline-offset: 2px; border-radius: 6px;
+      }
+      /* Gentle entrance for cards/sections that opt in */
+      @keyframes riseIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+      .rise-in { animation: riseIn 0.28s ease both; }
+      /* Respect users who prefer less motion */
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; scroll-behavior: auto !important; }
+      }
     </style>
   </head>
   <body>
