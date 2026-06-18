@@ -13,6 +13,7 @@ export default function Deliveries() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all') // all | unassigned | assigned
+  const [statusFilter, setStatusFilter] = useState('all') // all | created | transit | delivered
   const [savingId, setSavingId] = useState(null)
   const [dateColMissing, setDateColMissing] = useState(false)
   const toast = useToast()
@@ -57,7 +58,8 @@ export default function Deliveries() {
       customerName(o).toLowerCase().includes(search.toLowerCase()) ||
       (o.invoice_number || '').toLowerCase().includes(search.toLowerCase())
     const matchFilter = filter === 'all' || (filter === 'unassigned' ? !o.delivery_person : !!o.delivery_person)
-    return matchSearch && matchFilter
+    const matchStatus = statusFilter === 'all' || o.status === statusFilter
+    return matchSearch && matchFilter && matchStatus
   })
 
   const assignedCount = orders.filter(o => o.delivery_person).length
@@ -99,13 +101,22 @@ export default function Deliveries() {
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search orders, customers…"
               style={{ width: '100%', padding: '8px 12px 8px 32px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
           </div>
-          <div className="dlv-pill">
-            {FILTERS.map(([id, label]) => (
-              <button key={id} className="dlv-fbtn" onClick={() => setFilter(id)} style={{
-                background: filter === id ? '#FFA500' : '#f3f1ec', color: filter === id ? '#fff' : '#777',
-                boxShadow: filter === id ? '0 3px 10px rgba(255,165,0,0.28)' : 'none',
-              }}>{label}</button>
-            ))}
+          <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+            <div className="dlv-pill">
+              {FILTERS.map(([id, label]) => (
+                <button key={id} className="dlv-fbtn" onClick={() => setFilter(id)} style={{
+                  background: filter === id ? '#FFA500' : '#f3f1ec', color: filter === id ? '#fff' : '#777',
+                  boxShadow: filter === id ? '0 3px 10px rgba(255,165,0,0.28)' : 'none',
+                }}>{label}</button>
+              ))}
+            </div>
+            <div className="dlv-pill">
+              {[['all', 'All'], ['created', 'Created'], ['transit', 'Dispatched'], ['delivered', 'Delivered']].map(([id, label]) => (
+                <button key={id} className="dlv-fbtn" onClick={() => setStatusFilter(id)} style={{
+                  background: statusFilter === id ? '#0d1b2a' : '#f3f1ec', color: statusFilter === id ? '#fff' : '#777',
+                }}>{label}</button>
+              ))}
+            </div>
           </div>
         </div>
 

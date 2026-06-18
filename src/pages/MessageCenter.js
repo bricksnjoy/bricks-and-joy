@@ -76,7 +76,7 @@ export default function MessageCenter() {
   async function load() {
     setLoading(true)
     const [o, p, c, ct] = await Promise.all([
-      supabase.from('orders').select('*').in('status', ['pending', 'transit']).order('created_at', { ascending: false }),
+      supabase.from('orders').select('*').in('status', ['created', 'pending', 'transit']).order('created_at', { ascending: false }),
       supabase.from('products').select('*'),
       supabase.from('customers').select('*').order('name'),
       supabase.from('email_contacts').select('*').order('name'),
@@ -139,7 +139,13 @@ export default function MessageCenter() {
     if (compose.channel === 'email' && !compose.subject.trim()) { toast.error('Add a subject'); return }
     const eligible = composeRecipients()
     const targets = eligible.filter(r => compose.sel.has(r.id))
-    if (targets.length === 0) { toast.error('Pick at least one recipient'); return }
+    // Free-typed recipients (comma/semicolon/newline separated)
+    if (compose.freeTo && compose.to) {
+      compose.to.split(/[,;\n]/).map(s => s.trim()).filter(Boolean).forEach(v => {
+        targets.push(compose.channel === 'email' ? { id: 'to:' + v, name: v, email: v } : { id: 'to:' + v, name: v, phone: v })
+      })
+    }
+    if (targets.length === 0) { toast.error('Pick or type at least one recipient'); return }
     setSending(true)
     let ok = 0, fail = 0
     for (const r of targets) {
@@ -248,6 +254,10 @@ Please confirm once delivered.
   }
   function openStaffBroadcast() {
     openCompose({ title: 'Message staff & directors', channel: 'sms', subject: '', body: '', source: 'contacts' })
+  }
+  // Free compose — send to anyone by typing an email/phone, regarding anything
+  function openFreeCompose() {
+    openCompose({ title: 'New message', channel: 'email', subject: '', body: '', source: 'contacts', freeTo: true, to: '' })
   }
 
   // ── Contacts CRUD (shared email_contacts) ───────────────────────────────────
@@ -469,7 +479,8 @@ Please confirm once delivered.
         {/* ── CONTACTS ── */}
         {activeTab === 'contacts' && (
           <div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+              <Button variant="ghost" onClick={openFreeCompose}><Mail size={14} /> Compose</Button>
               <Button variant="ghost" onClick={openStaffBroadcast} disabled={contacts.length === 0}><Send size={14} /> Message staff</Button>
               <Button onClick={() => { setContactForm({ name: '', email: '', role: '', phone: '' }); setEditContact(null); setContactModal(true) }}><Plus size={14} /> Add contact</Button>
             </div>
@@ -538,6 +549,17 @@ Please confirm once delivered.
               })} />
               <span style={{ fontSize: 12, color: '#aaa' }}>{eligible.length} {compose.source} can receive {compose.channel === 'email' ? 'email' : 'SMS'}</span>
             </div>
+
+            {compose.freeTo && (
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ fontSize: 12, color: '#666', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.4px', display: 'block', marginBottom: 6 }}>
+                  To {compose.channel === 'email' ? '(email addresses)' : '(phone numbers)'}
+                </label>
+                <input value={compose.to || ''} onChange={e => setCompose(c => ({ ...c, to: e.target.value }))}
+                  placeholder={compose.channel === 'email' ? 'name@example.com, another@example.com' : '7-digit numbers, comma separated'} className="mc-in" />
+                <div style={{ fontSize: 11, color: '#aaa', marginTop: 4 }}>Separate multiple with commas. You can also tick saved contacts below.</div>
+              </div>
+            )}
 
             <div style={{ marginBottom: 14 }}>
               <label style={{ fontSize: 12, color: '#666', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>

@@ -67,11 +67,13 @@ create table orders (
   delivery_date date,
   notes text,
   created_at timestamptz default now(),
-  created_by uuid references auth.users(id)
+  created_by uuid references auth.users(id),
+  created_by_email text
 );
 -- For existing databases:
 -- alter table orders add column if not exists delivery_person text;
 -- alter table orders add column if not exists delivery_date date;
+-- alter table orders add column if not exists created_by_email text;
 
 -- PURCHASE ORDERS (buying from suppliers)
 create table purchase_orders (

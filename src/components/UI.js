@@ -138,6 +138,7 @@ export function Badge({ children, color = 'gray' }) {
 // ─── Status badge helper ──────────────────────────────────────────────────────
 export function StatusBadge({ status }) {
   const map = {
+    created: ['Order created', 'purple'],
     pending: ['Pending', 'amber'],
     transit: ['Dispatched', 'blue'],
     delivered: ['Delivered', 'green'],

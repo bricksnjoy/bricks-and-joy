@@ -6,9 +6,9 @@ import BarcodeScanner from '../components/BarcodeScanner'
 import { sendSMS } from '../lib/sms'
 
 const CHANNELS = ['Retail store','Online','Wholesale','Pop-up / Market','Instagram','Phone']
-const STATUSES = [{ value: 'pending', label: 'Pending' },{ value: 'transit', label: 'Dispatched' },{ value: 'delivered', label: 'Delivered' },{ value: 'cancelled', label: 'Cancelled' }]
+const STATUSES = [{ value: 'created', label: 'Order created' },{ value: 'pending', label: 'Pending' },{ value: 'transit', label: 'Dispatched' },{ value: 'delivered', label: 'Delivered' },{ value: 'cancelled', label: 'Cancelled' }]
 const PAY_METHODS = ['Cash','BML Transfer','Bank Transfer','Card','Other']
-const EMPTY_FORM = { customer_id:'', customer_name:'', channel:'Retail store', status:'pending', order_date: new Date().toISOString().split('T')[0], notes:'', payment_status:'unpaid', payment_method:'', transfer_reference:'', invoice_number:'', delivery_person:'', discount_value:0, discount_type:'amount' }
+const EMPTY_FORM = { customer_id:'', customer_name:'', channel:'Retail store', status:'created', order_date: new Date().toISOString().split('T')[0], notes:'', payment_status:'unpaid', payment_method:'', transfer_reference:'', invoice_number:'', delivery_person:'', discount_value:0, discount_type:'amount' }
 const EMPTY_ITEM = { product_id:'', product_name:'', qty:1, unit_price:0 }
 
 export default function Orders() {
@@ -34,18 +34,21 @@ export default function Orders() {
   const [smsModal, setSmsModal] = useState(null)   // order being texted
   const [smsForm, setSmsForm] = useState({ mode: 'customer', to: '', message: '', contactId: '' })
   const [smsSending, setSmsSending] = useState(false)
+  const [userEmail, setUserEmail] = useState('')
   const toast = useToast()
 
   useEffect(() => { load() }, [])
 
   async function load() {
     setLoading(true)
-    const [o, c, p, ct] = await Promise.all([
+    const [o, c, p, ct, u] = await Promise.all([
       supabase.from('orders').select('*').order('created_at', { ascending: false }),
       supabase.from('customers').select('id, name, phone, address').order('name'),
       supabase.from('products').select('*').order('name'),
       supabase.from('email_contacts').select('*').order('name'),
+      supabase.auth.getUser(),
     ])
+    setUserEmail(u?.data?.user?.email || '')
     setOrders(o.data || [])
     setCustomers(c.data || [])
     setProducts(p.data || [])
@@ -134,7 +137,18 @@ export default function Orders() {
       unit_price: parseFloat(item.unit_price),
       total_price: Math.max(0, parseFloat(item.unit_price) * parseInt(item.qty) - itemDiscount),
       discount: itemDiscount,
+      // Who created it — keep the original on edits, stamp the current user on new
+      created_by_email: editOrder ? (editOrder.created_by_email || userEmail) : userEmail,
     }
+  }
+
+  // Remove a column the database doesn't have yet (e.g. created_by_email) so
+  // saving still works before the migration is run; returns true if it stripped one.
+  function dropMissingCol(error, payload) {
+    const m = (error?.message || '').match(/'([a-z_]+)' column/i) || (error?.message || '').match(/column "?([a-z_]+)"?/i)
+    const col = m && m[1]
+    if (col && col in payload) { delete payload[col]; return true }
+    return false
   }
 
   // Apply a stock change to a product (delta negative = reduce). Reads fresh so
@@ -153,7 +167,8 @@ export default function Orders() {
     if (editOrder) {
       const item = validItems[0]
       const payload = buildPayload(item, discountAmount)
-      const { error } = await supabase.from('orders').update(payload).eq('id', editOrder.id)
+      let { error } = await supabase.from('orders').update(payload).eq('id', editOrder.id)
+      while (error && dropMissingCol(error, payload)) { error = (await supabase.from('orders').update(payload).eq('id', editOrder.id)).error }
       if (error) { console.error(error); setSaving(false); toast.error('Failed to update: ' + error.message); return }
       // Keep inventory in sync with quantity/product changes (a cancelled order's
       // stock was already restored, so don't double-count it).
@@ -180,7 +195,8 @@ export default function Orders() {
         ? itemSubtotal * (parseFloat(form.discount_value || 0) / 100)
         : parseFloat(form.discount_value || 0) / validItems.length
       const payload = buildPayload(item, itemDiscount)
-      const { error } = await supabase.from('orders').insert(payload)
+      let { error } = await supabase.from('orders').insert(payload)
+      while (error && dropMissingCol(error, payload)) { error = (await supabase.from('orders').insert(payload)).error }
       if (error) { console.error(error); setSaving(false); toast.error('Failed to save: ' + error.message); return }
       // Read fresh so repeated products / concurrent sales don't clobber stock
       const { data: prod } = await supabase.from('products').select('stock_qty, name, low_stock_threshold').eq('id', item.product_id).single()
@@ -313,6 +329,12 @@ export default function Orders() {
   const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
   const pf = k => e => setPayForm(p => ({ ...p, [k]: e.target.value }))
 
+  // Resolve a creator's email to a staff name via the shared contacts list
+  const creatorName = email => {
+    const c = contacts.find(x => (x.email || '').toLowerCase() === (email || '').toLowerCase())
+    return c?.name || email
+  }
+
   const filteredByStatus = filter === 'all' ? orders : orders.filter(o => o.status === filter)
   const filteredOrders = payFilter === 'all' ? filteredByStatus : filteredByStatus.filter(o => (o.payment_status || 'unpaid') === payFilter)
   const totalRevenue = orders.filter(o => o.status === 'delivered').reduce((s, o) => s + Number(o.total_price || 0), 0)
@@ -321,7 +343,7 @@ export default function Orders() {
   const outOfStockCount = products.filter(p => p.stock_qty <= 0).length
 
   const AVATAR_COLORS = ['#7F77DD','#1D9E75','#FFA500','#378ADD','#E24B4A','#0F6E56']
-  const statusColors = { pending: '#FFA500', transit: '#378ADD', delivered: '#1D9E75', cancelled: '#E24B4A' }
+  const statusColors = { created: '#7F77DD', pending: '#FFA500', transit: '#378ADD', delivered: '#1D9E75', cancelled: '#E24B4A' }
 
   const columns = [
     { key: 'invoice_number', label: 'Invoice', render: r => (
@@ -414,8 +436,8 @@ export default function Orders() {
           <div style={{ display: 'flex', background: '#f5f5f5', borderRadius: 10, padding: 3, gap: 2 }}>
             {[
               { key: 'all', label: 'All', count: orders.length },
-              { key: 'pending', label: 'Pending', count: orders.filter(o => o.status === 'pending').length },
-              { key: 'transit', label: 'Transit', count: orders.filter(o => o.status === 'transit').length },
+              { key: 'created', label: 'Created', count: orders.filter(o => o.status === 'created').length },
+              { key: 'transit', label: 'Dispatched', count: orders.filter(o => o.status === 'transit').length },
               { key: 'delivered', label: 'Delivered', count: orders.filter(o => o.status === 'delivered').length },
               { key: 'cancelled', label: 'Cancelled', count: orders.filter(o => o.status === 'cancelled').length },
             ].map(s => (
@@ -495,9 +517,14 @@ export default function Orders() {
               }
             </div>
           )}
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <Button variant="ghost" onClick={() => { openEdit(viewModal); setViewModal(null) }}><Edit2 size={13} /> Edit</Button>
-            <Button variant="ghost" onClick={() => setViewModal(null)}>Close</Button>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 10, color: '#cfcfcf' }}>
+              {viewModal.created_by_email ? `Created by ${creatorName(viewModal.created_by_email)}` : ''}
+            </span>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <Button variant="ghost" onClick={() => { openEdit(viewModal); setViewModal(null) }}><Edit2 size={13} /> Edit</Button>
+              <Button variant="ghost" onClick={() => setViewModal(null)}>Close</Button>
+            </div>
           </div>
         </Modal>
       )}
@@ -633,18 +660,23 @@ export default function Orders() {
             })}
           </div>
 
-          {/* Discount */}
-          <div style={{ marginBottom: 14 }}>
-            <label style={{ fontSize: 12, color: '#666', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.4px', display: 'block', marginBottom: 6 }}>Discount</label>
-            <div style={{ display: 'flex', border: '1px solid #ddd', borderRadius: 8, overflow: 'hidden', width: 260 }}>
-              <button onClick={() => setForm(p => ({ ...p, discount_type: 'amount' }))}
-                style={{ padding: '9px 16px', border: 'none', borderRight: '1px solid #ddd', cursor: 'pointer', fontWeight: 700, fontSize: 13, fontFamily: 'inherit', background: form.discount_type === 'amount' ? '#FFA500' : '#f8f8f8', color: form.discount_type === 'amount' ? '#fff' : '#666' }}>MVR</button>
-              <button onClick={() => setForm(p => ({ ...p, discount_type: 'percent' }))}
-                style={{ padding: '9px 16px', border: 'none', borderRight: '1px solid #ddd', cursor: 'pointer', fontWeight: 700, fontSize: 13, fontFamily: 'inherit', background: form.discount_type === 'percent' ? '#FFA500' : '#f8f8f8', color: form.discount_type === 'percent' ? '#fff' : '#666' }}>%</button>
-              <input type="number" min="0" step="0.01" value={form.discount_value} onChange={e => setForm(p => ({ ...p, discount_value: e.target.value }))} placeholder="0"
-                style={{ flex: 1, padding: '9px 12px', border: 'none', fontSize: 14, fontFamily: 'inherit', outline: 'none' }} />
+          {/* Discount + Channel */}
+          <div style={{ marginBottom: 14, display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+            <div>
+              <label style={{ fontSize: 12, color: '#666', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.4px', display: 'block', marginBottom: 6 }}>Discount</label>
+              <div style={{ display: 'flex', border: '1px solid #ddd', borderRadius: 8, overflow: 'hidden', width: 260 }}>
+                <button onClick={() => setForm(p => ({ ...p, discount_type: 'amount' }))}
+                  style={{ padding: '9px 16px', border: 'none', borderRight: '1px solid #ddd', cursor: 'pointer', fontWeight: 700, fontSize: 13, fontFamily: 'inherit', background: form.discount_type === 'amount' ? '#FFA500' : '#f8f8f8', color: form.discount_type === 'amount' ? '#fff' : '#666' }}>MVR</button>
+                <button onClick={() => setForm(p => ({ ...p, discount_type: 'percent' }))}
+                  style={{ padding: '9px 16px', border: 'none', borderRight: '1px solid #ddd', cursor: 'pointer', fontWeight: 700, fontSize: 13, fontFamily: 'inherit', background: form.discount_type === 'percent' ? '#FFA500' : '#f8f8f8', color: form.discount_type === 'percent' ? '#fff' : '#666' }}>%</button>
+                <input type="number" min="0" step="0.01" value={form.discount_value} onChange={e => setForm(p => ({ ...p, discount_value: e.target.value }))} placeholder="0"
+                  style={{ flex: 1, padding: '9px 12px', border: 'none', fontSize: 14, fontFamily: 'inherit', outline: 'none', width: 80 }} />
+              </div>
+              {discountAmount > 0 && <div style={{ fontSize: 12, color: '#1D9E75', marginTop: 4, fontWeight: 600 }}>Saving MVR {discountAmount.toFixed(2)}</div>}
             </div>
-            {discountAmount > 0 && <div style={{ fontSize: 12, color: '#1D9E75', marginTop: 4, fontWeight: 600 }}>Saving MVR {discountAmount.toFixed(2)}</div>}
+            <div style={{ minWidth: 180, flex: 1 }}>
+              <Select label="Channel" value={form.channel} onChange={f('channel')} options={CHANNELS} />
+            </div>
           </div>
 
           {/* Order total summary */}
@@ -655,15 +687,13 @@ export default function Orders() {
             <span style={{ fontSize: 11, color: '#aaa' }}>Invoice: {form.invoice_number}</span>
           </div>
 
-          <FormRow>
-            <Select label="Channel" value={form.channel} onChange={f('channel')} options={CHANNELS} />
-            <Select label="Status" value={form.status} onChange={f('status')} options={STATUSES} />
-          </FormRow>
-
-          <FormRow>
-            <Select label="Payment" value={form.payment_status} onChange={f('payment_status')} options={[{ value:'unpaid', label:'Unpaid' },{ value:'paid', label:'Paid' },{ value:'partial', label:'Partial' }]} />
-            <Input label="Order date" type="date" value={form.order_date} onChange={f('order_date')} />
-          </FormRow>
+          {/* Status & payment are managed from the orders list; order date is auto.
+              Only allow editing the date when correcting an existing order. */}
+          {editOrder && (
+            <div style={{ marginBottom: 14, maxWidth: 220 }}>
+              <Input label="Order date" type="date" value={form.order_date} onChange={f('order_date')} />
+            </div>
+          )}
 
           <div style={{ marginBottom: 14 }}>
             <label style={{ fontSize: 12, color: '#666', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.4px', display: 'block', marginBottom: 5 }}>Notes</label>
