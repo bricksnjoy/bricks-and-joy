@@ -784,15 +784,15 @@ export default function Orders() {
                 <div key={idx} style={{ border: '1px solid #eee', borderRadius: 10, padding: '12px', marginBottom: 8, background: '#fafafa' }}>
                   <div style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
                     <select value={item.product_id} onChange={e => handleProductChange(e, idx)}
-                      style={{ flex: 1, padding: '8px 10px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', background: '#fff', outline: 'none' }}>
+                      style={{ flex: 1, minWidth: 0, padding: '8px 10px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', background: '#fff', outline: 'none' }}>
                       <option value="">— Select product —</option>
                       {products.map(p => <option key={p.id} value={p.id}>{p.name} ({p.stock_qty} in stock)</option>)}
                     </select>
                     <button onClick={() => setScanning(scanning === idx ? null : idx)}
-                      style={{ padding: '8px 10px', background: scanning === idx ? '#c62828' : '#FFA500', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
+                      style={{ flexShrink: 0, padding: '8px 10px', background: scanning === idx ? '#c62828' : '#FFA500', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
                       <Camera size={13} />
                     </button>
-                    {cartItems.length > 1 && <button onClick={() => removeCartItem(idx)} style={{ padding: '8px', background: 'none', border: '1px solid #eee', borderRadius: 8, cursor: 'pointer', color: '#c62828' }}><X size={13} /></button>}
+                    {cartItems.length > 1 && <button onClick={() => removeCartItem(idx)} style={{ flexShrink: 0, padding: '8px', background: 'none', border: '1px solid #eee', borderRadius: 8, cursor: 'pointer', color: '#c62828' }}><X size={13} /></button>}
                   </div>
                   {scanning === idx && (
                     <div style={{ marginBottom: 8 }}>
