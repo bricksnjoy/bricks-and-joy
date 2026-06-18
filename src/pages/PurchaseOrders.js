@@ -1082,7 +1082,7 @@ export default function PurchaseOrders() {
             </table>
           </div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))', gap: 14, alignItems: 'start' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 380px), 1fr))', gap: 14, alignItems: 'start' }}>
             {displayGroups.map(g => renderBatchCard(g))}
           </div>
         )}

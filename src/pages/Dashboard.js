@@ -159,7 +159,7 @@ export default function Dashboard() {
       </div>
 
       {/* Today + This month hero row */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
+      <div className="grid-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
         {/* Today's sales — featured */}
         <div style={{
           borderRadius: 16, padding: '22px 24px', position: 'relative', overflow: 'hidden',
@@ -281,7 +281,7 @@ export default function Dashboard() {
       </div>
 
       {/* Best Sellers + Customer Base — last 30 days */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+      <div className="grid-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
 
         {/* Best Selling Products */}
         <div className="panel" style={{ animation: 'fadeSlideUp 0.35s ease both', animationDelay: '0.18s' }}>

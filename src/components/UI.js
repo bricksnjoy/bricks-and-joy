@@ -5,7 +5,7 @@ import { X, AlertTriangle, CheckCircle, Info, Inbox } from 'lucide-react'
 // ─── Page header ──────────────────────────────────────────────────────────────
 export function PageHeader({ title, subtitle, action }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 28 }}>
+    <div className="page-header" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 28, gap: 12, flexWrap: 'wrap' }}>
       <div>
         <h1 style={{ fontSize: 23, fontWeight: 800, margin: 0, color: '#0d1b2a', letterSpacing: '-0.5px' }}>{title}</h1>
         {subtitle && <p style={{ margin: '4px 0 0', color: '#aaa', fontSize: 13, fontWeight: 400 }}>{subtitle}</p>}
@@ -18,7 +18,7 @@ export function PageHeader({ title, subtitle, action }) {
 // ─── Card ─────────────────────────────────────────────────────────────────────
 export function Card({ children, style = {} }) {
   return (
-    <div style={{
+    <div className="ui-card" style={{
       background: '#fff', borderRadius: 14, border: '1px solid #eee',
       padding: '20px 24px', boxShadow: '0 1px 4px rgba(0,0,0,0.04)', ...style
     }}>

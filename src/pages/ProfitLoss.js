@@ -396,7 +396,7 @@ export default function Accounting() {
         return (
           <div>
             {/* Eligibility */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 20 }}>
+            <div className="grid-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 20 }}>
               <Card>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
                   <div style={{ background: '#f8f7f4', borderRadius: 8, padding: 7 }}><Receipt size={15} color="#FFA500" /></div>
@@ -467,7 +467,7 @@ export default function Accounting() {
                   ))}
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14, marginBottom: 16 }}>
+                <div className="grid-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14, marginBottom: 16 }}>
                   {[
                     { label: 'Taxable Revenue', value: `MVR ${periodRevenue.toFixed(2)}`, color: '#378ADD', note: periodLabels[gstPeriod] },
                     { label: 'GST Collected (8%)', value: `MVR ${gstToRemit.toFixed(2)}`, color: '#E24B4A', note: 'On GST-exclusive prices' },
@@ -501,7 +501,7 @@ export default function Accounting() {
 
       {/* ── INCOME STATEMENT ── */}
       {activeTab === 'income' && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+        <div className="grid-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
           <Card style={{ maxWidth: '100%' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20, paddingBottom: 16, borderBottom: '2px solid #0d1b2a' }}>
               <div>
@@ -574,7 +574,7 @@ export default function Accounting() {
         const totalLiabilities = accountsPayable
         const equity = totalAssets - totalLiabilities
         return (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+          <div className="grid-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
             <Card>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20, paddingBottom: 16, borderBottom: '2px solid #0d1b2a' }}>
                 <div>
@@ -633,7 +633,7 @@ export default function Accounting() {
         purchaseOrders.filter(po=>po.status==='received').forEach(po => { const m = po.order_date?.slice(0,7); if(m) { if(!monthlyFlow[m]) monthlyFlow[m]={in:0,out:0}; monthlyFlow[m].out += Number(po.total_cost||0) } })
 
         return (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+          <div className="grid-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
             <Card>
               <div style={{ marginBottom: 20, paddingBottom: 16, borderBottom: '2px solid #0d1b2a' }}>
                 <div style={{ fontSize: 17, fontWeight: 800, color: '#0d1b2a' }}>{companyName}</div>

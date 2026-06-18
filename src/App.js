@@ -199,6 +199,25 @@ export default function App() {
           .main-content { margin-left: 0 !important; }
           .app-header { padding-top: calc(13px + env(safe-area-inset-top)); padding-left: calc(14px + env(safe-area-inset-left)); padding-right: calc(14px + env(safe-area-inset-right)); }
           .page-content { padding: 14px 14px calc(16px + env(safe-area-inset-bottom)) !important; }
+
+          /* Multi-column grids that lack their own breakpoint collapse to 2 cols */
+          .grid-collapse { grid-template-columns: 1fr 1fr !important; }
+          /* Shared component spacing tightened for small screens */
+          .ui-card { padding: 16px 15px !important; border-radius: 12px !important; }
+          .page-header { margin-bottom: 18px !important; }
+          .page-header h1 { font-size: 20px !important; }
+          .modal-head { padding: 16px 18px !important; }
+          .modal-body { padding: 18px !important; }
+          .modal-card { border-radius: 16px !important; max-height: 94vh !important; }
+          .data-table { font-size: 12px !important; }
+          .data-table th, .data-table td { padding: 8px 9px !important; }
+          /* Toasts span the width so they never run off-screen */
+          .toast-wrap { left: 12px !important; right: 12px !important; bottom: 12px !important; }
+          .toast-wrap > div { min-width: 0 !important; }
+        }
+        @media (max-width: 480px) {
+          /* On phones everything stacks to a single column */
+          .grid-collapse { grid-template-columns: 1fr !important; }
         }
         /* 'backwards' (not 'both') so the entry transform is NOT retained after the
            animation — a lingering transform creates a containing block that breaks

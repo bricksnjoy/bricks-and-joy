@@ -372,7 +372,7 @@ export default function Planning() {
           </div>
         </Card>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(330px, 1fr))', gap: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 330px), 1fr))', gap: 16 }}>
           {sorted.map(camp => {
             const st = campaignStatus(camp.occasion_date, camp.lead_days || 90)
             const ss = STATUS_STYLE[st.key] || STATUS_STYLE.none
