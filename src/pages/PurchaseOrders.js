@@ -900,8 +900,6 @@ export default function PurchaseOrders() {
     const productRows = rows.filter(r => r.cost_type !== 'extra')
     const feeRows = rows.filter(r => r.cost_type === 'extra')
     const totalQty = productRows.reduce((s, r) => s + Number(r.qty || 0), 0)
-    const slipUrl = rows.find(r => r.slip_url)?.slip_url || null
-    const slipAnchorId = rows.find(r => r.slip_url)?.id || anchor.id
     const sd = supplierDisplay(anchor.supplier_id, anchor.supplier_name)
     const statusColors = { pending: { bg: '#FFF8E1', fg: '#b8740a' }, ordered: { bg: '#EAF2FD', fg: '#2f6fc0' }, received: { bg: '#E1F5EE', fg: '#1D9E75' }, cancelled: { bg: '#fef2f2', fg: '#E24B4A' } }
     const sc = statusColors[anchor.status] || statusColors.pending
@@ -940,7 +938,6 @@ export default function PurchaseOrders() {
         <td style={{ padding: '10px 12px', verticalAlign: 'middle' }}>
           <div style={{ display: 'flex', gap: 5 }}>
             <button onClick={() => openGroupPayModal(g)} title="Record payment" className="icon-btn primary" style={{ background: '#FFA500', border: 'none', borderRadius: 7, cursor: 'pointer', padding: 6, display: 'flex', color: '#fff' }}><CreditCard size={13} /></button>
-            <button onClick={() => setSlipModal({ ...anchor, slip_url: slipUrl, _anchorId: slipAnchorId })} title={slipUrl ? 'View slip' : 'Attach slip'} style={{ background: slipUrl ? '#E1F5EE' : '#fff', border: `1px solid ${slipUrl ? '#1D9E75' : '#e0e0e0'}`, borderRadius: 7, cursor: 'pointer', padding: 6, display: 'flex', color: slipUrl ? '#1D9E75' : '#999' }}>{slipUrl ? <Eye size={13} /> : <Paperclip size={13} />}</button>
             <button onClick={() => openEditGroup(g)} title="Edit order" style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: 7, cursor: 'pointer', padding: 6, display: 'flex', color: '#666' }}><Pencil size={13} /></button>
             <button onClick={() => delGroup(g)} title="Delete order" style={{ background: '#fff', border: '1px solid #f3d6d6', borderRadius: 7, cursor: 'pointer', padding: 6, display: 'flex', color: '#E24B4A' }}><Trash2 size={13} /></button>
           </div>
@@ -1085,7 +1082,7 @@ export default function PurchaseOrders() {
             </table>
           </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))', gap: 14, alignItems: 'start' }}>
             {displayGroups.map(g => renderBatchCard(g))}
           </div>
         )}
