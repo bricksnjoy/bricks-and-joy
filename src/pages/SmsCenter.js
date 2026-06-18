@@ -37,7 +37,6 @@ export default function SmsCenter() {
   const [deliveryModal, setDeliveryModal] = useState(null) // { order }
   const [deliveryMsg, setDeliveryMsg] = useState('')
   const [deliverySel, setDeliverySel] = useState(() => new Set()) // contact ids
-  const [deliveryCustomer, setDeliveryCustomer] = useState(false) // also text the customer
 
   // Contacts (shared with Email Center via email_contacts)
   const [contactModal, setContactModal] = useState(false)
@@ -110,17 +109,16 @@ export default function SmsCenter() {
   function buildDeliveryNote(order) {
     const customer = customers.find(c => c.id === order.customer_id) || {}
     const payStatus = (order.payment_status || 'unpaid').toUpperCase()
+    const name = customer.name || order.customer_name || 'Walk-in'
+    const phone = customer.phone ? normalizePhone(customer.phone) : ''
     const lines = [
       `Delivery — ${BNJ_NAME}`,
       `Item: ${order.product_name} × ${order.qty}`,
-      '',
-      `Customer: ${customer.name || order.customer_name || 'Walk-in'}`,
-      (customer.phone) ? `Phone: ${customer.phone}` : null,
+      phone ? `${name} · ${phone}` : name,
       (customer.address) ? `Address: ${customer.address}` : null,
-      order.order_date ? `Date: ${order.order_date}` : null,
       `Total: MVR ${Number(order.total_price || 0).toFixed(2)} (${payStatus})`,
       order.notes ? `Notes: ${order.notes}` : null,
-      customer.notes ? `Cust. notes: ${customer.notes}` : null,
+      customer.notes ? `Drop: ${customer.notes}` : null,
     ].filter(Boolean)
     return lines.join('\n')
   }
@@ -131,18 +129,14 @@ export default function SmsCenter() {
     // Pre-select the assigned delivery person if they're a saved contact with a phone.
     const dp = contactsWithPhone.find(c => c.name === order.delivery_person)
     setDeliverySel(new Set(dp ? [dp.id] : []))
-    setDeliveryCustomer(false)
   }
   function toggleDeliverySel(id) { setDeliverySel(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n }) }
 
   async function sendDeliveryNote() {
     if (!deliveryMsg.trim()) { toast.error('Message is empty'); return }
-    const order = deliveryModal.order
-    const customer = customers.find(c => c.id === order.customer_id) || {}
     const recipients = []
     for (const c of contactsWithPhone) if (deliverySel.has(c.id)) recipients.push({ name: c.name, phone: c.phone })
-    if (deliveryCustomer && customer.phone) recipients.push({ name: customer.name, phone: customer.phone })
-    if (recipients.length === 0) { toast.error('Pick at least one recipient'); return }
+    if (recipients.length === 0) { toast.error('Pick at least one staff member'); return }
     setSending(true)
     let ok = 0, fail = 0
     for (const r of recipients) {
@@ -191,14 +185,6 @@ export default function SmsCenter() {
     setSending(false)
   }
 
-  const TAB_STYLE = (id) => ({
-    padding: '8px 18px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 13,
-    fontWeight: 600, fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 6,
-    background: activeTab === id ? '#FFA500' : '#fff',
-    color: activeTab === id ? '#fff' : '#555',
-    boxShadow: activeTab === id ? 'none' : '0 0 0 1px #eee',
-  })
-
   // Small reusable character/segment counter
   const Counter = ({ text }) => (
     <div style={{ fontSize: 11, color: '#aaa', marginTop: 4 }}>
@@ -209,21 +195,47 @@ export default function SmsCenter() {
   return (
     <div>
       <style>{`
-        .sms-card { background:#fff; border:1px solid #eee; border-radius:12px; padding:14px 16px; margin-bottom:10px; transition: box-shadow 0.15s, border-color 0.15s; }
-        .sms-card:hover { border-color:#e3e3e3; box-shadow:0 2px 10px rgba(0,0,0,0.05); }
+        @keyframes smsRise { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
+        @keyframes smsPop { from { opacity:0; transform:scale(0.96); } to { opacity:1; transform:scale(1); } }
+        @keyframes smsFloat { 0%,100%{ transform:translateY(0); } 50%{ transform:translateY(-4px); } }
+        .sms-fade { animation: smsRise 0.32s cubic-bezier(0.4,0,0.2,1) backwards; }
+        .sms-card { background:#fff; border:1px solid #eee; border-radius:14px; padding:14px 16px; margin-bottom:10px; transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease; animation: smsRise 0.3s ease backwards; }
+        .sms-card:hover { border-color:#ffe1b0; box-shadow:0 6px 20px rgba(255,165,0,0.10); transform:translateY(-2px); }
+        .sms-tab { padding:9px 16px; border-radius:99px; border:none; cursor:pointer; font-size:13px; font-weight:600; font-family:inherit; display:flex; align-items:center; gap:7px; transition: all 0.18s cubic-bezier(0.4,0,0.2,1); }
+        .sms-tab:hover { transform:translateY(-1px); }
+        .sms-tab .badge-count { font-size:10px; font-weight:800; padding:1px 7px; border-radius:99px; line-height:1.5; }
+        .sms-row { transition: background 0.15s ease; }
+        .sms-row:hover { background:#faf9f6 !important; }
+        .sms-chip { padding:6px 12px; border-radius:99px; border:1px solid #eee; background:#fff; cursor:pointer; font-size:12px; font-family:inherit; color:#555; font-weight:600; transition: all 0.15s ease; }
+        .sms-chip:hover { border-color:#FFA500; color:#FFA500; transform:translateY(-1px); box-shadow:0 3px 10px rgba(255,165,0,0.12); }
       `}</style>
       <PageHeader title="SMS Center" subtitle="Broadcast sales & announcements to customers, and send delivery notes to staff" />
 
       {/* Tabs */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
-        {[['broadcast', 'Customers', Megaphone], ['deliveries', 'Deliveries', Truck], ['contacts', 'Staff & Contacts', Users], ['compose', 'Quick SMS', MessageSquare]].map(([id, label, Icon]) => (
-          <button key={id} style={TAB_STYLE(id)} onClick={() => setActiveTab(id)}>
-            <Icon size={14} /> {label}
-          </button>
-        ))}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 22, flexWrap: 'wrap' }}>
+        {[
+          ['broadcast', 'Customers', Megaphone, customersWithPhone.length],
+          ['deliveries', 'Deliveries', Truck, orders.filter(o => o.delivery_person).length],
+          ['contacts', 'Staff & Contacts', Users, contacts.length],
+          ['compose', 'Quick SMS', MessageSquare, null],
+        ].map(([id, label, Icon, count]) => {
+          const active = activeTab === id
+          return (
+            <button key={id} className="sms-tab" onClick={() => setActiveTab(id)} style={{
+              background: active ? 'linear-gradient(135deg, #FFA500, #ff8c00)' : '#fff',
+              color: active ? '#fff' : '#555',
+              boxShadow: active ? '0 4px 14px rgba(255,165,0,0.32)' : '0 0 0 1px #eee',
+            }}>
+              <Icon size={14} /> {label}
+              {count != null && count > 0 && (
+                <span className="badge-count" style={{ background: active ? 'rgba(255,255,255,0.25)' : '#f3f1ec', color: active ? '#fff' : '#999' }}>{count}</span>
+              )}
+            </button>
+          )
+        })}
       </div>
 
-      {loading ? <Spinner /> : <>
+      {loading ? <Spinner /> : <div key={activeTab} className="sms-fade">
 
         {/* ── CUSTOMER BROADCAST ── */}
         {activeTab === 'broadcast' && (
@@ -247,13 +259,16 @@ export default function SmsCenter() {
                 <p style={{ color: '#aaa', fontSize: 13, textAlign: 'center', padding: '24px 0' }}>No customers with phone numbers yet. Add phone numbers in the Customers tab.</p>
               ) : (
                 <div style={{ border: '1px solid #eee', borderRadius: 10, maxHeight: 380, overflowY: 'auto' }}>
-                  {filteredCustomers.map((c, i) => (
-                    <label key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderTop: i ? '1px solid #f5f5f5' : 'none', cursor: 'pointer', fontSize: 13 }}>
-                      <input type="checkbox" checked={custSel.has(c.id)} onChange={() => toggleCust(c.id)} />
-                      <span style={{ fontWeight: 600, color: '#0d1b2a' }}>{c.name}</span>
-                      <span style={{ marginLeft: 'auto', fontSize: 11, color: '#aaa' }}>{c.phone}</span>
-                    </label>
-                  ))}
+                  {filteredCustomers.map((c, i) => {
+                    const checked = custSel.has(c.id)
+                    return (
+                      <label key={c.id} className="sms-row" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderTop: i ? '1px solid #f5f5f5' : 'none', cursor: 'pointer', fontSize: 13, background: checked ? '#fff8ec' : 'transparent' }}>
+                        <input type="checkbox" checked={checked} onChange={() => toggleCust(c.id)} />
+                        <span style={{ fontWeight: 600, color: '#0d1b2a' }}>{c.name}</span>
+                        <span style={{ marginLeft: 'auto', fontSize: 11, color: '#aaa' }}>{c.phone}</span>
+                      </label>
+                    )
+                  })}
                   {filteredCustomers.length === 0 && <p style={{ color: '#aaa', fontSize: 12, textAlign: 'center', padding: '16px 0' }}>No matches.</p>}
                 </div>
               )}
@@ -264,8 +279,7 @@ export default function SmsCenter() {
               <h3 style={{ fontSize: 14, fontWeight: 700, color: '#0d1b2a', marginBottom: 12 }}>Message</h3>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
                 {BROADCAST_TEMPLATES.map(t => (
-                  <button key={t.label} onClick={() => setCustMsg(t.text)}
-                    style={{ padding: '6px 11px', borderRadius: 99, border: '1px solid #eee', background: '#fff', cursor: 'pointer', fontSize: 12, fontFamily: 'inherit', color: '#555', fontWeight: 600 }}>
+                  <button key={t.label} className="sms-chip" onClick={() => setCustMsg(t.text)}>
                     {t.emoji} {t.label}
                   </button>
                 ))}
@@ -292,7 +306,15 @@ export default function SmsCenter() {
               <span>Click <strong>Send delivery note</strong> on any order — the SMS is auto-generated from the order and customer details. Pick which staff, directors or delivery person should receive it.</span>
             </div>
             {orders.filter(o => o.delivery_person).length === 0 && (
-              <Card><p style={{ color: '#aaa', fontSize: 13, textAlign: 'center', padding: '30px 0' }}>No active orders with delivery persons assigned.</p></Card>
+              <Card>
+                <div style={{ textAlign: 'center', padding: '36px 0', color: '#c4c4c4' }}>
+                  <div style={{ width: 64, height: 64, borderRadius: 18, background: 'linear-gradient(135deg,#fff3df,#ffe9c7)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16, animation: 'smsFloat 3s ease-in-out infinite' }}>
+                    <Truck size={28} color="#FFA500" />
+                  </div>
+                  <div style={{ fontWeight: 600, color: '#999', fontSize: 14 }}>No deliveries to send</div>
+                  <div style={{ fontSize: 12.5, color: '#bbb', marginTop: 4 }}>Assign a delivery person to an order to text the note here.</div>
+                </div>
+              </Card>
             )}
             {orders.filter(o => o.delivery_person).map(o => {
               const customer = customers.find(c => c.id === o.customer_id) || {}
@@ -370,14 +392,17 @@ export default function SmsCenter() {
                     </button>
                   </div>
                   <div style={{ border: '1px solid #eee', borderRadius: 10, maxHeight: 200, overflowY: 'auto', marginBottom: 12 }}>
-                    {contactsWithPhone.map((c, i) => (
-                      <label key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderTop: i ? '1px solid #f5f5f5' : 'none', cursor: 'pointer', fontSize: 13 }}>
-                        <input type="checkbox" checked={contactSmsSel.has(c.id)} onChange={() => toggleContactSms(c.id)} />
-                        <span style={{ fontWeight: 600, color: '#0d1b2a' }}>{c.name}</span>
-                        {c.role && <span style={{ fontSize: 11, color: '#aaa' }}>{c.role}</span>}
-                        <span style={{ marginLeft: 'auto', fontSize: 11, color: '#aaa' }}>{c.phone}</span>
-                      </label>
-                    ))}
+                    {contactsWithPhone.map((c, i) => {
+                      const checked = contactSmsSel.has(c.id)
+                      return (
+                        <label key={c.id} className="sms-row" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderTop: i ? '1px solid #f5f5f5' : 'none', cursor: 'pointer', fontSize: 13, background: checked ? '#fff8ec' : 'transparent' }}>
+                          <input type="checkbox" checked={checked} onChange={() => toggleContactSms(c.id)} />
+                          <span style={{ fontWeight: 600, color: '#0d1b2a' }}>{c.name}</span>
+                          {c.role && <span style={{ fontSize: 11, color: '#aaa' }}>{c.role}</span>}
+                          <span style={{ marginLeft: 'auto', fontSize: 11, color: '#aaa' }}>{c.phone}</span>
+                        </label>
+                      )
+                    })}
                   </div>
                   <textarea value={contactMsg} onChange={e => setContactMsg(e.target.value)} placeholder="Type your message…"
                     style={{ width: '100%', padding: '10px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', resize: 'vertical', minHeight: 100, boxSizing: 'border-box', outline: 'none' }} />
@@ -424,7 +449,7 @@ export default function SmsCenter() {
             </div>
           </Card>
         )}
-      </>}
+      </div>}
 
       {/* Contact modal */}
       {contactModal && (
@@ -458,33 +483,36 @@ export default function SmsCenter() {
       {/* Delivery note modal */}
       {deliveryModal && (() => {
         const order = deliveryModal.order
-        const customer = customers.find(c => c.id === order.customer_id) || {}
         return (
-          <Modal title="Send delivery note" subtitle={`${order.product_name} × ${order.qty} · ${order.invoice_number || 'no invoice'}`} onClose={() => setDeliveryModal(null)} width={560}>
+          <Modal title="Send delivery note" subtitle={`${order.product_name} × ${order.qty}`} onClose={() => setDeliveryModal(null)} width={560}>
             <div style={{ marginBottom: 14 }}>
-              <label style={{ fontSize: 12, color: '#666', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.4px', display: 'block', marginBottom: 6 }}>Recipients</label>
-              {contactsWithPhone.length === 0 && !customer.phone && (
-                <p style={{ fontSize: 12, color: '#f57f17' }}>No contacts or customer phone available. Add a phone in Staff & Contacts.</p>
-              )}
-              <div style={{ border: '1px solid #eee', borderRadius: 10, maxHeight: 180, overflowY: 'auto' }}>
-                {customer.phone && (
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', cursor: 'pointer', fontSize: 13, background: '#fffdf6' }}>
-                    <input type="checkbox" checked={deliveryCustomer} onChange={() => setDeliveryCustomer(v => !v)} />
-                    <span style={{ fontWeight: 600, color: '#0d1b2a' }}>{customer.name || order.customer_name}</span>
-                    <span style={{ fontSize: 11, color: '#FFA500', fontWeight: 600 }}>Customer</span>
-                    <span style={{ marginLeft: 'auto', fontSize: 11, color: '#aaa' }}>{customer.phone}</span>
-                  </label>
+              <label style={{ fontSize: 12, color: '#666', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <span>Send to staff ({deliverySel.size})</span>
+                {contactsWithPhone.length > 0 && (
+                  <button onClick={() => setDeliverySel(deliverySel.size === contactsWithPhone.length ? new Set() : new Set(contactsWithPhone.map(c => c.id)))}
+                    style={{ background: 'none', border: 'none', color: '#FFA500', fontWeight: 700, fontSize: 11, cursor: 'pointer', fontFamily: 'inherit' }}>
+                    {deliverySel.size === contactsWithPhone.length ? 'Clear all' : 'Select all'}
+                  </button>
                 )}
-                {contactsWithPhone.map((c, i) => (
-                  <label key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderTop: (i || customer.phone) ? '1px solid #f5f5f5' : 'none', cursor: 'pointer', fontSize: 13 }}>
-                    <input type="checkbox" checked={deliverySel.has(c.id)} onChange={() => toggleDeliverySel(c.id)} />
-                    <span style={{ fontWeight: 600, color: '#0d1b2a' }}>{c.name}</span>
-                    {c.name === order.delivery_person && <span style={{ fontSize: 11, color: '#378ADD', fontWeight: 600 }}>Delivery person</span>}
-                    {c.role && c.name !== order.delivery_person && <span style={{ fontSize: 11, color: '#aaa' }}>{c.role}</span>}
-                    <span style={{ marginLeft: 'auto', fontSize: 11, color: '#aaa' }}>{c.phone}</span>
-                  </label>
-                ))}
-              </div>
+              </label>
+              {contactsWithPhone.length === 0 ? (
+                <p style={{ fontSize: 12, color: '#f57f17', display: 'flex', alignItems: 'center', gap: 6 }}><AlertTriangle size={13} /> No staff with phone numbers. Add them in Staff &amp; Contacts.</p>
+              ) : (
+                <div style={{ border: '1px solid #eee', borderRadius: 10, maxHeight: 200, overflowY: 'auto' }}>
+                  {contactsWithPhone.map((c, i) => {
+                    const checked = deliverySel.has(c.id)
+                    return (
+                      <label key={c.id} className="sms-row" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderTop: i ? '1px solid #f5f5f5' : 'none', cursor: 'pointer', fontSize: 13, background: checked ? '#fff8ec' : 'transparent', transition: 'background 0.15s' }}>
+                        <input type="checkbox" checked={checked} onChange={() => toggleDeliverySel(c.id)} />
+                        <span style={{ fontWeight: 600, color: '#0d1b2a' }}>{c.name}</span>
+                        {c.name === order.delivery_person && <span style={{ fontSize: 11, color: '#378ADD', fontWeight: 700, background: '#EEF4FF', padding: '2px 8px', borderRadius: 99 }}>Delivery person</span>}
+                        {c.role && c.name !== order.delivery_person && <span style={{ fontSize: 11, color: '#aaa' }}>{c.role}</span>}
+                        <span style={{ marginLeft: 'auto', fontSize: 11, color: '#aaa' }}>{c.phone}</span>
+                      </label>
+                    )
+                  })}
+                </div>
+              )}
             </div>
             <div style={{ marginBottom: 8 }}>
               <label style={{ fontSize: 12, color: '#666', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.4px', display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
