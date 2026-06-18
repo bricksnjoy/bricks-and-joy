@@ -807,8 +807,6 @@ export default function PurchaseOrders() {
     const productRows = rows.filter(r => r.cost_type !== 'extra')
     const feeRows = rows.filter(r => r.cost_type === 'extra')
     const totalQty = productRows.reduce((s, r) => s + Number(r.qty || 0), 0)
-    const slipUrl = rows.find(r => r.slip_url)?.slip_url || null
-    const slipAnchorId = rows.find(r => r.slip_url)?.id || anchor.id
     const needsStockSync = anchor.status === 'received' && productRows.some(r => !r.stock_added)
     const sd = supplierDisplay(anchor.supplier_id, anchor.supplier_name)
     const statusColors = {
@@ -820,10 +818,10 @@ export default function PurchaseOrders() {
     const sc = statusColors[anchor.status] || statusColors.pending
 
     return (
-      <div key={g.key} style={{ border: '1px solid #eee', borderRadius: 14, overflow: 'hidden', background: '#fff' }}>
+      <div key={g.key} style={{ border: '1px solid #eee', borderRadius: 12, overflow: 'hidden', background: '#fff' }}>
         {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 16px', borderBottom: '1px solid #f5f5f5', flexWrap: 'wrap' }}>
-          <Avatar name={sd.main} size={36} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', borderBottom: '1px solid #f5f5f5', flexWrap: 'wrap' }}>
+          <Avatar name={sd.main} size={28} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <div style={{ fontWeight: 700, color: '#0d1b2a', fontSize: 14 }}>{sd.main || '—'}</div>
@@ -842,22 +840,22 @@ export default function PurchaseOrders() {
             <ChevronDown size={13} color={sc.fg} style={{ flexShrink: 0, pointerEvents: 'none' }} />
           </div>
           {payStatusBadgeForGroup(g)}
-          <div style={{ textAlign: 'right', minWidth: 110 }}>
-            <div style={{ fontSize: 16, fontWeight: 800, color: '#0d1b2a' }}>MVR {g.total.toFixed(2)}</div>
-            <div style={{ fontSize: 11, color: '#bbb', fontWeight: 600 }}>{totalQty} item{totalQty === 1 ? '' : 's'}</div>
+          <div style={{ textAlign: 'right', minWidth: 88 }}>
+            <div style={{ fontSize: 14, fontWeight: 800, color: '#0d1b2a' }}>MVR {g.total.toFixed(2)}</div>
+            <div style={{ fontSize: 10.5, color: '#bbb', fontWeight: 600 }}>{totalQty} item{totalQty === 1 ? '' : 's'}</div>
           </div>
         </div>
 
         {/* Products preview — compact thumbnail strip */}
         <div onClick={() => setProductsModal(g)} title="View all products & costs"
-          style={{ padding: '11px 16px', display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+          style={{ padding: '7px 14px', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 5, flex: 1, minWidth: 0, overflow: 'hidden' }}>
-            {productRows.slice(0, 14).map(r => (
+            {productRows.slice(0, 16).map(r => (
               r.image_url
-                ? <img key={r.id} src={r.image_url} alt="" title={`${r.product_name} ×${r.qty}`} style={{ width: 30, height: 30, objectFit: 'contain', borderRadius: 7, border: '1px solid #f0f0f0', background: '#fff', flexShrink: 0 }} onError={e => e.target.style.display = 'none'} />
-                : <div key={r.id} title={r.product_name} style={{ width: 30, height: 30, borderRadius: 7, background: '#f2f2f2', flexShrink: 0 }} />
+                ? <img key={r.id} src={r.image_url} alt="" title={`${r.product_name} ×${r.qty}`} style={{ width: 24, height: 24, objectFit: 'contain', borderRadius: 6, border: '1px solid #f0f0f0', background: '#fff', flexShrink: 0 }} onError={e => e.target.style.display = 'none'} />
+                : <div key={r.id} title={r.product_name} style={{ width: 24, height: 24, borderRadius: 6, background: '#f2f2f2', flexShrink: 0 }} />
             ))}
-            {productRows.length > 14 && <span style={{ fontSize: 12, color: '#888', fontWeight: 700, flexShrink: 0, marginLeft: 2 }}>+{productRows.length - 14}</span>}
+            {productRows.length > 16 && <span style={{ fontSize: 11.5, color: '#888', fontWeight: 700, flexShrink: 0, marginLeft: 2 }}>+{productRows.length - 16}</span>}
           </div>
           {feeRows.length > 0 && (
             <span style={{ fontSize: 11, fontWeight: 600, color: '#b8740a', background: '#FFF3D6', padding: '3px 9px', borderRadius: 99, flexShrink: 0, whiteSpace: 'nowrap' }}>
@@ -870,7 +868,7 @@ export default function PurchaseOrders() {
         </div>
 
         {/* Action bar */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', borderTop: '1px solid #f5f5f5', background: '#fcfcfc', flexWrap: 'wrap', rowGap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 14px', borderTop: '1px solid #f5f5f5', background: '#fcfcfc', flexWrap: 'wrap', rowGap: 8 }}>
           {needsStockSync && (
             <button onClick={() => manualSyncStock(g)} title="Add these items to inventory"
               style={{ background: '#FFF3D6', color: '#b8740a', border: '1px solid #f0d9a8', borderRadius: 8, cursor: 'pointer', padding: '6px 11px', fontSize: 11, fontWeight: 700, fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -878,10 +876,6 @@ export default function PurchaseOrders() {
             </button>
           )}
           <div style={{ flex: 1 }} />
-          <button onClick={() => setSlipModal({ ...anchor, slip_url: slipUrl, _anchorId: slipAnchorId })}
-            style={{ background: slipUrl ? '#E1F5EE' : '#fff', border: `1px solid ${slipUrl ? '#1D9E75' : '#e0e0e0'}`, borderRadius: 8, cursor: 'pointer', padding: '6px 11px', display: 'flex', alignItems: 'center', gap: 5, color: slipUrl ? '#1D9E75' : '#999', fontSize: 11, fontWeight: 600, fontFamily: 'inherit' }}>
-            {slipUrl ? <Eye size={13} /> : <Paperclip size={13} />}{slipUrl ? 'View slip' : 'Attach slip'}
-          </button>
           <button onClick={() => openEditGroup(g)} title="Edit order"
             style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: 8, cursor: 'pointer', padding: '6px 11px', display: 'flex', alignItems: 'center', gap: 5, color: '#666', fontSize: 11, fontWeight: 600, fontFamily: 'inherit' }}>
             <Pencil size={13} /> Edit
