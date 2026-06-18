@@ -44,6 +44,25 @@ const KNOWN_IMPORT_HEADERS = new Set([
 const withValue = (options, val) =>
   val && !options.includes(val) ? [val, ...options] : options
 
+// Fields compared when re-importing a sheet to decide if an existing product is
+// unchanged (duplicate), changed (update) or new.
+const COMPARE_KEYS = ['category','brand','age_range','pieces','sizes','weight','dimensions','cost_price','sell_price','unit','description','tags','notes','image_url']
+const NUMERIC_KEYS = new Set(['cost_price','sell_price','pieces'])
+const normVal = v => (v == null ? '' : String(v).trim())
+// Returns the set of field keys that differ between an imported row and an
+// existing catalog record (numeric fields compared by value).
+function diffFields(row, existing) {
+  const changed = new Set()
+  for (const k of COMPARE_KEYS) {
+    const a = normVal(row[k]), b = normVal(existing[k])
+    if (NUMERIC_KEYS.has(k)) {
+      const na = parseFloat(a) || 0, nb = parseFloat(b) || 0
+      if (na !== nb) changed.add(k)
+    } else if (a !== b) changed.add(k)
+  }
+  return changed
+}
+
 // Pull the offending column name out of a Postgres / PostgREST error message.
 // Handles both: column "x" does not exist  AND  Could not find the 'x' column ... in the schema cache
 function missingColumn(msg = '') {
@@ -584,19 +603,32 @@ export default function SupplierCatalog() {
       }
     }).filter(r => r.product_name)
 
-    setImportRows(mapped)
+    // Diff against products already saved for this supplier so a re-imported
+    // sheet detects duplicates (unchanged → deselected), changes (highlighted &
+    // updated) and brand-new rows (added).
+    const existing = activeSupplier ? catalog.filter(c => c.supplier_id === activeSupplier.id) : []
+    const existingByName = new Map(existing.map(c => [(c.product_name || '').toLowerCase().trim(), c]))
+    const annotated = mapped.map(r => {
+      const match = existingByName.get((r.product_name || '').toLowerCase().trim())
+      if (!match) return { ...r, _status: 'new', _selected: true }
+      const changed = diffFields(r, match)
+      if (changed.size === 0) return { ...r, _status: 'duplicate', _existingId: match.id, _selected: false }
+      return { ...r, _status: 'updated', _existingId: match.id, _changed: [...changed], _selected: true }
+    })
+
+    setImportRows(annotated)
     setImportLoading(false)
   }
 
   async function confirmImport() {
     if (!activeSupplier) { toast.error('Select a supplier first'); return }
     const rows = importRows.filter(r => r._selected && r.product_name)
+    if (rows.length === 0) { toast.error('Nothing selected to import'); return }
     setSaving(true)
-    const records = rows.map(r => ({
-      supplier_id: activeSupplier.id,
-      supplier_name: activeSupplier.name,
+
+    // Shared field payload for both insert and update.
+    const fields = r => ({
       product_name: r.product_name,
-      sku: r.sku || genSKU(r.product_name, activeSupplier.name),
       category: r.category || null,
       brand: r.brand || null,
       age_range: r.age_range || null,
@@ -610,21 +642,58 @@ export default function SupplierCatalog() {
       description: r.description || null,
       tags: r.tags || null,
       notes: r.notes || null,
-      barcode: genBarcode(r.product_name, activeSupplier.id + r.product_name),
       image_url: r.image_url || null,
       custom_fields: r.custom_fields || null,
-    }))
-    let { error } = await supabase.from('supplier_products').insert(records)
-    // Drop any missing columns and retry
-    while (error && /column .* does not exist|could not find/i.test(error.message || '')) {
-      const col = missingColumn(error.message)
-      if (!col) break
-      records.forEach(rec => { delete rec[col] })
-      const retry = await supabase.from('supplier_products').insert(records); error = retry.error
+    })
+
+    const newRows = rows.filter(r => !r._existingId)
+    const changedRows = rows.filter(r => r._existingId)
+
+    // INSERT new products
+    let error = null
+    if (newRows.length) {
+      const records = newRows.map(r => ({
+        supplier_id: activeSupplier.id,
+        supplier_name: activeSupplier.name,
+        sku: r.sku || genSKU(r.product_name, activeSupplier.name),
+        barcode: genBarcode(r.product_name, activeSupplier.id + r.product_name),
+        ...fields(r),
+      }))
+      let res = await supabase.from('supplier_products').insert(records)
+      error = res.error
+      while (error && /column .* does not exist|could not find/i.test(error.message || '')) {
+        const col = missingColumn(error.message)
+        if (!col) break
+        records.forEach(rec => { delete rec[col] })
+        res = await supabase.from('supplier_products').insert(records); error = res.error
+      }
     }
+
+    // UPDATE changed products (one by one, dropping missing columns as needed)
+    let updated = 0
+    if (!error) {
+      for (const r of changedRows) {
+        const payload = { ...fields(r), ...(r.sku ? { sku: r.sku } : {}) }
+        let res = await supabase.from('supplier_products').update(payload).eq('id', r._existingId)
+        let e = res.error
+        while (e && /column .* does not exist|could not find/i.test(e.message || '')) {
+          const col = missingColumn(e.message)
+          if (!col) break
+          delete payload[col]
+          res = await supabase.from('supplier_products').update(payload).eq('id', r._existingId); e = res.error
+        }
+        if (e) { error = e; break }
+        updated++
+      }
+    }
+
     setSaving(false)
     if (error) { toast.error('Import failed: ' + error.message); return }
-    toast.success(`Imported ${records.length} products with barcodes & SKUs!`)
+    const added = newRows.length
+    const parts = []
+    if (added) parts.push(`${added} added`)
+    if (updated) parts.push(`${updated} updated`)
+    toast.success(parts.length ? `Import done — ${parts.join(' · ')}` : 'Nothing to import')
     setImportModal(false)
     setImportRows([])
     load()
@@ -1090,7 +1159,9 @@ export default function SupplierCatalog() {
 
       {/* Import modal */}
       {importModal && (
-        <Modal title="Import Products" subtitle={activeSupplier ? `Adding to ${activeSupplier.name}` : 'Select a supplier first'} onClose={() => { setImportModal(false); setImportRows([]) }} width={740}>
+        <Modal title="Import Products" subtitle={activeSupplier
+          ? <span>{activeSupplier.contact_name || activeSupplier.name}{activeSupplier.contact_name && <span style={{ color:'#c4c4c4', fontWeight:400 }}> · {activeSupplier.name}</span>}</span>
+          : 'Select a supplier first'} onClose={() => { setImportModal(false); setImportRows([]) }} width={740}>
           {!activeSupplier && (
             <div style={{ background:'#FFF8E1', border:'1px solid #FAEEDA', borderRadius:10, padding:'12px 16px', marginBottom:16, fontSize:13, color:'#854F0B' }}>
               Please select a supplier from the left panel before importing.
@@ -1107,9 +1178,22 @@ export default function SupplierCatalog() {
             </div>
           ) : (
             <>
-              <div style={{ fontSize:13, color:'#555', marginBottom:12 }}>
-                Found <strong>{importRows.filter(r=>r._selected).length}</strong> products. Review and deselect any you don't want.
-              </div>
+              {(() => {
+                const nNew = importRows.filter(r => r._status === 'new').length
+                const nUpd = importRows.filter(r => r._status === 'updated').length
+                const nDup = importRows.filter(r => r._status === 'duplicate').length
+                return (
+                  <div style={{ fontSize:13, color:'#555', marginBottom:12, display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+                    <span>Found <strong>{importRows.length}</strong> rows.</span>
+                    {nNew > 0 && <Badge color="green">{nNew} new</Badge>}
+                    {nUpd > 0 && <Badge color="amber">{nUpd} changed</Badge>}
+                    {nDup > 0 && <Badge color="gray">{nDup} duplicate{nDup !== 1 ? 's' : ''}</Badge>}
+                    <span style={{ color:'#aaa' }}>
+                      {nDup > 0 ? 'Duplicates are unchecked so they won’t be re-added. ' : ''}Changed rows will update the existing product.
+                    </span>
+                  </div>
+                )
+              })()}
               <div style={{ maxHeight:340, overflow:'auto', border:'1px solid #f0f0f0', borderRadius:10, marginBottom:16 }}>
                 <table style={{ fontSize:12, borderCollapse:'collapse', minWidth:1100 }}>
                   <thead>
@@ -1118,37 +1202,51 @@ export default function SupplierCatalog() {
                         <input type="checkbox" checked={importRows.every(r=>r._selected)} onChange={e => setImportRows(rows => rows.map(r=>({...r,_selected:e.target.checked})))} />
                       </th>
                       <th style={{ padding:'8px 10px', width:44 }}></th>
+                      <th style={{ padding:'8px 10px', textAlign:'left', fontWeight:600, color:'#999', fontSize:11, textTransform:'uppercase', whiteSpace:'nowrap' }}>Status</th>
                       {['Product Name','Category','Brand','Age','Pieces','Cost','Sell','Unit','Sizes','Weight','Dimensions','Tags','Notes'].map(h=>(
                         <th key={h} style={{ padding:'8px 10px', textAlign:'left', fontWeight:600, color:'#999', fontSize:11, textTransform:'uppercase', whiteSpace:'nowrap' }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {importRows.map((row, i) => (
-                      <tr key={i} style={{ borderBottom:'1px solid #f5f5f5', background: row._selected ? '#fff' : '#fafafa', opacity: row._selected ? 1 : 0.5 }}>
+                    {importRows.map((row, i) => {
+                      const changed = new Set(row._changed || [])
+                      const rowBg = !row._selected ? '#fafafa' : row._status === 'updated' ? '#fffaf0' : '#fff'
+                      const statusBadge = row._status === 'new'
+                        ? <Badge color="green">New</Badge>
+                        : row._status === 'updated'
+                          ? <Badge color="amber">Changed</Badge>
+                          : <Badge color="gray">Duplicate</Badge>
+                      return (
+                      <tr key={i} style={{ borderBottom:'1px solid #f5f5f5', background: rowBg, opacity: row._selected ? 1 : 0.55 }}>
                         <td style={{ padding:'8px 10px' }}>
                           <input type="checkbox" checked={!!row._selected} onChange={e => setImportRows(rows => rows.map((r,j) => j===i ? {...r,_selected:e.target.checked} : r))} />
                         </td>
+                        <td style={{ padding:'7px 10px', whiteSpace:'nowrap' }}>{statusBadge}</td>
                         <td style={{ padding:'6px 10px' }}>
                           {row.image_url
                             ? <img src={row.image_url} alt="" style={{ width:32, height:32, objectFit:'cover', borderRadius:6, display:'block' }} onError={e=>e.target.style.display='none'} />
                             : <div style={{ width:32, height:32, borderRadius:6, background:'#f0f0f0' }} />}
                         </td>
-                        {['product_name','category','brand','age_range','pieces','cost_price','sell_price','unit','sizes','weight','dimensions','tags','notes'].map(k=>(
-                          <td key={k} style={{ padding:'7px 10px' }}>
+                        {['product_name','category','brand','age_range','pieces','cost_price','sell_price','unit','sizes','weight','dimensions','tags','notes'].map(k=>{
+                          const isChanged = changed.has(k)
+                          return (
+                          <td key={k} style={{ padding:'7px 10px', background: isChanged ? '#fff3df' : 'transparent', borderRadius: isChanged ? 6 : 0 }} title={isChanged ? 'Changed in this import' : undefined}>
                             <input value={row[k]||''} onChange={e => setImportRows(rows => rows.map((r,j) => j===i ? {...r,[k]:e.target.value} : r))}
-                              style={{ width: k==='product_name'?140:80, border:'none', background:'transparent', fontSize:12, fontFamily:'inherit', outline:'none', color:'#0d1b2a' }} />
+                              style={{ width: k==='product_name'?140:80, border:'none', background:'transparent', fontSize:12, fontFamily:'inherit', outline:'none', color:'#0d1b2a', fontWeight: isChanged ? 700 : 400 }} />
                           </td>
-                        ))}
+                          )
+                        })}
                       </tr>
-                    ))}
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
               <div style={{ display:'flex', gap:10, justifyContent:'flex-end' }}>
                 <Button variant="ghost" onClick={() => { setImportModal(false); setImportRows([]) }}>Cancel</Button>
                 <Button onClick={confirmImport} disabled={saving || !activeSupplier || !importRows.some(r=>r._selected)}>
-                  {saving ? 'Importing…' : `Import ${importRows.filter(r=>r._selected).length} products`}
+                  {saving ? 'Importing…' : `Import ${importRows.filter(r=>r._selected).length} selected`}
                 </Button>
               </div>
             </>
