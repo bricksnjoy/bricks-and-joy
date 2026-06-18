@@ -16,11 +16,12 @@ import SupplierCatalog from './pages/SupplierCatalog'
 import EmailCenter from './pages/EmailCenter'
 import SmsCenter from './pages/SmsCenter'
 import Planning from './pages/Planning'
+import HelpGuide from './pages/HelpGuide'
 import {
   LayoutDashboard, ShoppingCart, Package, Users,
   DollarSign, BarChart2, Truck, ChevronDown, ChevronRight,
   LogOut, Building2, FileText, Menu, CalendarDays, Mail, Tag, BookOpen,
-  GripVertical, Check, Settings2, MoreVertical, Sparkles, MessageSquare
+  GripVertical, Check, Settings2, MoreVertical, Sparkles, MessageSquare, LifeBuoy
 } from 'lucide-react'
 
 // Catalog of every page. The sidebar layout (sections + order) is built from
@@ -89,6 +90,7 @@ export default function App() {
   })
   const [drag, setDrag] = useState(null) // { type:'item'|'section', id }
   const [menuOpen, setMenuOpen] = useState(false)
+  const [helpOpen, setHelpOpen] = useState(false)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -289,6 +291,10 @@ export default function App() {
             <>
               <div onClick={() => setMenuOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 40 }} />
               <div style={{ position: 'absolute', right: 10, bottom: 56, zIndex: 41, background: '#fff', borderRadius: 12, border: '1px solid #eee', boxShadow: '0 8px 26px rgba(13,27,42,0.16)', padding: 6, minWidth: 180, animation: 'fadeSlideUp 0.16s ease both' }}>
+                <button className="nav-item" onClick={() => { setHelpOpen(true); setMenuOpen(false) }}
+                  style={{ color: '#0d1b2a', fontWeight: 600 }}>
+                  <LifeBuoy size={15} color="#FFA500" /> How-to guide
+                </button>
                 <button className="nav-item" onClick={() => { setEditMode(true); setMenuOpen(false); setDrag(null) }}
                   style={{ color: '#0d1b2a', fontWeight: 600 }}>
                   <Settings2 size={15} color="#FFA500" /> Reorganize menu
@@ -322,6 +328,8 @@ export default function App() {
           {ITEMS[page]?.render || <Dashboard />}
         </div>
       </div>
+
+      {helpOpen && <HelpGuide onClose={() => setHelpOpen(false)} />}
     </div>
   )
 }
