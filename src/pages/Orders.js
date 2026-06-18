@@ -6,7 +6,7 @@ import BarcodeScanner from '../components/BarcodeScanner'
 import { sendSMS } from '../lib/sms'
 
 const CHANNELS = ['Retail store','Online','Wholesale','Pop-up / Market','Instagram','Phone']
-const STATUSES = [{ value: 'created', label: 'Order created' },{ value: 'pending', label: 'Pending' },{ value: 'transit', label: 'Dispatched' },{ value: 'delivered', label: 'Delivered' },{ value: 'cancelled', label: 'Cancelled' }]
+const STATUSES = [{ value: 'created', label: 'Order created' },{ value: 'transit', label: 'Dispatched' },{ value: 'delivered', label: 'Delivered' },{ value: 'cancelled', label: 'Cancelled' }]
 const PAY_METHODS = ['Cash','BML Transfer','Bank Transfer','Card','Other']
 const EMPTY_FORM = { customer_id:'', customer_name:'', channel:'Retail store', status:'created', order_date: new Date().toISOString().split('T')[0], notes:'', payment_status:'unpaid', payment_method:'', transfer_reference:'', invoice_number:'', delivery_person:'', discount_value:0, discount_type:'amount' }
 const EMPTY_ITEM = { product_id:'', product_name:'', qty:1, unit_price:0 }
@@ -26,7 +26,7 @@ export default function Orders() {
   const [payForm, setPayForm] = useState({ payment_method: 'Cash', transfer_reference: '', transfer_slip_url: '', payment_status: 'paid' })
   const [returnForm, setReturnForm] = useState({ reason: '', refund_amount: 0 })
   const [saving, setSaving] = useState(false)
-  const [filter, setFilter] = useState('all')
+  const [filter, setFilter] = useState('created')
   const [payFilter, setPayFilter] = useState('all')
   const [uploadingSlip, setUploadingSlip] = useState(false)
   const [scanning, setScanning] = useState(null)
@@ -244,16 +244,6 @@ export default function Orders() {
     setSaving(false); toast.success('Payment recorded!'); setPayModal(null); load()
   }
 
-  // Quick-mark an order as paid without opening the full payment modal
-  async function quickMarkPaid(o) {
-    await supabase.from('orders').update({
-      payment_status: 'paid',
-      paid_at: new Date().toISOString(),
-    }).eq('id', o.id)
-    toast.success('Marked as paid!')
-    load()
-  }
-
   async function saveReturn() {
     if (!returnModal) return
     setSaving(true)
@@ -434,6 +424,9 @@ export default function Orders() {
         .ord-kebab-item:hover { background:#f5f5f5; }
         .ord-kebab-item.danger { color:#E24B4A; }
         .ord-pill-btn { padding:7px 14px; border-radius:99px; border:none; cursor:pointer; font-size:12.5px; font-weight:600; font-family:inherit; transition: all 0.15s; }
+        .ord-paybtn { transition: all 0.15s; }
+        .ord-paybtn:hover { background:#0d1b2a !important; color:#fff !important; border-color:#0d1b2a !important; }
+        .ord-status { transition: background 0.2s, color 0.2s; }
         @media (max-width: 860px) {
           .ord-card { flex-direction:column; gap:14px; }
           .ord-photo { width:100%; height:auto; aspect-ratio:1/1; max-width:340px; align-self:center; }
@@ -459,11 +452,11 @@ export default function Orders() {
             {/* Status filters */}
             <div style={{ display: 'flex', background: '#f5f5f5', borderRadius: 10, padding: 3, gap: 2 }}>
               {[
-                { key: 'all', label: 'All', count: orders.length },
                 { key: 'created', label: 'Created', count: orders.filter(o => o.status === 'created').length },
                 { key: 'transit', label: 'Dispatched', count: orders.filter(o => o.status === 'transit').length },
                 { key: 'delivered', label: 'Delivered', count: orders.filter(o => o.status === 'delivered').length },
                 { key: 'cancelled', label: 'Cancelled', count: orders.filter(o => o.status === 'cancelled').length },
+                { key: 'all', label: 'All', count: orders.length },
               ].map(s => (
                 <button key={s.key} onClick={() => setFilter(s.key)} style={{
                   padding: '6px 13px', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'inherit',
@@ -530,10 +523,10 @@ export default function Orders() {
                     {/* Top row: customer name + kebab */}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                       <div>
-                        <div style={{ fontSize: 19, fontWeight: 700, color: '#0d1b2a' }}>{o.customer_name || 'Walk-in'}</div>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: '#0d1b2a', letterSpacing: '-0.3px' }}>{o.customer_name || 'Walk-in'}</div>
                         {insta && (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#C13584', fontSize: 13, marginTop: 2 }}>
-                            <Instagram size={13} /> @{insta.replace(/^@/, '')}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#C13584', fontSize: 11.5, marginTop: 1 }}>
+                            <Instagram size={11} /> @{insta.replace(/^@/, '')}
                           </div>
                         )}
                       </div>
@@ -556,14 +549,14 @@ export default function Orders() {
                       </div>
                     </div>
 
-                    {/* Product */}
-                    <div style={{ fontSize: 14, color: '#555', fontWeight: 600 }}>{o.product_name} × {o.qty}</div>
+                    {/* Product (relevant — bigger) */}
+                    <div style={{ fontSize: 16, color: '#333', fontWeight: 600 }}>{o.product_name} <span style={{ color: '#aaa', fontWeight: 500 }}>× {o.qty}</span></div>
 
-                    {/* Invoice + price */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: 11, color: '#aaa', fontFamily: 'monospace' }}>{o.invoice_number || '—'}</span>
-                      <span style={{ fontWeight: 700, fontSize: 15, color: '#0d1b2a' }}>MVR {Number(o.total_price || 0).toFixed(2)}</span>
+                    {/* Price (relevant — bigger) + invoice (smaller) */}
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+                      <span style={{ fontWeight: 800, fontSize: 19, color: '#0d1b2a' }}>MVR {Number(o.total_price || 0).toFixed(2)}</span>
                       {o.discount > 0 && <span style={{ fontSize: 11, color: '#1D9E75', fontWeight: 600 }}>-MVR {Number(o.discount).toFixed(2)}</span>}
+                      <span style={{ fontSize: 10, color: '#bbb', fontFamily: 'monospace' }}>{o.invoice_number || '—'}</span>
                     </div>
 
                     {/* Status + Payment row */}
@@ -580,39 +573,34 @@ export default function Orders() {
                         <span style={{ position: 'absolute', right: 7, pointerEvents: 'none', fontSize: 8, color: statusColors[o.status] || '#888' }}>▼</span>
                       </div>
 
-                      {/* Payment badge */}
+                      {/* Payment status — display only (change it via the Payment button) */}
                       <span style={{
-                        padding: '4px 10px', borderRadius: 99, fontSize: 11, fontWeight: 700,
+                        padding: '5px 12px', borderRadius: 99, fontSize: 11.5, fontWeight: 700, textTransform: 'capitalize',
                         background: (payColors[payStatus] || '#ccc') + '18',
                         color: payColors[payStatus] || '#888',
                       }}>{payStatus}</span>
 
-                      {/* Quick Paid button */}
-                      {payStatus !== 'paid' && (
-                        <button
-                          onClick={() => quickMarkPaid(o)}
-                          style={{ padding: '4px 12px', borderRadius: 99, border: '1.5px solid #1D9E75', background: '#fff', color: '#1D9E75', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s' }}
-                          onMouseEnter={e => { e.target.style.background = '#1D9E75'; e.target.style.color = '#fff' }}
-                          onMouseLeave={e => { e.target.style.background = '#fff'; e.target.style.color = '#1D9E75' }}>
-                          Paid ✓
-                        </button>
-                      )}
-
-                      {/* Full payment modal button */}
+                      {/* Payment modal button — the only way to change payment */}
                       <button
                         onClick={() => { setPayModal(o); setPayForm({ payment_method: o.payment_method || 'Cash', transfer_reference: o.transfer_reference || '', transfer_slip_url: o.transfer_slip_url || '', payment_status: o.payment_status || 'paid' }) }}
-                        title="Record payment details"
-                        style={{ padding: '4px 10px', borderRadius: 99, border: '1px solid #ddd', background: '#fafafa', color: '#888', fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <CreditCard size={11} /> Payment
+                        title="Record / change payment"
+                        className="ord-paybtn"
+                        style={{ padding: '5px 12px', borderRadius: 99, border: '1px solid #ddd', background: '#fafafa', color: '#777', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 5 }}>
+                        <CreditCard size={12} /> Payment
                       </button>
                     </div>
 
-                    {/* Date + creator */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: 12, color: '#bbb' }}>{o.order_date}</span>
-                      {o.created_by_email && (
-                        <span style={{ fontSize: 10, color: '#d0cfc9' }}>by {creatorName(o.created_by_email)}</span>
-                      )}
+                    {/* Delivered by */}
+                    {o.delivery_person && (
+                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, color: '#378ADD', background: '#EEF4FF', padding: '4px 10px', borderRadius: 99, alignSelf: 'flex-start', fontWeight: 600 }}>
+                        <Package size={11} /> Delivered by {o.delivery_person}
+                      </div>
+                    )}
+
+                    {/* Date · created by */}
+                    <div style={{ fontSize: 11, color: '#bbb' }}>
+                      {o.order_date}
+                      {o.created_by_email && <span style={{ color: '#cfcfc9' }}> · by {creatorName(o.created_by_email)}</span>}
                     </div>
                   </div>
                 </div>
