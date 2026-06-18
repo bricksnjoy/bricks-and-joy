@@ -206,8 +206,9 @@ export default function App() {
           .ui-card { padding: 16px 15px !important; border-radius: 12px !important; }
           .page-header { margin-bottom: 18px !important; }
           .page-header h1 { font-size: 20px !important; }
-          .modal-head { padding: 16px 18px !important; }
-          .modal-body { padding: 18px !important; }
+          .modal-overlay { padding: 10px !important; }
+          .modal-head { padding: 15px 16px !important; }
+          .modal-body { padding: 16px !important; }
           .modal-card { border-radius: 16px !important; max-height: 94vh !important; }
           .data-table { font-size: 12px !important; min-width: max-content; }
           .data-table th, .data-table td { padding: 8px 9px !important; }

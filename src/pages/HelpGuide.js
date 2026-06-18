@@ -1,7 +1,9 @@
 import React, { useState, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import {
-  X, Search, LifeBuoy, ShoppingCart, BookOpen, Truck, Lightbulb
+  X, Search, LifeBuoy, ShoppingCart, BookOpen, Truck, Lightbulb,
+  Users, Package, Tag, Building2, MessageSquare, Sparkles, CalendarDays,
+  FileText, DollarSign, BarChart2, LayoutDashboard, Smartphone
 } from 'lucide-react'
 
 // ── Guide content ─────────────────────────────────────────────────────────────
@@ -9,47 +11,240 @@ import {
 // `tip` callout. Keep these in plain language — this is the manual for new staff.
 const GUIDES = [
   {
+    id: 'getting-started',
+    icon: LayoutDashboard,
+    color: '#0d1b2a',
+    title: 'Getting around the app',
+    desc: 'The basics — the menu, the dashboard, and finding things.',
+    steps: [
+      { text: 'The left side menu is how you move between sections. On a phone, tap the ☰ menu icon at the top-left to open it.' },
+      { text: 'The Dashboard is your home screen — today’s sales, this month’s total, revenue, profit, active orders, stock levels and recent orders at a glance.' },
+      { text: 'Tap the three-dots (⋯) next to “Sign out” at the bottom of the menu for extra options: this How-to guide and “Reorganize menu”.' },
+      { text: 'Use “Reorganize menu” to drag sections and pages into the order you like. Press “Done organizing” when finished.', tip: 'Your menu layout is saved on this device, so it stays the way you set it.' },
+      { text: 'Open this guide any time from the three-dots menu, and use the search box at the top to jump straight to a task.' },
+    ],
+  },
+  {
+    id: 'customers',
+    icon: Users,
+    color: '#378ADD',
+    title: 'Adding & managing customers',
+    desc: 'Keep a clean customer list so orders and delivery notes come out right.',
+    steps: [
+      { text: 'Open Customers and press “Add customer”.' },
+      { text: 'Enter the name and phone number. Add the email and Instagram username if you have them.', tip: 'Type the phone number without 960 — it’s added automatically when sending an SMS.' },
+      { text: 'Fill in the Address, and the Landmark right below it (e.g. “near the school”). Leave Landmark blank if you don’t have it.', tip: 'The landmark is added to delivery notes to help the rider find the place.' },
+      { text: 'Save. The customer now appears when you create an order and in the delivery notes.' },
+      { text: 'To change a customer’s details later, find them in the list and use Edit.' },
+    ],
+  },
+  {
     id: 'new-order',
     icon: ShoppingCart,
     color: '#FFA500',
-    title: 'When a new order comes in',
-    desc: 'The full flow from a fresh customer to a placed order.',
+    title: 'Taking a new order',
+    desc: 'From picking the customer to saving the order.',
     steps: [
-      { text: 'Open the Customers tab and press “Add customer”.' },
-      { text: 'Fill in the customer’s details carefully — name, phone, address and any notes.', tip: 'Correct phone & address here means delivery notes and receipts come out right later.' },
-      { text: 'Go to Orders and press “New order”, then pick the customer you just added.' },
-      { text: 'Add the product — either tap the camera button to scan the barcode with your phone, or choose it from the dropdown.', tip: 'Scanning is fastest — point your phone camera at the product’s barcode.' },
-      { text: 'Buying more than one item? Use the dropdown to add another product and fill in its details too.' },
-      { text: 'Applying a discount? Choose Percentage (%) or MVR, then type how much you’re taking off.' },
-      { text: 'Save the order. You’re done — it now shows in Orders and on the customer’s history.' },
+      { text: 'Make sure the customer exists first (see “Adding & managing customers”).' },
+      { text: 'Go to Orders and press “New order”.' },
+      { text: 'Choose the customer — this is required, an order can’t be saved without one.' },
+      { text: 'Add the product: tap the camera button to scan its barcode, or pick it from the dropdown. The price fills in automatically.', tip: 'Scanning is fastest — point your phone camera at the product’s barcode.' },
+      { text: 'Selling more than one item? Press “Add item” and add the next product.' },
+      { text: 'Giving a discount? Pick MVR or % and type the amount, next to the Discount label.' },
+      { text: 'Pick the Channel (where the sale came from — retail, Instagram, etc.) and add any notes.' },
+      { text: 'Press “Add order”. New orders start as “Order created” and instantly appear in Deliveries and the Message Center.', tip: 'The order date is set to today automatically. To back-date it, open the order with Edit afterwards.' },
+    ],
+  },
+  {
+    id: 'manage-orders',
+    icon: ShoppingCart,
+    color: '#7F77DD',
+    title: 'Managing an order (status, payment, returns)',
+    desc: 'Everything you can do to an order after it’s created.',
+    steps: [
+      { text: 'In Orders, switch between the card view (big product photo) and list view using the toggle on the right.' },
+      { text: 'Tap the product photo on a card to see the full order details.' },
+      { text: 'Change the order’s progress with the status dropdown on the card: Order created → Dispatched → Delivered (or Cancelled).' },
+      { text: 'To record a payment, press the “Payment” button, choose Paid / Partial / Unpaid, pick the method, and upload the bank slip if there is one.', tip: 'The payment badge on the card shows the current status — it updates when you save in the Payment box.' },
+      { text: 'Use the three-dots (⋮) on a card for: Edit, SMS (text the customer), Return, or Delete.' },
+      { text: 'A Return cancels the order, puts the stock back, and logs the refund as an expense automatically.' },
+      { text: 'Filter the list with the tabs on top (Created, Dispatched, Delivered, Cancelled, All).' },
+    ],
+  },
+  {
+    id: 'deliveries',
+    icon: Truck,
+    color: '#1D9E75',
+    title: 'Assigning deliveries',
+    desc: 'Attach a delivery person and date to each order — for your records.',
+    steps: [
+      { text: 'Open Deliveries. Every order shows as a card with the product photo and customer.' },
+      { text: 'Type the delivery staff name in “Delivery staff” and set the “Delivery date”. The date defaults to the order’s date until you change it.' },
+      { text: 'Press Save on the card to store it. The card border turns orange until you’ve saved.', tip: 'Nothing is saved until you press Save — so you can change your mind before committing.' },
+      { text: 'Filter with the tabs on top: Unassigned, Assigned, Delivered or All — the numbers show how many are in each.' },
+      { text: 'The “Deliveries by staff” panel shows how many each person has delivered and how many they’re assigned.' },
+      { text: 'This tab is record-keeping only — it does not control who you can message. Sending the note is done in the Message Center.' },
+    ],
+  },
+  {
+    id: 'message-center',
+    icon: MessageSquare,
+    color: '#E24B4A',
+    title: 'Sending SMS & emails',
+    desc: 'Broadcasts, delivery notes, and one-off messages — all in one place.',
+    steps: [
+      { text: 'Open the Message Center. Pick a channel (SMS or Email) for each action.' },
+      { text: 'Broadcast: send all your customers an SMS about a sale or announcement. Write the message and send.', tip: 'Type numbers without 960 anywhere — it’s added automatically when the SMS goes out.' },
+      { text: 'Deliveries: pick an order to auto-generate its delivery note, then send it to any staff member. Email gives a long detailed note; SMS uses the short compact format.' },
+      { text: 'Stock & Tasks: quickly message the team about low stock or jobs to do.' },
+      { text: 'Contacts: add staff, directors and delivery people once — they’re shared everywhere SMS/email is used. Add a phone number to text them.' },
+      { text: 'Use “Compose” in Contacts to send anyone an email or SMS about anything — type the address/number directly or tick saved contacts.' },
+    ],
+  },
+  {
+    id: 'inventory',
+    icon: Package,
+    color: '#0F6E56',
+    title: 'Managing inventory & stock',
+    desc: 'Add products, photos, barcodes, and keep stock counts right.',
+    steps: [
+      { text: 'Open Inventory and press “Add product”. Fill in the name, category, prices and stock count.' },
+      { text: 'Upload a product photo so it shows on order and delivery cards.' },
+      { text: 'Give it a barcode/SKU so it can be scanned when taking orders or doing stock.' },
+      { text: 'Use the tabs to filter: Active, Retired, Low Stock, Cleared Out.', tip: 'A “Stock alert” shows at the top of Orders when items are low or out — tap it to see exactly which.' },
+      { text: 'Use “Select” to tick several products at once and retire, delete or print barcodes in bulk.' },
+      { text: 'Stock goes down automatically when you sell, and back up when you receive a batch or process a return.' },
+    ],
+  },
+  {
+    id: 'categories',
+    icon: Tag,
+    color: '#FFA500',
+    title: 'Organising categories',
+    desc: 'Group products so they’re easy to filter and report on.',
+    steps: [
+      { text: 'Open Categories to see all your product groups and how many products are in each.' },
+      { text: 'Add a category and give it a colour so it’s easy to spot.' },
+      { text: 'Assign products to a category from the product’s details in Inventory.' },
+      { text: 'Categories are used across filters and the financial reports, so keep them tidy.' },
+    ],
+  },
+  {
+    id: 'suppliers',
+    icon: Building2,
+    color: '#7F77DD',
+    title: 'Setting up suppliers',
+    desc: 'Add the companies you buy stock from.',
+    steps: [
+      { text: 'Open Vendors and add a new supplier.' },
+      { text: 'Fill in the company, contact name, phone and any notes correctly.', tip: 'The contact name shows as the main name in the Supplier Catalog, with the company underneath.' },
+      { text: 'Once added, the supplier appears in the Supplier Catalog and when creating batch orders.' },
     ],
   },
   {
     id: 'add-products',
     icon: BookOpen,
-    color: '#7F77DD',
-    title: 'Add new products to the catalog',
-    desc: 'Set up a supplier, then bulk-import their products from Excel.',
+    color: '#1D9E75',
+    title: 'Importing a supplier’s product catalog',
+    desc: 'Bulk-add a supplier’s products from an Excel sheet.',
     steps: [
-      { text: 'Go to Vendors and add a new supplier.' },
-      { text: 'Fill in the supplier’s information correctly (company, contact name, phone, etc.).' },
-      { text: 'Open Supplier Catalog, download the import template and fill it in.', tip: 'If a column doesn’t apply to a product, just leave it blank — skip it.' },
-      { text: 'No picture URL? Leave the image column empty. After importing, select each product individually and add its photo.' },
-      { text: 'Select the newly created supplier, then import your filled-in Excel template.' },
-      { text: 'The importer shows what’s New, Changed or a Duplicate. Press Import to add new ones and update the changed ones automatically.', tip: 'Re-importing the same sheet won’t create duplicates — unchanged rows are skipped.' },
+      { text: 'Add the supplier first in Vendors (see “Setting up suppliers”).' },
+      { text: 'Open Supplier Catalog, download the import template and fill it in.', tip: 'If a column doesn’t apply to a product, just leave it blank.' },
+      { text: 'No picture link? Leave the image column empty — you can add each photo after importing.' },
+      { text: 'Select the supplier, then import your filled-in template.' },
+      { text: 'The importer marks each row as New, Changed or Duplicate. Press Import to add the new ones and update the changed ones.', tip: 'Re-importing the same sheet won’t create duplicates — unchanged rows are skipped.' },
+      { text: 'Use “Price compare” to see the same product across different suppliers and spot the best price.' },
     ],
   },
   {
     id: 'batch-order',
     icon: Truck,
-    color: '#1D9E75',
-    title: 'Place a new batch (purchase) order',
-    desc: 'Order stock from a supplier and receive it into inventory.',
+    color: '#378ADD',
+    title: 'Ordering stock (batch / purchase orders)',
+    desc: 'Buy from a supplier and receive it into inventory.',
     steps: [
-      { text: 'Go to Purchase Orders and select products from the supplier catalog to create a batch order.', tip: 'You can also tick products inside Supplier Catalog and create a batch from there — it’ll appear in Purchase Orders.' },
-      { text: 'The batch now shows in Purchase Orders.' },
-      { text: 'After you pay the supplier, upload the payment slip and mark the order as Paid.' },
-      { text: 'When the goods arrive, press “All products received”.', tip: 'This automatically adds every item in the batch to your Inventory — no manual entry needed.' },
+      { text: 'In Supplier Catalog, tick the products you want and create a batch order — or start one directly in Purchase Orders.' },
+      { text: 'The batch now shows in Purchase Orders under “Ongoing”.' },
+      { text: 'After paying the supplier, press “Payment”, upload the slip and mark it Paid.' },
+      { text: 'Add extra costs (shipping, customs) to the batch so your real cost is accurate.' },
+      { text: 'When goods arrive, set the status to “Received” (or “Mark all received”).', tip: 'Receiving a batch automatically adds every item to your Inventory — no manual entry.' },
+      { text: 'Finished batches move to the “History” tab, and payments are tracked in “Payment History”.' },
+    ],
+  },
+  {
+    id: 'planning',
+    icon: Sparkles,
+    color: '#E24B4A',
+    title: 'Planning seasonal campaigns',
+    desc: 'Get ready for Eid, Ramadan, birthdays and big sale days in advance.',
+    steps: [
+      { text: 'Open Planning and add a campaign with its occasion date.' },
+      { text: 'The app builds a plan — what to stock up on, package ideas, marketing and a checklist.' },
+      { text: 'Set how many days before the event you want to start preparing.' },
+      { text: 'You’ll get an email reminder when it’s time to begin, and again for the final push.' },
+    ],
+  },
+  {
+    id: 'tasks',
+    icon: CalendarDays,
+    color: '#FFA500',
+    title: 'Tasks & calendar',
+    desc: 'Keep track of jobs and important dates.',
+    steps: [
+      { text: 'Open Tasks & Calendar to see the month view.' },
+      { text: 'Add a task with a due date and it shows on the calendar.' },
+      { text: 'Tick tasks off as you finish them.' },
+      { text: 'Use it for restock reminders, follow-ups, deliveries and anything date-based.' },
+    ],
+  },
+  {
+    id: 'reports',
+    icon: FileText,
+    color: '#0d1b2a',
+    title: 'Financial reports',
+    desc: 'See your profit and download proper documents.',
+    steps: [
+      { text: 'Open Financial Reports and choose the period at the top.' },
+      { text: 'View the Income Statement, Balance Sheet, Cash Flow, GST/Tax and Monthly reports.' },
+      { text: 'Download any report as a CSV (opens in Excel / Google Sheets) or Print/PDF where available.' },
+      { text: 'Use the Download Documents section for Orders, Costs, Customers and Journal exports.' },
+    ],
+  },
+  {
+    id: 'costs',
+    icon: DollarSign,
+    color: '#E24B4A',
+    title: 'Tracking costs & expenses',
+    desc: 'Log every business cost — ads, giveaways, samples, operations.',
+    steps: [
+      { text: 'Open Cost Management and press “Add cost”.' },
+      { text: 'Enter the amount, pick a category and the date, and a short description.' },
+      { text: 'Filter by category or month to see where money is going.' },
+      { text: 'The “By category” breakdown shows your biggest spending areas.', tip: 'Refunds from returns are logged here automatically.' },
+    ],
+  },
+  {
+    id: 'analytics',
+    icon: BarChart2,
+    color: '#1D9E75',
+    title: 'Analytics',
+    desc: 'Understand your best sellers and trends.',
+    steps: [
+      { text: 'Open Analytics for charts on sales, top products and customers.' },
+      { text: 'Use it to decide what to restock and what to promote.' },
+    ],
+  },
+  {
+    id: 'phone-tips',
+    icon: Smartphone,
+    color: '#7F77DD',
+    title: 'Using it on your phone',
+    desc: 'Quick tips for the mobile view.',
+    steps: [
+      { text: 'Tap ☰ at the top-left to open the menu; tap a page to jump there.' },
+      { text: 'Filter tabs that don’t fit can be swiped left/right.' },
+      { text: 'Wide tables (like payment history) can be scrolled sideways to see all columns.' },
+      { text: 'Order and delivery cards stack the photo on top with the details below for easy tapping.' },
     ],
   },
 ]
@@ -95,10 +290,16 @@ export default function HelpGuide({ onClose }) {
         .help-x:hover { background: #fee !important; color: #c0392b !important; }
         .help-scroll::-webkit-scrollbar { width: 8px; }
         .help-scroll::-webkit-scrollbar-thumb { background: #e0ddd6; border-radius: 99px; }
+        @media (max-width: 600px) {
+          .help-header { flex-wrap: wrap; padding: 12px 14px !important; gap: 10px !important; }
+          .help-search { order: 3; flex-basis: 100% !important; max-width: 100% !important; margin: 0 !important; }
+          .help-scroll { padding: 16px 14px 50px !important; }
+          .help-title { font-size: 15px !important; }
+        }
       `}</style>
 
       {/* Header */}
-      <div style={{
+      <div className="help-header" style={{
         background: '#fff', borderBottom: '1px solid #eee', padding: '16px 26px',
         display: 'flex', alignItems: 'center', gap: 16, flexShrink: 0,
         boxShadow: '0 1px 6px rgba(0,0,0,0.04)',
@@ -108,13 +309,13 @@ export default function HelpGuide({ onClose }) {
             <LifeBuoy size={20} color="#fff" />
           </div>
           <div>
-            <div style={{ fontSize: 16, fontWeight: 800, color: '#0d1b2a', letterSpacing: '-0.3px' }}>Help &amp; Guidelines</div>
+            <div className="help-title" style={{ fontSize: 16, fontWeight: 800, color: '#0d1b2a', letterSpacing: '-0.3px' }}>Help &amp; Guidelines</div>
             <div style={{ fontSize: 12, color: '#aaa' }}>How this works — new here or just need a reminder?</div>
           </div>
         </div>
 
         {/* Search */}
-        <div style={{ position: 'relative', flex: 1, maxWidth: 460, margin: '0 auto' }}>
+        <div className="help-search" style={{ position: 'relative', flex: 1, minWidth: 180, maxWidth: 460, margin: '0 auto' }}>
           <Search size={16} color="#bbb" style={{ position: 'absolute', left: 13, top: 12 }} />
           <input
             autoFocus

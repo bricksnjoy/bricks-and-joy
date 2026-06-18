@@ -218,8 +218,8 @@ export function Modal({ title, subtitle, children, onClose, width = 640, noBackd
       animation: 'backdropIn 0.2s ease both',
     }} onClick={e => !noBackdropClose && e.target === e.currentTarget && onClose()}>
       <div className="modal-enter modal-card" style={{
-        background: '#fff', borderRadius: 20, width: '100%', maxWidth: width,
-        maxHeight: '92vh', overflow: 'auto', boxShadow: '0 30px 80px rgba(13,27,42,0.28)',
+        background: '#fff', borderRadius: 20, width: '100%', maxWidth: width, minWidth: 0,
+        maxHeight: '92vh', overflowY: 'auto', overflowX: 'hidden', boxShadow: '0 30px 80px rgba(13,27,42,0.28)',
       }}>
         <div className="modal-head" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '22px 28px', borderBottom: '1px solid #f0f0f0' }}>
           <div>
