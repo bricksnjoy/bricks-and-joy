@@ -27,7 +27,6 @@ export default function Orders() {
   const [returnForm, setReturnForm] = useState({ reason: '', refund_amount: 0 })
   const [saving, setSaving] = useState(false)
   const [filter, setFilter] = useState('created')
-  const [payFilter, setPayFilter] = useState('all')
   const [uploadingSlip, setUploadingSlip] = useState(false)
   const [scanning, setScanning] = useState(null)
   const [contacts, setContacts] = useState([])
@@ -334,8 +333,7 @@ export default function Orders() {
     return c?.name || email
   }
 
-  const filteredByStatus = filter === 'all' ? orders : orders.filter(o => o.status === filter)
-  const filteredOrders = payFilter === 'all' ? filteredByStatus : filteredByStatus.filter(o => (o.payment_status || 'unpaid') === payFilter)
+  const filteredOrders = filter === 'all' ? orders : orders.filter(o => o.status === filter)
   const totalRevenue = orders.filter(o => o.status === 'delivered').reduce((s, o) => s + Number(o.total_price || 0), 0)
   const unpaidTotal = orders.filter(o => (o.payment_status || 'unpaid') === 'unpaid' && o.status !== 'cancelled').reduce((s, o) => s + Number(o.total_price || 0), 0)
   const lowStockCount = products.filter(p => p.stock_qty > 0 && p.stock_qty <= (p.low_stock_threshold || 10)).length
@@ -390,6 +388,7 @@ export default function Orders() {
       <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
         <select value={r.status} onChange={e => updateStatus(r.id, e.target.value)}
           style={{ appearance: 'none', WebkitAppearance: 'none', border: 'none', fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', fontWeight: 700, paddingRight: 16, paddingLeft: 8, paddingTop: 4, paddingBottom: 4, borderRadius: 99, background: (statusColors[r.status] || '#ccc') + '18', color: statusColors[r.status] || '#888', outline: 'none' }}>
+          {!STATUSES.some(s => s.value === r.status) && r.status && <option value={r.status}>{r.status}</option>}
           {STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
         </select>
         <span style={{ position: 'absolute', right: 4, pointerEvents: 'none', fontSize: 8, color: statusColors[r.status] || '#888' }}>▼</span>
@@ -431,7 +430,18 @@ export default function Orders() {
         .stock-detail { overflow:hidden; transition: max-height 0.3s ease, opacity 0.3s ease; }
         @media (max-width: 860px) {
           .ord-card { flex-direction:column; gap:14px; }
-          .ord-photo { width:100%; height:auto; aspect-ratio:1/1; max-width:220px; align-self:center; }
+          .ord-photo { width:100%; height:auto; aspect-ratio:1/1; max-width:340px; align-self:center; }
+        }
+        /* Phone-only: keep filter tabs reachable (scroll), smaller text, bigger photo */
+        @media (max-width: 600px) {
+          .ord-filters { overflow-x:auto; flex-wrap:nowrap !important; max-width:100%; -webkit-overflow-scrolling:touch; scrollbar-width:none; }
+          .ord-filters::-webkit-scrollbar { display:none; }
+          .ord-filters button { flex-shrink:0; }
+          .ord-photo { max-width:100% !important; padding:12px; }
+          .ord-cust { font-size:17px !important; }
+          .ord-prod { font-size:13px !important; }
+          .ord-price { font-size:16px !important; }
+          .ord-cardbody { gap:8px; }
         }
       `}</style>
 
@@ -478,7 +488,7 @@ export default function Orders() {
         <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
             {/* Status filters */}
-            <div style={{ display: 'flex', background: '#f5f5f5', borderRadius: 10, padding: 3, gap: 2 }}>
+            <div className="ord-filters" style={{ display: 'flex', background: '#f5f5f5', borderRadius: 10, padding: 3, gap: 2 }}>
               {[
                 { key: 'created', label: 'Created', count: orders.filter(o => o.status === 'created').length },
                 { key: 'transit', label: 'Dispatched', count: orders.filter(o => o.status === 'transit').length },
@@ -539,7 +549,7 @@ export default function Orders() {
                     {/* Top row: customer name + kebab */}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                       <div>
-                        <div style={{ fontSize: 22, fontWeight: 800, color: '#0d1b2a', letterSpacing: '-0.3px' }}>{o.customer_name || 'Walk-in'}</div>
+                        <div className="ord-cust" style={{ fontSize: 22, fontWeight: 800, color: '#0d1b2a', letterSpacing: '-0.3px' }}>{o.customer_name || 'Walk-in'}</div>
                         {insta && (
                           <div style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#C13584', fontSize: 11.5, marginTop: 1 }}>
                             <Instagram size={11} /> @{insta.replace(/^@/, '')}
@@ -566,11 +576,11 @@ export default function Orders() {
                     </div>
 
                     {/* Product (relevant — bigger) */}
-                    <div style={{ fontSize: 16, color: '#333', fontWeight: 600 }}>{o.product_name} <span style={{ color: '#aaa', fontWeight: 500 }}>× {o.qty}</span></div>
+                    <div className="ord-prod" style={{ fontSize: 16, color: '#333', fontWeight: 600 }}>{o.product_name} <span style={{ color: '#aaa', fontWeight: 500 }}>× {o.qty}</span></div>
 
                     {/* Price (relevant — bigger) */}
                     <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
-                      <span style={{ fontWeight: 800, fontSize: 19, color: '#0d1b2a' }}>MVR {Number(o.total_price || 0).toFixed(2)}</span>
+                      <span className="ord-price" style={{ fontWeight: 800, fontSize: 19, color: '#0d1b2a' }}>MVR {Number(o.total_price || 0).toFixed(2)}</span>
                       {o.discount > 0 && <span style={{ fontSize: 11, color: '#1D9E75', fontWeight: 600 }}>-MVR {Number(o.discount).toFixed(2)}</span>}
                     </div>
 
@@ -583,6 +593,7 @@ export default function Orders() {
                           onChange={e => updateStatus(o.id, e.target.value)}
                           className="ord-status"
                           style={{ background: (statusColors[o.status] || '#ccc') + '18', color: statusColors[o.status] || '#888', paddingRight: 22 }}>
+                          {!STATUSES.some(s => s.value === o.status) && o.status && <option value={o.status}>{o.status}</option>}
                           {STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
                         </select>
                         <span style={{ position: 'absolute', right: 7, pointerEvents: 'none', fontSize: 8, color: statusColors[o.status] || '#888' }}>▼</span>

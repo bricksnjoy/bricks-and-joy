@@ -73,8 +73,13 @@ export default function Deliveries() {
   const customerInsta = o => customer(o)?.instagram || ''
   const productPhoto = o => products.find(p => p.id === o.product_id)?.photo_url || ''
   const orderDate = o => o.order_date || (o.created_at ? o.created_at.split('T')[0] : '')
-  // Use saved value (falling back to order date) unless there's a draft override
-  const effectiveDate = o => (drafts[o.id]?.delivery_date !== undefined ? drafts[o.id].delivery_date : null) ?? o.delivery_date ?? orderDate(o)
+  // Use the unsaved draft if present (even when cleared to empty), else the
+  // saved value, else fall back to the order's creation date.
+  const effectiveDate = o => {
+    const d = drafts[o.id]
+    if (d && 'delivery_date' in d) return d.delivery_date || ''
+    return o.delivery_date || orderDate(o)
+  }
   const draftStaff = o => drafts[o.id]?.delivery_person !== undefined ? drafts[o.id].delivery_person : (o.delivery_person || '')
   const isDirty = o => !!drafts[o.id] && Object.keys(drafts[o.id]).length > 0
   const contactNames = contacts.map(c => c.name)
@@ -157,6 +162,11 @@ export default function Deliveries() {
         @media (max-width: 860px) {
           .dlv-card { flex-direction:column; gap:14px; }
           .dlv-photo { width:100%; height:auto; aspect-ratio:1/1; max-width:340px; align-self:center; }
+        }
+        /* Phone-only: bigger photo, smaller text */
+        @media (max-width: 600px) {
+          .dlv-photo { max-width:100% !important; }
+          .dlv-cust { font-size:17px !important; }
         }
       `}</style>
 
@@ -247,7 +257,7 @@ export default function Deliveries() {
                   </div>
                   <div className="dlv-cardbody">
                     <div>
-                      <div style={{ fontSize: 19, fontWeight: 700, color: '#0d1b2a' }}>{customerName(o)}</div>
+                      <div className="dlv-cust" style={{ fontSize: 19, fontWeight: 700, color: '#0d1b2a' }}>{customerName(o)}</div>
                       {insta && <div style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#C13584', fontSize: 13, marginTop: 2 }}><Instagram size={13} /> @{insta.replace(/^@/, '')}</div>}
                     </div>
                     <div style={{ fontSize: 14, color: '#555', fontWeight: 600 }}>{o.product_name} × {o.qty}</div>
