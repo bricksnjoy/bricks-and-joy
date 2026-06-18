@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Button, Modal, Spinner, useToast, Toasts, Badge } from '../components/UI'
 import { sendEmailJS, BNJ_EMAIL } from '../lib/email'
-import { sendSMS, normalizePhone } from '../lib/sms'
+import { sendSMS } from '../lib/sms'
 import {
   Mail, MessageSquare, Send, Plus, Trash2, Edit2, Phone, AtSign, User, Bike,
   Truck, Users, Megaphone, Search, AlertTriangle, Lightbulb, Calendar,
@@ -151,30 +151,80 @@ export default function MessageCenter() {
   }
 
   // Builders for pre-filled messages
-  function deliveryNote(order) {
+  // Phone shown in notes without the 960 country code (just the local number).
+  function localPhone(raw = '') {
+    let d = String(raw).replace(/\D/g, '')
+    if (d.startsWith('960') && d.length > 7) d = d.slice(3)
+    return d
+  }
+
+  // Short SMS delivery note — fixed format
+  function deliveryNoteSMS(order) {
     const customer = customers.find(c => c.id === order.customer_id) || {}
     const pay = (order.payment_status || 'unpaid').toUpperCase()
-    const phone = customer.phone ? normalizePhone(customer.phone) : ''
+    const phone = localPhone(customer.phone)
     const name = customer.name || order.customer_name || 'Walk-in'
     return [
       `Delivery — ${BNJ_NAME}`,
       `Item: ${order.product_name} × ${order.qty}`,
-      phone ? `${name} · ${phone}` : name,
-      customer.address ? `Address: ${customer.address}` : null,
-      order.delivery_date ? `When: ${order.delivery_date}` : null,
+      `Name: ${name}${phone ? ` - ${phone}` : ''}`,
+      customer.address ? `Address: ${customer.address}${customer.landmark ? `, ${customer.landmark}` : ''}` : null,
       `Total: MVR ${Number(order.total_price || 0).toFixed(2)} (${pay})`,
-      order.notes ? `Notes: ${order.notes}` : null,
       customer.notes ? `Drop: ${customer.notes}` : null,
     ].filter(Boolean).join('\n')
   }
+
+  // Long, detailed email delivery note
+  function deliveryNoteEmail(order) {
+    const customer = customers.find(c => c.id === order.customer_id) || {}
+    const pay = (order.payment_status || 'unpaid').toUpperCase()
+    const phone = localPhone(customer.phone)
+    const info = [
+      `Name:        ${customer.name || order.customer_name || 'Walk-in'}`,
+      phone ? `Phone:       ${phone}` : null,
+      customer.address ? `Address:     ${customer.address}` : null,
+      customer.landmark ? `Landmark:    ${customer.landmark}` : null,
+      customer.instagram ? `Instagram:   ${customer.instagram}` : null,
+      customer.email ? `Email:       ${customer.email}` : null,
+      customer.notes ? `Drop note:   ${customer.notes}` : null,
+    ].filter(Boolean).join('\n')
+    return `Hi,
+
+You have a new delivery assignment from ${BNJ_NAME}.
+
+━━━━━━━━━━━━━━━━━━━━
+ORDER DETAILS
+━━━━━━━━━━━━━━━━━━━━
+Invoice:     ${order.invoice_number || '—'}
+Product:     ${order.product_name}
+Quantity:    ${order.qty}
+Order date:  ${order.order_date || '—'}${order.delivery_date ? `\nDelivery:    ${order.delivery_date}` : ''}
+Status:      ${order.status}
+Total:       MVR ${Number(order.total_price || 0).toFixed(2)} (${pay})
+
+━━━━━━━━━━━━━━━━━━━━
+CUSTOMER / DELIVERY INFO
+━━━━━━━━━━━━━━━━━━━━
+${info}${order.notes ? `\n\nOrder notes:\n${order.notes}` : ''}
+
+Please confirm once delivered.
+
+— ${BNJ_NAME} Team`
+  }
+
+  function deliverySubject(order) { return `Delivery Assignment — ${order.invoice_number || order.product_name}` }
+
   function openDelivery(order) {
     // Pre-select the assigned staff if they're a contact (note still sendable to anyone)
     const dp = contacts.find(c => c.name === order.delivery_person)
+    const channel = dp && hasChannel(dp, 'sms') && !hasChannel(dp, 'email') ? 'sms' : 'email'
     openCompose({
       title: `Delivery note — ${order.product_name}`,
-      channel: dp && hasChannel(dp, 'sms') && !hasChannel(dp, 'email') ? 'sms' : 'email',
-      subject: `Delivery Assignment — ${order.invoice_number || order.product_name}`,
-      body: deliveryNote(order),
+      kind: 'delivery',
+      order,
+      channel,
+      subject: deliverySubject(order),
+      body: channel === 'email' ? deliveryNoteEmail(order) : deliveryNoteSMS(order),
       sel: new Set(dp ? [dp.id] : []),
       source: 'contacts',
     })
@@ -480,7 +530,12 @@ export default function MessageCenter() {
         return (
           <Modal title={compose.title || 'Send message'} onClose={() => setCompose(null)} width={580}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
-              <ChannelToggle value={compose.channel} onChange={ch => setCompose(c => ({ ...c, channel: ch }))} />
+              <ChannelToggle value={compose.channel} onChange={ch => setCompose(c => {
+                if (c.kind === 'delivery' && c.order) {
+                  return { ...c, channel: ch, subject: deliverySubject(c.order), body: ch === 'email' ? deliveryNoteEmail(c.order) : deliveryNoteSMS(c.order) }
+                }
+                return { ...c, channel: ch }
+              })} />
               <span style={{ fontSize: 12, color: '#aaa' }}>{eligible.length} {compose.source} can receive {compose.channel === 'email' ? 'email' : 'SMS'}</span>
             </div>
 

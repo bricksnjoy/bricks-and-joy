@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Button, Input, Table, Modal, Spinner, FormRow, useToast, Toasts, Badge, StatusBadge } from '../components/UI'
 import { Plus, Trash2, Edit2, Eye, Printer } from 'lucide-react'
 
-const EMPTY = { name: '', email: '', phone: '', address: '', notes: '' }
+const EMPTY = { name: '', email: '', instagram: '', phone: '', address: '', landmark: '', notes: '' }
 
 export default function Customers() {
   const [customers, setCustomers] = useState([])
@@ -36,9 +36,19 @@ export default function Customers() {
   async function save() {
     if (!form.name) return
     setSaving(true)
-    const { error } = modal === 'add'
-      ? await supabase.from('customers').insert(form)
-      : await supabase.from('customers').update(form).eq('id', form.id)
+    const payload = { ...form }
+    const run = () => modal === 'add'
+      ? supabase.from('customers').insert(payload)
+      : supabase.from('customers').update(payload).eq('id', form.id)
+    let { error } = await run()
+    // Drop any columns the database doesn't have yet (e.g. instagram, landmark) and retry
+    while (error && /column .* does not exist|could not find/i.test(error.message || '')) {
+      const m = (error.message || '').match(/'([a-z_]+)' column/i) || (error.message || '').match(/column "?([a-z_]+)"?/i)
+      const col = m && m[1]
+      if (!col || !(col in payload)) break
+      delete payload[col]
+      const retry = await run(); error = retry.error
+    }
     setSaving(false)
     if (error) { toast.error('Failed to save'); return }
     toast.success(modal === 'add' ? 'Customer added!' : 'Updated!')
@@ -223,8 +233,9 @@ export default function Customers() {
 
           <div style={{ display: 'flex', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
             {viewModal.email && <div style={{ fontSize: 13 }}>📧 {viewModal.email}</div>}
+            {viewModal.instagram && <div style={{ fontSize: 13 }}>📷 {viewModal.instagram}</div>}
             {viewModal.phone && <div style={{ fontSize: 13 }}>📞 {viewModal.phone}</div>}
-            {viewModal.address && <div style={{ fontSize: 13 }}>📍 {viewModal.address}</div>}
+            {viewModal.address && <div style={{ fontSize: 13 }}>📍 {viewModal.address}{viewModal.landmark ? ` · ${viewModal.landmark}` : ''}</div>}
           </div>
 
           {viewModal.notes && <div style={{ background: '#f8f7f4', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: '#555' }}>{viewModal.notes}</div>}
@@ -297,10 +308,14 @@ export default function Customers() {
             <Input label="Name *" value={form.name} onChange={f('name')} placeholder="Customer or store name" style={{ gridColumn: 'span 2' }} />
           </FormRow>
           <FormRow>
-            <Input label="Username / Instagram" value={form.email} onChange={f('email')} placeholder="@username" />
-            <Input label="Phone" value={form.phone} onChange={f('phone')} placeholder="+960 xxx xxxx" />
+            <Input label="Email" value={form.email} onChange={f('email')} placeholder="email@example.com" />
+            <Input label="Phone" value={form.phone} onChange={f('phone')} placeholder="7-digit (960 added automatically)" />
+          </FormRow>
+          <FormRow>
+            <Input label="Instagram username" value={form.instagram} onChange={f('instagram')} placeholder="@username" />
           </FormRow>
           <Input label="Address" value={form.address} onChange={f('address')} placeholder="Street, City" style={{ marginBottom: 12 }} />
+          <Input label="Landmark" value={form.landmark} onChange={f('landmark')} placeholder="e.g. near Sifco (optional)" style={{ marginBottom: 12 }} />
           <div style={{ marginBottom: 16 }}>
             <label style={{ fontSize: 12, color: '#666', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.4px', display: 'block', marginBottom: 4 }}>Notes</label>
             <textarea value={form.notes} onChange={f('notes')} placeholder="Any notes about this customer…"

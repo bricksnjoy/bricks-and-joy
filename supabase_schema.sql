@@ -8,12 +8,17 @@ create table customers (
   id uuid primary key default gen_random_uuid(),
   name text not null,
   email text,
+  instagram text,
   phone text,
   address text,
+  landmark text,
   notes text,
   created_at timestamptz default now(),
   created_by uuid references auth.users(id)
 );
+-- For existing databases:
+-- alter table customers add column if not exists instagram text;
+-- alter table customers add column if not exists landmark text;
 
 -- SUPPLIERS
 create table suppliers (
