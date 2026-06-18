@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Button, Input, Select, Table, Modal, StatusBadge, StockBadge, Spinner, FormRow, useToast, Toasts, Badge } from '../components/UI'
-import { Plus, Trash2, AlertTriangle, Package, Upload, Eye, CreditCard, X, Camera, Edit2, RotateCcw, MessageSquare } from 'lucide-react'
+import { Plus, Trash2, AlertTriangle, Package, Upload, Eye, CreditCard, X, Camera, Edit2, RotateCcw, MessageSquare, MoreVertical, LayoutGrid, List, Instagram } from 'lucide-react'
 import BarcodeScanner from '../components/BarcodeScanner'
 import { sendSMS } from '../lib/sms'
 
@@ -29,21 +29,33 @@ export default function Orders() {
   const [filter, setFilter] = useState('all')
   const [payFilter, setPayFilter] = useState('all')
   const [uploadingSlip, setUploadingSlip] = useState(false)
-  const [scanning, setScanning] = useState(null) // index of cart item being scanned
+  const [scanning, setScanning] = useState(null)
   const [contacts, setContacts] = useState([])
-  const [smsModal, setSmsModal] = useState(null)   // order being texted
+  const [smsModal, setSmsModal] = useState(null)
   const [smsForm, setSmsForm] = useState({ mode: 'customer', to: '', message: '', contactId: '' })
   const [smsSending, setSmsSending] = useState(false)
   const [userEmail, setUserEmail] = useState('')
+  const [view, setView] = useState('cards') // cards | list
+  const [kebabOpen, setKebabOpen] = useState(null)
+  const kebabRef = useRef(null)
   const toast = useToast()
 
   useEffect(() => { load() }, [])
+
+  // Close kebab when clicking outside
+  useEffect(() => {
+    function handler(e) {
+      if (kebabRef.current && !kebabRef.current.contains(e.target)) setKebabOpen(null)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
 
   async function load() {
     setLoading(true)
     const [o, c, p, ct, u] = await Promise.all([
       supabase.from('orders').select('*').order('created_at', { ascending: false }),
-      supabase.from('customers').select('id, name, phone, address').order('name'),
+      supabase.from('customers').select('id, name, phone, address, instagram, landmark').order('name'),
       supabase.from('products').select('*').order('name'),
       supabase.from('email_contacts').select('*').order('name'),
       supabase.auth.getUser(),
@@ -137,13 +149,10 @@ export default function Orders() {
       unit_price: parseFloat(item.unit_price),
       total_price: Math.max(0, parseFloat(item.unit_price) * parseInt(item.qty) - itemDiscount),
       discount: itemDiscount,
-      // Who created it — keep the original on edits, stamp the current user on new
       created_by_email: editOrder ? (editOrder.created_by_email || userEmail) : userEmail,
     }
   }
 
-  // Remove a column the database doesn't have yet (e.g. created_by_email) so
-  // saving still works before the migration is run; returns true if it stripped one.
   function dropMissingCol(error, payload) {
     const m = (error?.message || '').match(/'([a-z_]+)' column/i) || (error?.message || '').match(/column "?([a-z_]+)"?/i)
     const col = m && m[1]
@@ -151,8 +160,6 @@ export default function Orders() {
     return false
   }
 
-  // Apply a stock change to a product (delta negative = reduce). Reads fresh so
-  // concurrent edits don't clobber each other.
   async function applyStockDelta(productId, delta) {
     if (!productId || !delta) return
     const { data: prod } = await supabase.from('products').select('stock_qty').eq('id', productId).single()
@@ -160,6 +167,7 @@ export default function Orders() {
   }
 
   async function save() {
+    if (!form.customer_id) { toast.error('Please select a customer'); return }
     const validItems = cartItems.filter(i => i.product_id && i.qty)
     if (validItems.length === 0) { toast.error('Add at least one product'); return }
     setSaving(true)
@@ -170,16 +178,14 @@ export default function Orders() {
       let { error } = await supabase.from('orders').update(payload).eq('id', editOrder.id)
       while (error && dropMissingCol(error, payload)) { error = (await supabase.from('orders').update(payload).eq('id', editOrder.id)).error }
       if (error) { console.error(error); setSaving(false); toast.error('Failed to update: ' + error.message); return }
-      // Keep inventory in sync with quantity/product changes (a cancelled order's
-      // stock was already restored, so don't double-count it).
       if (editOrder.status !== 'cancelled') {
         const oldQty = parseInt(editOrder.qty) || 0
         const newQty = parseInt(item.qty) || 0
         if (editOrder.product_id === item.product_id) {
           await applyStockDelta(item.product_id, -(newQty - oldQty))
         } else {
-          await applyStockDelta(editOrder.product_id, oldQty)   // restore the old product
-          await applyStockDelta(item.product_id, -newQty)       // deduct from the new one
+          await applyStockDelta(editOrder.product_id, oldQty)
+          await applyStockDelta(item.product_id, -newQty)
         }
       }
       setSaving(false)
@@ -187,10 +193,8 @@ export default function Orders() {
       setModal(false); load(); return
     }
 
-    // New order — insert one row per cart item
     for (const item of validItems) {
       const itemSubtotal = parseFloat(item.unit_price) * parseInt(item.qty)
-      // Each item gets the full discount applied individually
       const itemDiscount = form.discount_type === 'percent'
         ? itemSubtotal * (parseFloat(form.discount_value || 0) / 100)
         : parseFloat(form.discount_value || 0) / validItems.length
@@ -198,7 +202,6 @@ export default function Orders() {
       let { error } = await supabase.from('orders').insert(payload)
       while (error && dropMissingCol(error, payload)) { error = (await supabase.from('orders').insert(payload)).error }
       if (error) { console.error(error); setSaving(false); toast.error('Failed to save: ' + error.message); return }
-      // Read fresh so repeated products / concurrent sales don't clobber stock
       const { data: prod } = await supabase.from('products').select('stock_qty, name, low_stock_threshold').eq('id', item.product_id).single()
       if (prod) {
         const newStock = (prod.stock_qty || 0) - parseInt(item.qty)
@@ -241,11 +244,20 @@ export default function Orders() {
     setSaving(false); toast.success('Payment recorded!'); setPayModal(null); load()
   }
 
+  // Quick-mark an order as paid without opening the full payment modal
+  async function quickMarkPaid(o) {
+    await supabase.from('orders').update({
+      payment_status: 'paid',
+      paid_at: new Date().toISOString(),
+    }).eq('id', o.id)
+    toast.success('Marked as paid!')
+    load()
+  }
+
   async function saveReturn() {
     if (!returnModal) return
     setSaving(true)
     const order = returnModal
-    // Restore stock
     if (order.product_id) {
       const { data: prod } = await supabase.from('products').select('stock_qty, name').eq('id', order.product_id).single()
       if (prod) {
@@ -253,12 +265,10 @@ export default function Orders() {
         toast.info(`Stock restored: ${prod.name} +${order.qty}`)
       }
     }
-    // Mark order as cancelled + log return
     await supabase.from('orders').update({
       status: 'cancelled',
       notes: `RETURNED: ${returnForm.reason} | Refund: MVR ${returnForm.refund_amount}${order.notes ? ' | ' + order.notes : ''}`,
     }).eq('id', order.id)
-    // Log as expense (refund)
     if (parseFloat(returnForm.refund_amount) > 0) {
       await supabase.from('expenses').insert({
         description: `Refund — ${order.product_name} (${order.invoice_number || order.id.slice(0,6)})${returnForm.reason ? ': ' + returnForm.reason : ''}`,
@@ -291,7 +301,6 @@ export default function Orders() {
     toast.success('Deleted'); load()
   }
 
-  // ── SMS (Message Owl) ──────────────────────────────────────────────────────
   function customerMsg(o) {
     return `Hi ${o.customer_name || 'there'}, your order ${o.invoice_number || ''} (${o.product_name} ×${o.qty}) total MVR ${Number(o.total_price || 0).toFixed(2)} is ${o.status}. Thank you! — Brick's & Joy`
   }
@@ -329,7 +338,6 @@ export default function Orders() {
   const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
   const pf = k => e => setPayForm(p => ({ ...p, [k]: e.target.value }))
 
-  // Resolve a creator's email to a staff name via the shared contacts list
   const creatorName = email => {
     const c = contacts.find(x => (x.email || '').toLowerCase() === (email || '').toLowerCase())
     return c?.name || email
@@ -344,7 +352,12 @@ export default function Orders() {
 
   const AVATAR_COLORS = ['#7F77DD','#1D9E75','#FFA500','#378ADD','#E24B4A','#0F6E56']
   const statusColors = { created: '#7F77DD', pending: '#FFA500', transit: '#378ADD', delivered: '#1D9E75', cancelled: '#E24B4A' }
+  const payColors = { paid: '#1D9E75', partial: '#FFA500', unpaid: '#E24B4A' }
 
+  const productPhoto = o => products.find(p => p.id === o.product_id)?.photo_url || ''
+  const customerInsta = o => customers.find(c => c.id === o.customer_id)?.instagram || ''
+
+  // Table columns (list view)
   const columns = [
     { key: 'invoice_number', label: 'Invoice', render: r => (
       <span style={{ fontSize: 11, color: '#999', fontFamily: 'monospace', background: '#f5f5f5', padding: '3px 7px', borderRadius: 6 }}>
@@ -366,7 +379,7 @@ export default function Orders() {
     { key: 'product_name', label: 'Product', render: r => (
       <div>
         <div style={{ fontWeight: 500, color: '#333', fontSize: 13 }}>{r.product_name}</div>
-        <div style={{ fontSize: 11, color: '#bbb' }}>× {r.qty} unit{r.qty !== 1 ? 's' : ''}</div>
+        <div style={{ fontSize: 11, color: '#bbb' }}>× {r.qty}</div>
       </div>
     )},
     { key: 'total_price', label: 'Total', render: r => (
@@ -380,20 +393,8 @@ export default function Orders() {
         <Badge color={(r.payment_status || 'unpaid') === 'paid' ? 'green' : (r.payment_status || 'unpaid') === 'partial' ? 'amber' : 'red'}>
           {r.payment_status || 'unpaid'}
         </Badge>
-        {r.transfer_slip_url && (
-          <span title="Slip attached" style={{ width: 18, height: 18, borderRadius: 4, background: '#e3f2fd', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Upload size={10} color="#378ADD" />
-          </span>
-        )}
       </div>
     )},
-    { key: 'delivery_person', label: 'Delivery', render: r => r.delivery_person
-      ? <span style={{ fontSize: 11, background: '#EEF4FF', color: '#378ADD', padding: '3px 9px', borderRadius: 99, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-          <Package size={10} /> {r.delivery_person}
-        </span>
-      : <span style={{ color: '#ddd', fontSize: 12 }}>—</span>
-    },
-    { key: 'order_date', label: 'Date', render: r => <span style={{ color: '#aaa', fontSize: 12, fontWeight: 500 }}>{r.order_date}</span> },
     { key: 'status', label: 'Status', render: r => (
       <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
         <select value={r.status} onChange={e => updateStatus(r.id, e.target.value)}
@@ -417,6 +418,28 @@ export default function Orders() {
 
   return (
     <div>
+      <style>{`
+        .ord-photo { width:340px; height:340px; flex-shrink:0; border-radius:12px; overflow:hidden; background:#fff; border:1px solid #f0eee8; display:flex; align-items:center; justify-content:center; padding:20px; box-sizing:border-box; cursor:pointer; transition: box-shadow 0.18s; }
+        .ord-photo:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.10); }
+        .ord-photo img { width:100%; height:100%; object-fit:contain; border-radius:6px; }
+        .ord-card { display:flex; gap:20px; border:1px solid #eee; border-radius:16px; padding:16px; background:#fff; transition: box-shadow 0.18s, transform 0.18s; animation: ordFade 0.3s ease both; }
+        .ord-card:hover { box-shadow: 0 8px 24px rgba(0,0,0,0.06); transform: translateY(-1px); }
+        .ord-cardbody { flex:1; min-width:0; display:flex; flex-direction:column; gap:10px; }
+        .ord-cards { display:grid; grid-template-columns:1fr; gap:16px; }
+        @keyframes ordFade { from { opacity:0; transform: translateY(6px) } to { opacity:1; transform:none } }
+        .ord-status { appearance:none; -webkit-appearance:none; border:none; font-size:12px; cursor:pointer; font-family:inherit; font-weight:700; padding:5px 20px 5px 10px; border-radius:99px; outline:none; }
+        .ord-kebab-wrap { position:relative; }
+        .ord-kebab-menu { position:absolute; right:0; top:32px; background:#fff; border:1px solid #eee; border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,0.10); min-width:140px; z-index:99; overflow:hidden; animation: ordFade 0.15s ease both; }
+        .ord-kebab-item { display:flex; align-items:center; gap:8px; width:100%; padding:10px 14px; border:none; background:none; cursor:pointer; font-size:13px; font-family:inherit; color:#333; transition:background 0.12s; text-align:left; }
+        .ord-kebab-item:hover { background:#f5f5f5; }
+        .ord-kebab-item.danger { color:#E24B4A; }
+        .ord-pill-btn { padding:7px 14px; border-radius:99px; border:none; cursor:pointer; font-size:12.5px; font-weight:600; font-family:inherit; transition: all 0.15s; }
+        @media (max-width: 860px) {
+          .ord-card { flex-direction:column; gap:14px; }
+          .ord-photo { width:100%; height:auto; aspect-ratio:1/1; max-width:340px; align-self:center; }
+        }
+      `}</style>
+
       <PageHeader title="Orders"
         subtitle={`MVR ${totalRevenue.toFixed(2)} delivered · MVR ${unpaidTotal.toFixed(2)} unpaid`}
         action={<Button onClick={openAdd}><Plus size={15} /> New order</Button>} />
@@ -431,50 +454,172 @@ export default function Orders() {
       )}
 
       <Card>
-        <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
-          {/* Status filters */}
-          <div style={{ display: 'flex', background: '#f5f5f5', borderRadius: 10, padding: 3, gap: 2 }}>
-            {[
-              { key: 'all', label: 'All', count: orders.length },
-              { key: 'created', label: 'Created', count: orders.filter(o => o.status === 'created').length },
-              { key: 'transit', label: 'Dispatched', count: orders.filter(o => o.status === 'transit').length },
-              { key: 'delivered', label: 'Delivered', count: orders.filter(o => o.status === 'delivered').length },
-              { key: 'cancelled', label: 'Cancelled', count: orders.filter(o => o.status === 'cancelled').length },
-            ].map(s => (
-              <button key={s.key} onClick={() => setFilter(s.key)} style={{
-                padding: '6px 13px', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'inherit',
-                fontSize: 12, fontWeight: filter === s.key ? 700 : 500,
-                background: filter === s.key ? '#fff' : 'transparent',
-                color: filter === s.key ? '#0d1b2a' : '#999',
-                boxShadow: filter === s.key ? '0 1px 4px rgba(0,0,0,0.08)' : 'none',
-                transition: 'all 0.15s', display: 'flex', alignItems: 'center', gap: 5,
-              }}>
-                {s.label}
-                <span style={{ fontSize: 10, fontWeight: 700, background: filter === s.key ? '#f0f0f0' : 'transparent', borderRadius: 99, padding: filter === s.key ? '1px 5px' : '0', color: filter === s.key ? '#555' : '#bbb' }}>{s.count}</span>
-              </button>
-            ))}
+        <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+            {/* Status filters */}
+            <div style={{ display: 'flex', background: '#f5f5f5', borderRadius: 10, padding: 3, gap: 2 }}>
+              {[
+                { key: 'all', label: 'All', count: orders.length },
+                { key: 'created', label: 'Created', count: orders.filter(o => o.status === 'created').length },
+                { key: 'transit', label: 'Dispatched', count: orders.filter(o => o.status === 'transit').length },
+                { key: 'delivered', label: 'Delivered', count: orders.filter(o => o.status === 'delivered').length },
+                { key: 'cancelled', label: 'Cancelled', count: orders.filter(o => o.status === 'cancelled').length },
+              ].map(s => (
+                <button key={s.key} onClick={() => setFilter(s.key)} style={{
+                  padding: '6px 13px', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                  fontSize: 12, fontWeight: filter === s.key ? 700 : 500,
+                  background: filter === s.key ? '#fff' : 'transparent',
+                  color: filter === s.key ? '#0d1b2a' : '#999',
+                  boxShadow: filter === s.key ? '0 1px 4px rgba(0,0,0,0.08)' : 'none',
+                  transition: 'all 0.15s', display: 'flex', alignItems: 'center', gap: 5,
+                }}>
+                  {s.label}
+                  <span style={{ fontSize: 10, fontWeight: 700, background: filter === s.key ? '#f0f0f0' : 'transparent', borderRadius: 99, padding: filter === s.key ? '1px 5px' : '0', color: filter === s.key ? '#555' : '#bbb' }}>{s.count}</span>
+                </button>
+              ))}
+            </div>
+            {/* Payment filters */}
+            <div style={{ display: 'flex', background: '#f5f5f5', borderRadius: 10, padding: 3, gap: 2 }}>
+              {[{ key: 'all', label: 'All' },{ key: 'unpaid', label: 'Unpaid', color: '#E24B4A' },{ key: 'paid', label: 'Paid', color: '#1D9E75' },{ key: 'partial', label: 'Partial', color: '#FFA500' }].map(s => (
+                <button key={s.key} onClick={() => setPayFilter(s.key)} style={{
+                  padding: '6px 13px', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                  fontSize: 12, fontWeight: payFilter === s.key ? 700 : 500,
+                  background: payFilter === s.key ? (s.color || '#0d1b2a') : 'transparent',
+                  color: payFilter === s.key ? '#fff' : '#999',
+                  transition: 'all 0.15s',
+                }}>{s.label}</button>
+              ))}
+            </div>
           </div>
-          {/* Payment filters */}
-          <div style={{ display: 'flex', background: '#f5f5f5', borderRadius: 10, padding: 3, gap: 2 }}>
-            {[
-              { key: 'all', label: 'All' },
-              { key: 'unpaid', label: 'Unpaid', color: '#E24B4A' },
-              { key: 'paid', label: 'Paid', color: '#1D9E75' },
-              { key: 'partial', label: 'Partial', color: '#FFA500' },
-            ].map(s => (
-              <button key={s.key} onClick={() => setPayFilter(s.key)} style={{
-                padding: '6px 13px', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'inherit',
-                fontSize: 12, fontWeight: payFilter === s.key ? 700 : 500,
-                background: payFilter === s.key ? (s.color || '#0d1b2a') : 'transparent',
-                color: payFilter === s.key ? '#fff' : '#999',
-                transition: 'all 0.15s',
-              }}>
-                {s.label}
-              </button>
+          {/* View toggle */}
+          <div style={{ display: 'flex', background: '#f3f1ec', borderRadius: 99, padding: 3, gap: 1 }}>
+            {[['cards', LayoutGrid], ['list', List]].map(([id, Icon]) => (
+              <button key={id} onClick={() => setView(id)} style={{
+                padding: '7px 12px', borderRadius: 99, border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                background: view === id ? '#0d1b2a' : 'transparent', color: view === id ? '#fff' : '#888',
+                display: 'flex', alignItems: 'center', transition: 'all 0.15s',
+              }}><Icon size={14} /></button>
             ))}
           </div>
         </div>
-        {loading ? <Spinner /> : <Table columns={columns} data={filteredOrders} emptyMessage="No orders yet." />}
+
+        {loading ? <Spinner /> : view === 'list' ? (
+          <Table columns={columns} data={filteredOrders} emptyMessage="No orders yet." />
+        ) : filteredOrders.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '46px 0', color: '#c4c4c4' }}>
+            <div style={{ width: 58, height: 58, borderRadius: 16, background: 'linear-gradient(135deg,#fff3df,#ffe9c7)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: 14 }}>
+              <Package size={26} color="#FFA500" />
+            </div>
+            <div style={{ fontWeight: 600, color: '#999' }}>No orders to show.</div>
+          </div>
+        ) : (
+          <div className="ord-cards" ref={kebabRef}>
+            {filteredOrders.map(o => {
+              const photo = productPhoto(o)
+              const insta = customerInsta(o)
+              const payStatus = o.payment_status || 'unpaid'
+              return (
+                <div key={o.id} className="ord-card">
+                  {/* Left: product photo — click to view details */}
+                  <div className="ord-photo" onClick={() => setViewModal(o)} title="Click to view order details">
+                    {photo ? <img src={photo} alt={o.product_name} /> : <Package size={56} color="#d8d4c8" />}
+                  </div>
+
+                  {/* Right: details */}
+                  <div className="ord-cardbody">
+                    {/* Top row: customer name + kebab */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div>
+                        <div style={{ fontSize: 19, fontWeight: 700, color: '#0d1b2a' }}>{o.customer_name || 'Walk-in'}</div>
+                        {insta && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#C13584', fontSize: 13, marginTop: 2 }}>
+                            <Instagram size={13} /> @{insta.replace(/^@/, '')}
+                          </div>
+                        )}
+                      </div>
+                      {/* Kebab menu */}
+                      <div className="ord-kebab-wrap">
+                        <button onClick={() => setKebabOpen(kebabOpen === o.id ? null : o.id)}
+                          style={{ padding: 6, border: '1px solid #eee', borderRadius: 8, background: '#fafafa', cursor: 'pointer', display: 'flex', alignItems: 'center', color: '#888' }}>
+                          <MoreVertical size={15} />
+                        </button>
+                        {kebabOpen === o.id && (
+                          <div className="ord-kebab-menu">
+                            <button className="ord-kebab-item" onClick={() => { openEdit(o); setKebabOpen(null) }}><Edit2 size={13} /> Edit</button>
+                            <button className="ord-kebab-item" onClick={() => { openSms(o); setKebabOpen(null) }}><MessageSquare size={13} /> SMS</button>
+                            {o.status !== 'cancelled' && (
+                              <button className="ord-kebab-item" onClick={() => { setReturnModal(o); setReturnForm({ reason: '', refund_amount: o.total_price || 0 }); setKebabOpen(null) }}><RotateCcw size={13} /> Return</button>
+                            )}
+                            <button className="ord-kebab-item danger" onClick={() => { del(o.id); setKebabOpen(null) }}><Trash2 size={13} /> Delete</button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Product */}
+                    <div style={{ fontSize: 14, color: '#555', fontWeight: 600 }}>{o.product_name} × {o.qty}</div>
+
+                    {/* Invoice + price */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 11, color: '#aaa', fontFamily: 'monospace' }}>{o.invoice_number || '—'}</span>
+                      <span style={{ fontWeight: 700, fontSize: 15, color: '#0d1b2a' }}>MVR {Number(o.total_price || 0).toFixed(2)}</span>
+                      {o.discount > 0 && <span style={{ fontSize: 11, color: '#1D9E75', fontWeight: 600 }}>-MVR {Number(o.discount).toFixed(2)}</span>}
+                    </div>
+
+                    {/* Status + Payment row */}
+                    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                      {/* Status inline dropdown */}
+                      <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
+                        <select
+                          value={o.status}
+                          onChange={e => updateStatus(o.id, e.target.value)}
+                          className="ord-status"
+                          style={{ background: (statusColors[o.status] || '#ccc') + '18', color: statusColors[o.status] || '#888', paddingRight: 22 }}>
+                          {STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                        </select>
+                        <span style={{ position: 'absolute', right: 7, pointerEvents: 'none', fontSize: 8, color: statusColors[o.status] || '#888' }}>▼</span>
+                      </div>
+
+                      {/* Payment badge */}
+                      <span style={{
+                        padding: '4px 10px', borderRadius: 99, fontSize: 11, fontWeight: 700,
+                        background: (payColors[payStatus] || '#ccc') + '18',
+                        color: payColors[payStatus] || '#888',
+                      }}>{payStatus}</span>
+
+                      {/* Quick Paid button */}
+                      {payStatus !== 'paid' && (
+                        <button
+                          onClick={() => quickMarkPaid(o)}
+                          style={{ padding: '4px 12px', borderRadius: 99, border: '1.5px solid #1D9E75', background: '#fff', color: '#1D9E75', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s' }}
+                          onMouseEnter={e => { e.target.style.background = '#1D9E75'; e.target.style.color = '#fff' }}
+                          onMouseLeave={e => { e.target.style.background = '#fff'; e.target.style.color = '#1D9E75' }}>
+                          Paid ✓
+                        </button>
+                      )}
+
+                      {/* Full payment modal button */}
+                      <button
+                        onClick={() => { setPayModal(o); setPayForm({ payment_method: o.payment_method || 'Cash', transfer_reference: o.transfer_reference || '', transfer_slip_url: o.transfer_slip_url || '', payment_status: o.payment_status || 'paid' }) }}
+                        title="Record payment details"
+                        style={{ padding: '4px 10px', borderRadius: 99, border: '1px solid #ddd', background: '#fafafa', color: '#888', fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <CreditCard size={11} /> Payment
+                      </button>
+                    </div>
+
+                    {/* Date + creator */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: 12, color: '#bbb' }}>{o.order_date}</span>
+                      {o.created_by_email && (
+                        <span style={{ fontSize: 10, color: '#d0cfc9' }}>by {creatorName(o.created_by_email)}</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
       </Card>
 
       {/* ── VIEW ORDER MODAL ── */}
@@ -596,14 +741,17 @@ export default function Orders() {
       {/* ── NEW / EDIT ORDER MODAL ── */}
       {modal && (
         <Modal title={editOrder ? `Edit order — ${editOrder.invoice_number || ''}` : 'New order'} onClose={() => { setModal(false); setScanning(null) }} width={600} noBackdropClose>
-          {/* Customer */}
+          {/* Customer — required */}
           <div style={{ marginBottom: 14 }}>
-            <label style={{ fontSize: 12, color: '#666', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.4px', display: 'block', marginBottom: 5 }}>Customer</label>
+            <label style={{ fontSize: 12, color: '#666', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.4px', display: 'block', marginBottom: 5 }}>
+              Customer <span style={{ color: '#E24B4A' }}>*</span>
+            </label>
             <select value={form.customer_id} onChange={handleCustomerChange}
-              style={{ width: '100%', padding: '9px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', background: '#fff', outline: 'none' }}>
-              <option value="">— Walk-in / No customer —</option>
+              style={{ width: '100%', padding: '9px 12px', border: `1px solid ${!form.customer_id ? '#FAEEDA' : '#ddd'}`, borderRadius: 8, fontSize: 13, fontFamily: 'inherit', background: !form.customer_id ? '#FFFDF7' : '#fff', outline: 'none' }}>
+              <option value="">— Select a customer —</option>
               {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
+            {!form.customer_id && <div style={{ fontSize: 11, color: '#FFA500', marginTop: 3 }}>A customer must be selected to create an order.</div>}
           </div>
 
           {/* Cart items */}
@@ -687,8 +835,6 @@ export default function Orders() {
             <span style={{ fontSize: 11, color: '#aaa' }}>Invoice: {form.invoice_number}</span>
           </div>
 
-          {/* Status & payment are managed from the orders list; order date is auto.
-              Only allow editing the date when correcting an existing order. */}
           {editOrder && (
             <div style={{ marginBottom: 14, maxWidth: 220 }}>
               <Input label="Order date" type="date" value={form.order_date} onChange={f('order_date')} />
@@ -707,10 +853,10 @@ export default function Orders() {
           </div>
         </Modal>
       )}
+
       {/* ── SMS MODAL ── */}
       {smsModal && (
         <Modal title={`Send SMS — ${smsModal.invoice_number || smsModal.customer_name || 'Order'}`} onClose={() => setSmsModal(null)} width={480}>
-          {/* Mode toggle */}
           <div style={{ display: 'flex', background: '#f5f5f5', borderRadius: 10, padding: 3, gap: 2, marginBottom: 14 }}>
             {[{ k: 'customer', label: 'Notify customer' }, { k: 'delivery', label: 'Delivery / staff' }].map(m => (
               <button key={m.k} onClick={() => smsModeSwitch(m.k)} style={{
@@ -722,7 +868,6 @@ export default function Orders() {
               }}>{m.label}</button>
             ))}
           </div>
-
           {smsForm.mode === 'delivery' && (
             <div style={{ marginBottom: 12 }}>
               <label style={{ fontSize: 12, color: '#666', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.4px', display: 'block', marginBottom: 5 }}>Send to (saved contact)</label>
@@ -731,19 +876,15 @@ export default function Orders() {
                 <option value="">— Pick a delivery person / staff / director —</option>
                 {contacts.filter(c => c.phone).map(c => <option key={c.id} value={c.id}>{c.name}{c.role ? ` (${c.role})` : ''} · {c.phone}</option>)}
               </select>
-              {contacts.filter(c => c.phone).length === 0 && <div style={{ fontSize: 11.5, color: '#E24B4A', marginTop: 5 }}>No contacts with phone numbers — add them in the Email Center.</div>}
             </div>
           )}
-
           <Input label="Phone number" value={smsForm.to} onChange={e => setSmsForm(p => ({ ...p, to: e.target.value }))} placeholder="7-digit or with 960" style={{ marginBottom: 12 }} />
-
           <div style={{ marginBottom: 8 }}>
             <label style={{ fontSize: 12, color: '#666', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.4px', display: 'block', marginBottom: 5 }}>Message</label>
             <textarea value={smsForm.message} onChange={e => setSmsForm(p => ({ ...p, message: e.target.value }))}
               style={{ width: '100%', padding: '9px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', resize: 'vertical', minHeight: 90, boxSizing: 'border-box', outline: 'none' }} />
             <div style={{ fontSize: 11, color: '#aaa', marginTop: 4 }}>{smsForm.message.length} characters · ~{Math.max(1, Math.ceil(smsForm.message.length / 160))} SMS</div>
           </div>
-
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 14 }}>
             <Button variant="ghost" onClick={() => setSmsModal(null)}>Cancel</Button>
             <Button onClick={sendSms} disabled={smsSending}><MessageSquare size={13} /> {smsSending ? 'Sending…' : 'Send SMS'}</Button>
