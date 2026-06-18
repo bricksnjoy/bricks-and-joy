@@ -111,8 +111,7 @@ export default function SmsCenter() {
     const customer = customers.find(c => c.id === order.customer_id) || {}
     const payStatus = (order.payment_status || 'unpaid').toUpperCase()
     const lines = [
-      `🛵 Delivery — ${BNJ_NAME}`,
-      order.invoice_number ? `Invoice: ${order.invoice_number}` : null,
+      `Delivery — ${BNJ_NAME}`,
       `Item: ${order.product_name} × ${order.qty}`,
       '',
       `Customer: ${customer.name || order.customer_name || 'Walk-in'}`,
