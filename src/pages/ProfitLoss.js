@@ -890,7 +890,7 @@ export default function Accounting() {
                   <div style={{ fontWeight: 700, fontSize: 14, color: '#0d1b2a', marginBottom: 4 }}>{doc.title}</div>
                   <div style={{ fontSize: 12, color: '#999' }}>{doc.desc}</div>
                 </div>
-                <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                <div style={{ display: 'flex', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
                   <button onClick={doc.action} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: '#FFA500', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontFamily: 'inherit', fontWeight: 600 }}>
                     <Download size={13} /> {doc.label}
                   </button>

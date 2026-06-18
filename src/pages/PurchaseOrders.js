@@ -832,7 +832,7 @@ export default function PurchaseOrders() {
             </div>
           </div>
           {/* Status pill with embedded select */}
-          <div style={{ position: 'relative', background: sc.bg, borderRadius: 99, padding: '5px 8px 5px 10px', display: 'flex', alignItems: 'center', gap: 2 }}>
+          <div className="po-status" style={{ position: 'relative', background: sc.bg, borderRadius: 99, padding: '5px 8px 5px 10px', display: 'flex', alignItems: 'center', gap: 2 }}>
             <select value={anchor.status} onChange={e => updateBatchStatus(g, e.target.value)}
               style={{ border: 'none', background: 'transparent', fontSize: 12, fontWeight: 700, color: sc.fg, cursor: 'pointer', fontFamily: 'inherit', appearance: 'none', paddingRight: 0 }}>
               {STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
@@ -840,7 +840,7 @@ export default function PurchaseOrders() {
             <ChevronDown size={13} color={sc.fg} style={{ flexShrink: 0, pointerEvents: 'none' }} />
           </div>
           {payStatusBadgeForGroup(g)}
-          <div style={{ textAlign: 'right', minWidth: 88 }}>
+          <div className="po-total" style={{ textAlign: 'right', minWidth: 88 }}>
             <div style={{ fontSize: 14, fontWeight: 800, color: '#0d1b2a' }}>MVR {g.total.toFixed(2)}</div>
             <div style={{ fontSize: 10.5, color: '#bbb', fontWeight: 600 }}>{totalQty} item{totalQty === 1 ? '' : 's'}</div>
           </div>
@@ -948,6 +948,13 @@ export default function PurchaseOrders() {
 
   return (
     <div>
+      <style>{`
+        @media (max-width: 600px) {
+          .po-status select { font-size: 11px !important; }
+          .po-status { padding: 3px 6px 3px 8px !important; }
+          .po-total { min-width: 0 !important; }
+        }
+      `}</style>
       <PageHeader
         title="Purchase Orders"
         subtitle={`MVR ${totalSpend.toFixed(2)} received · MVR ${pendingValue.toFixed(2)} pending`}

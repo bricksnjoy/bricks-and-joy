@@ -1555,7 +1555,7 @@ function CatalogGrid({ items, activeSupplier, suppliers, selectMode, selectedIds
               </div>
 
               <div style={{ textAlign:'center', padding:'15px 8px 0' }}>
-                <div style={{ fontSize:18, fontWeight:700, color:'#0d1b2a', letterSpacing:'-0.3px', lineHeight:1.2 }}>{item.product_name}</div>
+                <div className="cat-name" style={{ fontSize:18, fontWeight:700, color:'#0d1b2a', letterSpacing:'-0.3px', lineHeight:1.2, minHeight:'2.4em', display:'flex', alignItems:'center', justifyContent:'center' }}>{item.product_name}</div>
                 <div style={{ fontSize:12, color:'#aaa', marginTop:4, fontWeight:600 }}>
                   {!activeSupplier && <span>{supplierNames(item).main} · </span>}{item.category || item.unit}
                 </div>

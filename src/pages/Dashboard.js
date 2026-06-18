@@ -124,6 +124,8 @@ export default function Dashboard() {
         @media (max-width: 768px) {
           .dash-metrics { grid-template-columns: repeat(2, 1fr) !important; }
           .dash-grid { grid-template-columns: 1fr !important; }
+          /* Let metric numbers wrap & shrink so they're never cut off */
+          .dash-mval { font-size: 18px !important; white-space: normal !important; overflow: visible !important; text-overflow: clip !important; line-height: 1.15 !important; word-break: break-word; }
         }
       `}</style>
 
@@ -148,7 +150,7 @@ export default function Dashboard() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 10, color: '#bbb', textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 8, fontWeight: 700 }}>{m.label}</div>
-                <div style={{ fontSize: 24, fontWeight: 800, color: '#0d1b2a', letterSpacing: '-0.8px', lineHeight: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.value}</div>
+                <div className="dash-mval" style={{ fontSize: 24, fontWeight: 800, color: '#0d1b2a', letterSpacing: '-0.8px', lineHeight: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.value}</div>
               </div>
               <div style={{ background: m.bg, borderRadius: 12, padding: 10, flexShrink: 0, marginLeft: 10 }}>
                 <m.icon size={17} color={m.color} />

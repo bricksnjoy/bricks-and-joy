@@ -209,7 +209,7 @@ export default function App() {
           .modal-head { padding: 16px 18px !important; }
           .modal-body { padding: 18px !important; }
           .modal-card { border-radius: 16px !important; max-height: 94vh !important; }
-          .data-table { font-size: 12px !important; }
+          .data-table { font-size: 12px !important; min-width: max-content; }
           .data-table th, .data-table td { padding: 8px 9px !important; }
           /* Toasts span the width so they never run off-screen */
           .toast-wrap { left: 12px !important; right: 12px !important; bottom: 12px !important; }
