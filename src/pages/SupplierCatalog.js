@@ -794,7 +794,7 @@ export default function SupplierCatalog() {
         title="Supplier Catalog"
         subtitle="Track which suppliers offer which products and compare prices"
         action={
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div className="x-wrap" style={{ display: 'flex', gap: 8 }}>
             <Button variant="ghost" onClick={() => setCompareMode(m => !m)} style={{ background: compareMode ? '#e8f5e9' : undefined, color: compareMode ? '#1D9E75' : undefined }}>
               <ArrowUpDown size={14} /> {compareMode ? 'Exit compare' : 'Price compare'}
             </Button>
@@ -856,8 +856,8 @@ export default function SupplierCatalog() {
           {/* Right: product list / compare */}
           <div>
             {/* Search + compare toggle */}
-            <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
-              <div style={{ flex: 1, position: 'relative' }}>
+            <div className="x-wrap" style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+              <div style={{ flex: 1, minWidth: 180, position: 'relative' }}>
                 <Search size={14} color="#bbb" style={{ position:'absolute', left:12, top:'50%', transform:'translateY(-50%)' }} />
                 <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search products…"
                   style={{ width:'100%', padding:'9px 12px 9px 34px', border:'1px solid #e0e0e0', borderRadius:9, fontSize:13, fontFamily:'inherit', outline:'none', boxSizing:'border-box' }} />
@@ -1505,6 +1505,12 @@ function CatalogGrid({ items, activeSupplier, suppliers, selectMode, selectedIds
         .cat-sel.on { background:#FFA500; border-color:#FFA500; }
         .cat-po { display:inline-flex; align-items:center; gap:7px; background:linear-gradient(135deg,#4aa3ec,#2f7fd6); color:#fff; border:none; border-radius:999px; padding:9px 18px; font-size:13px; font-weight:700; cursor:pointer; font-family:inherit; box-shadow:0 4px 12px rgba(47,127,214,0.32); transition:transform .15s; }
         .cat-po:hover { transform:translateY(-2px); }
+        @media (max-width: 768px) {
+          .cat-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 1fr)) !important; gap: 14px !important; }
+          .cat-tile { min-height: 0 !important; }
+          .cat-tile img { padding: 14px !important; }
+          .cat-chip { font-size: 10.5px !important; padding: 4px 8px !important; }
+        }
       `}</style>
       <div className="cat-grid">
         {items.map(item => {

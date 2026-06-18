@@ -432,16 +432,17 @@ export default function Orders() {
           .ord-card { flex-direction:column; gap:14px; }
           .ord-photo { width:100%; height:auto; aspect-ratio:1/1; max-width:340px; align-self:center; }
         }
-        /* Phone-only: keep filter tabs reachable (scroll), smaller text, bigger photo */
+        /* Phone-only: keep filter tabs reachable, smaller text, bigger photo */
         @media (max-width: 600px) {
-          .ord-filters { overflow-x:auto; flex-wrap:nowrap !important; max-width:100%; -webkit-overflow-scrolling:touch; scrollbar-width:none; }
-          .ord-filters::-webkit-scrollbar { display:none; }
-          .ord-filters button { flex-shrink:0; }
+          .ord-filters { flex-wrap:wrap !important; }
           .ord-photo { max-width:100% !important; padding:12px; }
           .ord-cust { font-size:17px !important; }
           .ord-prod { font-size:13px !important; }
           .ord-price { font-size:16px !important; }
           .ord-cardbody { gap:8px; }
+          .ord-status { font-size:11px !important; padding:4px 17px 4px 8px !important; }
+          .ord-paybtn { font-size:10.5px !important; padding:4px 9px !important; }
+          .ord-paybadge { font-size:10.5px !important; padding:3px 9px !important; }
         }
       `}</style>
 
@@ -600,7 +601,7 @@ export default function Orders() {
                       </div>
 
                       {/* Payment status — display only (change it via the Payment button) */}
-                      <span style={{
+                      <span className="ord-paybadge" style={{
                         padding: '5px 12px', borderRadius: 99, fontSize: 11.5, fontWeight: 700, textTransform: 'capitalize',
                         background: (payColors[payStatus] || '#ccc') + '18',
                         color: payColors[payStatus] || '#888',

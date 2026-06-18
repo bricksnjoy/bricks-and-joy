@@ -544,7 +544,7 @@ export default function Inventory() {
       `}</style>
       <PageHeader title="Inventory" subtitle={`${products.length} products`}
         action={
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div className="x-wrap" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <button onClick={() => setSelectMode(m => { if (m) setSelected(new Set()); return !m })}
               style={{ padding: '8px 16px', border: '1px solid #ddd', borderRadius: 8, background: selectMode ? '#0d1b2a' : '#fff', color: selectMode ? '#fff' : '#555', cursor: 'pointer', fontSize: 13, fontWeight: 600, fontFamily: 'inherit' }}>
               {selectMode ? 'Cancel' : 'Select'}
@@ -565,7 +565,7 @@ export default function Inventory() {
 
       <Card>
         {/* Filter tabs */}
-        <div style={{ display: 'flex', background: '#f5f5f5', borderRadius: 10, padding: 3, gap: 2, marginBottom: 14, width: 'fit-content' }}>
+        <div className="x-scroll" style={{ display: 'flex', background: '#f5f5f5', borderRadius: 10, padding: 3, gap: 2, marginBottom: 14, width: 'fit-content', maxWidth: '100%' }}>
           {[
             { key: 'active', label: 'Active', count: products.filter(p => !p.discontinued).length, color: '#1D9E75' },
             { key: 'retired', label: 'Retired', count: products.filter(p => p.discontinued).length, color: '#888' },

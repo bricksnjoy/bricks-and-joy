@@ -822,8 +822,8 @@ export default function PurchaseOrders() {
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', borderBottom: '1px solid #f5f5f5', flexWrap: 'wrap' }}>
           <Avatar name={sd.main} size={28} />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ flex: 1, minWidth: 150 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <div style={{ fontWeight: 700, color: '#0d1b2a', fontSize: 14 }}>{sd.main || '—'}</div>
               {anchor.batch_no && <span style={{ fontSize: 10.5, fontWeight: 700, color: '#7F77DD', background: '#7F77DD18', padding: '2px 8px', borderRadius: 99 }}>{anchor.batch_no}</span>}
             </div>
@@ -1529,7 +1529,8 @@ export default function PurchaseOrders() {
             </button>
           </div>
           {(paymentsTab || q) && (
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <div className="x-scroll-wrap">
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 760 }}>
               <thead>
                 <tr>{['Date','Batch','Supplier','Order total','Payment','Method','Reference','Slip',''].map(h => (
                   <th key={h} style={{ textAlign: 'left', padding: '7px 12px', fontSize: 11, color: '#bbb', borderBottom: '1px solid #f0f0f0', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.4px' }}>{h}</th>
@@ -1629,6 +1630,7 @@ export default function PurchaseOrders() {
                 })}
               </tbody>
             </table>
+            </div>
           )}
         </Card>
       )}

@@ -219,6 +219,14 @@ export default function App() {
           /* On phones everything stacks to a single column */
           .grid-collapse { grid-template-columns: 1fr !important; }
         }
+        /* Utilities for narrow screens */
+        .x-scroll-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        @media (max-width: 768px) {
+          .x-wrap { flex-wrap: wrap !important; }
+          .x-scroll { overflow-x: auto !important; flex-wrap: nowrap !important; max-width: 100%; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+          .x-scroll::-webkit-scrollbar { display: none; }
+          .x-scroll > * { flex-shrink: 0 !important; }
+        }
         /* 'backwards' (not 'both') so the entry transform is NOT retained after the
            animation — a lingering transform creates a containing block that breaks
            position:fixed for descendants (modals, toasts). */
