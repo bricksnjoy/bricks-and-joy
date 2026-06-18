@@ -1,11 +1,10 @@
 import React, { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Spinner, useToast, Toasts, StatusBadge, MetricCard } from '../components/UI'
-import { Truck, User, Bike, CalendarDays, Package, CheckCircle, Search, Instagram, LayoutGrid, List, Award } from 'lucide-react'
+import { Truck, User, Bike, CalendarDays, Package, CheckCircle, Search, Instagram, LayoutGrid, List, Award, Save } from 'lucide-react'
 
 // Deliveries is a record-keeping tab: attach a staff member and a delivery date
-// to each order. It does NOT limit who you can email/SMS — that's handled
-// independently in the Message Center.
+// to each order. Changes stay local until Save is clicked.
 export default function Deliveries() {
   const [orders, setOrders] = useState([])
   const [contacts, setContacts] = useState([])
@@ -17,6 +16,8 @@ export default function Deliveries() {
   const [view, setView] = useState('cards') // list | cards
   const [savingId, setSavingId] = useState(null)
   const [dateColMissing, setDateColMissing] = useState(false)
+  // drafts: { [orderId]: { delivery_person?, delivery_date? } } — unsaved local edits
+  const [drafts, setDrafts] = useState({})
   const toast = useToast()
 
   useEffect(() => { load() }, [])
@@ -33,14 +34,21 @@ export default function Deliveries() {
     setContacts(c.data || [])
     setCustomers(cu.data || [])
     setProducts(p.data || [])
+    setDrafts({}) // clear drafts after reload
     setLoading(false)
   }
 
-  // Update an order locally + persist. Falls back gracefully if the optional
-  // delivery_date column hasn't been added to the database yet.
-  async function saveDelivery(orderId, patch) {
-    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, ...patch } : o))
+  // Update only the local draft — does NOT touch the DB.
+  function draftChange(orderId, patch) {
+    setDrafts(prev => ({ ...prev, [orderId]: { ...(prev[orderId] || {}), ...patch } }))
+  }
+
+  // Persist the draft for one order and merge it back into orders state.
+  async function saveDelivery(orderId) {
+    const draft = drafts[orderId]
+    if (!draft) return
     setSavingId(orderId)
+    const patch = { ...draft }
     let { error } = await supabase.from('orders').update(patch).eq('id', orderId)
     if (error && /delivery_date/i.test(error.message || '') && 'delivery_date' in patch) {
       setDateColMissing(true)
@@ -48,17 +56,27 @@ export default function Deliveries() {
       if (Object.keys(rest).length) { const r = await supabase.from('orders').update(rest).eq('id', orderId); error = r.error }
       else error = null
     }
+    if (error) {
+      toast.error('Could not save: ' + error.message)
+    } else {
+      // Merge saved values back into the orders list immediately
+      setOrders(prev => prev.map(o => o.id === orderId ? { ...o, ...patch } : o))
+      // Clear only this order's draft
+      setDrafts(prev => { const n = { ...prev }; delete n[orderId]; return n })
+      toast.success('Saved!')
+    }
     setSavingId(null)
-    if (error) { toast.error('Could not save: ' + error.message); load() }
   }
 
   const customer = o => customers.find(c => c.id === o.customer_id)
   const customerName = o => customer(o)?.name || o.customer_name || 'Walk-in'
   const customerInsta = o => customer(o)?.instagram || ''
   const productPhoto = o => products.find(p => p.id === o.product_id)?.photo_url || ''
-  // Default delivery date = the date the order was created, unless one was set.
   const orderDate = o => o.order_date || (o.created_at ? o.created_at.split('T')[0] : '')
-  const effectiveDate = o => o.delivery_date || orderDate(o)
+  // Use saved value (falling back to order date) unless there's a draft override
+  const effectiveDate = o => (drafts[o.id]?.delivery_date !== undefined ? drafts[o.id].delivery_date : null) ?? o.delivery_date ?? orderDate(o)
+  const draftStaff = o => drafts[o.id]?.delivery_person !== undefined ? drafts[o.id].delivery_person : (o.delivery_person || '')
+  const isDirty = o => !!drafts[o.id] && Object.keys(drafts[o.id]).length > 0
   const contactNames = contacts.map(c => c.name)
 
   const filtered = orders.filter(o => {
@@ -105,15 +123,20 @@ export default function Deliveries() {
   ]
 
   const StaffInput = ({ o, width = 150 }) => (
-    <input className="dlv-input" list="dlv-staff" value={o.delivery_person || ''}
-      placeholder="Assign staff…" style={{ width }}
-      onChange={e => setOrders(prev => prev.map(x => x.id === o.id ? { ...x, delivery_person: e.target.value } : x))}
-      onBlur={e => saveDelivery(o.id, { delivery_person: e.target.value.trim() })} />
+    <input className="dlv-input" list="dlv-staff" value={draftStaff(o)}
+      placeholder="Assign staff…" style={{ width, borderColor: isDirty(o) ? '#FFA500' : undefined }}
+      onChange={e => draftChange(o.id, { delivery_person: e.target.value })} />
   )
   const DateInput = ({ o, width = 150 }) => (
-    <input className="dlv-input" type="date" value={effectiveDate(o)} style={{ width }}
-      onChange={e => saveDelivery(o.id, { delivery_date: e.target.value || null })} />
+    <input className="dlv-input" type="date" value={effectiveDate(o)} style={{ width, borderColor: isDirty(o) ? '#FFA500' : undefined }}
+      onChange={e => draftChange(o.id, { delivery_date: e.target.value || null })} />
   )
+  const SaveBtn = ({ o }) => isDirty(o)
+    ? <button onClick={() => saveDelivery(o.id)} disabled={savingId === o.id}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 16px', border: 'none', borderRadius: 8, background: '#FFA500', color: '#fff', fontWeight: 700, fontSize: 13, fontFamily: 'inherit', cursor: 'pointer', boxShadow: '0 2px 8px rgba(255,165,0,0.35)', transition: 'opacity 0.15s' }}>
+        <Save size={13} /> {savingId === o.id ? 'Saving…' : 'Save'}
+      </button>
+    : (o.delivery_person ? <CheckCircle size={16} color="#1D9E75" /> : null)
 
   return (
     <div>
@@ -242,7 +265,7 @@ export default function Deliveries() {
                         <DateInput o={o} width={170} />
                       </label>
                     </div>
-                    {savingId === o.id && <span style={{ fontSize: 11, color: '#FFA500' }}>Saving…</span>}
+                    <div><SaveBtn o={o} /></div>
                   </div>
                 </div>
               )
@@ -275,10 +298,8 @@ export default function Deliveries() {
                       <td style={{ padding: '10px 12px' }}><StatusBadge status={o.status} /></td>
                       <td style={{ padding: '10px 12px' }}><StaffInput o={o} /></td>
                       <td style={{ padding: '10px 12px' }}><DateInput o={o} /></td>
-                      <td style={{ padding: '10px 12px', width: 30 }}>
-                        {savingId === o.id
-                          ? <span style={{ fontSize: 11, color: '#FFA500' }}>Saving…</span>
-                          : o.delivery_person && <CheckCircle size={15} color="#1D9E75" />}
+                      <td style={{ padding: '10px 12px', width: 80 }}>
+                        <SaveBtn o={o} />
                       </td>
                     </tr>
                   )
