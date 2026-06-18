@@ -14,7 +14,7 @@ export default function Deliveries() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all') // all | unassigned | assigned | transit | delivered
-  const [view, setView] = useState('list') // list | cards
+  const [view, setView] = useState('cards') // list | cards
   const [savingId, setSavingId] = useState(null)
   const [dateColMissing, setDateColMissing] = useState(false)
   const toast = useToast()
@@ -68,13 +68,18 @@ export default function Deliveries() {
       customerInsta(o).toLowerCase().includes(search.toLowerCase()) ||
       (o.invoice_number || '').toLowerCase().includes(search.toLowerCase())
     let matchFilter = true
+    // unassigned = no staff (regardless of status, including delivered-without-staff)
+    // assigned   = has staff AND not yet delivered
+    // delivered  = status === 'delivered'
     if (filter === 'unassigned') matchFilter = !o.delivery_person
-    else if (filter === 'assigned') matchFilter = !!o.delivery_person
-    else if (filter === 'transit' || filter === 'delivered') matchFilter = o.status === filter
+    else if (filter === 'assigned') matchFilter = !!o.delivery_person && o.status !== 'delivered'
+    else if (filter === 'delivered') matchFilter = o.status === 'delivered'
     return matchSearch && matchFilter
   })
 
-  const assignedCount = orders.filter(o => o.delivery_person).length
+  // assigned = has staff AND not yet delivered (delivered ones drop out of this count)
+  const assignedCount = orders.filter(o => o.delivery_person && o.status !== 'delivered').length
+  const deliveredCount = orders.filter(o => o.status === 'delivered').length
   const today = new Date().toISOString().split('T')[0]
   const todayCount = orders.filter(o => effectiveDate(o) === today).length
 
@@ -91,8 +96,7 @@ export default function Deliveries() {
     return Object.values(map).sort((a, b) => b.total - a.total)
   })()
 
-  // Single consolidated filter row: All / Unassigned / Assigned / Dispatched / Delivered.
-  const FILTERS = [['all', 'All'], ['unassigned', 'Unassigned'], ['assigned', 'Assigned'], ['transit', 'Dispatched'], ['delivered', 'Delivered']]
+  const FILTERS = [['all', 'All'], ['unassigned', 'Unassigned'], ['assigned', 'Assigned'], ['delivered', 'Delivered']]
 
   const StaffInput = ({ o, width = 150 }) => (
     <input className="dlv-input" list="dlv-staff" value={o.delivery_person || ''}
@@ -117,13 +121,13 @@ export default function Deliveries() {
         .dlv-cards { display:grid; grid-template-columns: 1fr; gap:16px; }
         .dlv-card { display:flex; gap:20px; border:1px solid #eee; border-radius:16px; padding:16px; background:#fff; transition: box-shadow 0.18s, transform 0.18s; animation: dlvFade 0.3s ease both; }
         .dlv-card:hover { box-shadow: 0 8px 24px rgba(0,0,0,0.07); transform: translateY(-1px); }
-        .dlv-photo { width:400px; height:400px; flex-shrink:0; border-radius:12px; overflow:hidden; background:linear-gradient(135deg,#faf9f6,#f0eee8); display:flex; align-items:center; justify-content:center; }
-        .dlv-photo img { width:100%; height:100%; object-fit:cover; }
+        .dlv-photo { width:340px; height:340px; flex-shrink:0; border-radius:12px; overflow:hidden; background:#f5f3ee; display:flex; align-items:center; justify-content:center; padding:20px; box-sizing:border-box; }
+        .dlv-photo img { width:100%; height:100%; object-fit:contain; border-radius:6px; }
         .dlv-cardbody { flex:1; min-width:0; display:flex; flex-direction:column; gap:10px; }
         @keyframes dlvFade { from { opacity:0; transform: translateY(6px) } to { opacity:1; transform:none } }
         @media (max-width: 860px) {
           .dlv-card { flex-direction:column; gap:14px; }
-          .dlv-photo { width:100%; height:auto; aspect-ratio:1/1; max-width:400px; align-self:center; }
+          .dlv-photo { width:100%; height:auto; aspect-ratio:1/1; max-width:340px; align-self:center; }
         }
       `}</style>
 
@@ -136,9 +140,10 @@ export default function Deliveries() {
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 14, marginBottom: 20 }}>
         <MetricCard label="Orders" value={orders.length} icon={Package} />
-        <MetricCard label="Assigned" value={assignedCount} sub={`${orders.length - assignedCount} unassigned`} color="#1D9E75" icon={Bike} />
+        <MetricCard label="Assigned" value={assignedCount} sub={`${orders.filter(o => !o.delivery_person).length} unassigned`} color="#378ADD" icon={Bike} />
+        <MetricCard label="Delivered" value={deliveredCount} color="#1D9E75" icon={CheckCircle} />
         <MetricCard label="Scheduled today" value={todayCount} color="#FFA500" icon={CalendarDays} />
       </div>
 
