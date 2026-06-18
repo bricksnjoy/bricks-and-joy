@@ -58,10 +58,15 @@ create table orders (
   channel text default 'Retail store',
   status text default 'pending',
   order_date date default current_date,
+  delivery_person text,
+  delivery_date date,
   notes text,
   created_at timestamptz default now(),
   created_by uuid references auth.users(id)
 );
+-- For existing databases:
+-- alter table orders add column if not exists delivery_person text;
+-- alter table orders add column if not exists delivery_date date;
 
 -- PURCHASE ORDERS (buying from suppliers)
 create table purchase_orders (

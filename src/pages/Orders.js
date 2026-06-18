@@ -30,8 +30,6 @@ export default function Orders() {
   const [payFilter, setPayFilter] = useState('all')
   const [uploadingSlip, setUploadingSlip] = useState(false)
   const [scanning, setScanning] = useState(null) // index of cart item being scanned
-  const [deliveryStaff, setDeliveryStaff] = useState(() => { try { return JSON.parse(localStorage.getItem('deliveryStaff') || '[]') } catch { return [] } })
-  const [newStaff, setNewStaff] = useState('')
   const [contacts, setContacts] = useState([])
   const [smsModal, setSmsModal] = useState(null)   // order being texted
   const [smsForm, setSmsForm] = useState({ mode: 'customer', to: '', message: '', contactId: '' })
@@ -661,23 +659,6 @@ export default function Orders() {
             <Select label="Channel" value={form.channel} onChange={f('channel')} options={CHANNELS} />
             <Select label="Status" value={form.status} onChange={f('status')} options={STATUSES} />
           </FormRow>
-
-          {/* Delivery person */}
-          <div style={{ marginBottom: 14 }}>
-            <label style={{ fontSize: 12, color: '#666', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.4px', display: 'block', marginBottom: 6 }}>Delivery person</label>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <select value={form.delivery_person} onChange={f('delivery_person')}
-                style={{ flex: 1, padding: '9px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', background: '#fff', outline: 'none' }}>
-                <option value="">— None / Self pickup —</option>
-                {deliveryStaff.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
-              <input value={newStaff} onChange={e => setNewStaff(e.target.value)} placeholder="Add new…"
-                style={{ width: 120, padding: '9px 10px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', outline: 'none' }}
-                onKeyDown={e => { if (e.key === 'Enter' && newStaff.trim()) { const u = [...deliveryStaff, newStaff.trim()]; setDeliveryStaff(u); localStorage.setItem('deliveryStaff', JSON.stringify(u)); setForm(p => ({ ...p, delivery_person: newStaff.trim() })); setNewStaff('') } }} />
-              <button onClick={() => { if (newStaff.trim()) { const u = [...deliveryStaff, newStaff.trim()]; setDeliveryStaff(u); localStorage.setItem('deliveryStaff', JSON.stringify(u)); setForm(p => ({ ...p, delivery_person: newStaff.trim() })); setNewStaff('') } }}
-                style={{ padding: '9px 14px', background: '#FFA500', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600, fontFamily: 'inherit' }}>+</button>
-            </div>
-          </div>
 
           <FormRow>
             <Select label="Payment" value={form.payment_status} onChange={f('payment_status')} options={[{ value:'unpaid', label:'Unpaid' },{ value:'paid', label:'Paid' },{ value:'partial', label:'Partial' }]} />
