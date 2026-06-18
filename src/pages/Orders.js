@@ -35,6 +35,7 @@ export default function Orders() {
   const [smsForm, setSmsForm] = useState({ mode: 'customer', to: '', message: '', contactId: '' })
   const [smsSending, setSmsSending] = useState(false)
   const [userEmail, setUserEmail] = useState('')
+  const [stockOpen, setStockOpen] = useState(false)
   const [view, setView] = useState('cards') // cards | list
   const [kebabOpen, setKebabOpen] = useState(null)
   const kebabRef = useRef(null)
@@ -409,7 +410,7 @@ export default function Orders() {
   return (
     <div>
       <style>{`
-        .ord-photo { width:340px; height:340px; flex-shrink:0; border-radius:12px; overflow:hidden; background:#fff; border:1px solid #f0eee8; display:flex; align-items:center; justify-content:center; padding:20px; box-sizing:border-box; cursor:pointer; transition: box-shadow 0.18s; }
+        .ord-photo { width:220px; height:220px; flex-shrink:0; border-radius:12px; overflow:hidden; background:#fff; border:1px solid #f0eee8; display:flex; align-items:center; justify-content:center; padding:16px; box-sizing:border-box; cursor:pointer; transition: box-shadow 0.18s; }
         .ord-photo:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.10); }
         .ord-photo img { width:100%; height:100%; object-fit:contain; border-radius:6px; }
         .ord-card { display:flex; gap:20px; border:1px solid #eee; border-radius:16px; padding:16px; background:#fff; transition: box-shadow 0.18s, transform 0.18s; animation: ordFade 0.3s ease both; }
@@ -427,9 +428,10 @@ export default function Orders() {
         .ord-paybtn { transition: all 0.15s; }
         .ord-paybtn:hover { background:#0d1b2a !important; color:#fff !important; border-color:#0d1b2a !important; }
         .ord-status { transition: background 0.2s, color 0.2s; }
+        .stock-detail { overflow:hidden; transition: max-height 0.3s ease, opacity 0.3s ease; }
         @media (max-width: 860px) {
           .ord-card { flex-direction:column; gap:14px; }
-          .ord-photo { width:100%; height:auto; aspect-ratio:1/1; max-width:340px; align-self:center; }
+          .ord-photo { width:100%; height:auto; aspect-ratio:1/1; max-width:220px; align-self:center; }
         }
       `}</style>
 
@@ -438,11 +440,37 @@ export default function Orders() {
         action={<Button onClick={openAdd}><Plus size={15} /> New order</Button>} />
 
       {(lowStockCount > 0 || outOfStockCount > 0) && (
-        <div style={{ background: '#FFF8E1', border: '1px solid #FAEEDA', borderRadius: 10, padding: '12px 16px', marginBottom: 16, display: 'flex', gap: 10, alignItems: 'center' }}>
-          <AlertTriangle size={16} color="#f57f17" />
-          <span style={{ fontSize: 13, color: '#854F0B' }}>
-            <strong>Stock alert:</strong> {outOfStockCount > 0 && `${outOfStockCount} out of stock`}{outOfStockCount > 0 && lowStockCount > 0 && ', '}{lowStockCount > 0 && `${lowStockCount} low stock`}
-          </span>
+        <div style={{ marginBottom: 16 }}>
+          <button onClick={() => setStockOpen(v => !v)}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#FFF8E1', border: '1px solid #FAEEDA', borderRadius: stockOpen ? '10px 10px 0 0' : 10, padding: '10px 16px', cursor: 'pointer', fontFamily: 'inherit', width: '100%', transition: 'border-radius 0.2s' }}>
+            <AlertTriangle size={16} color="#f57f17" style={{ flexShrink: 0 }} />
+            <span style={{ fontSize: 13, color: '#854F0B', fontWeight: 600, flex: 1, textAlign: 'left' }}>
+              Stock alert: {outOfStockCount > 0 && `${outOfStockCount} out of stock`}{outOfStockCount > 0 && lowStockCount > 0 && ', '}{lowStockCount > 0 && `${lowStockCount} low stock`}
+            </span>
+            <span style={{ fontSize: 11, color: '#c8a85c', fontWeight: 600 }}>{stockOpen ? '▲ hide' : '▼ details'}</span>
+          </button>
+          <div className="stock-detail" style={{ maxHeight: stockOpen ? '400px' : '0', opacity: stockOpen ? 1 : 0, background: '#FFFBF0', border: stockOpen ? '1px solid #FAEEDA' : 'none', borderTop: 'none', borderRadius: '0 0 10px 10px', padding: stockOpen ? '10px 16px' : '0 16px' }}>
+            {outOfStockCount > 0 && (
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ fontSize: 11, color: '#E24B4A', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 5 }}>Out of stock</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {products.filter(p => p.stock_qty <= 0).map(p => (
+                    <span key={p.id} style={{ fontSize: 12, background: '#FFE8E8', color: '#c62828', padding: '3px 10px', borderRadius: 99, fontWeight: 600 }}>{p.name}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {lowStockCount > 0 && (
+              <div>
+                <div style={{ fontSize: 11, color: '#f57f17', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 5 }}>Low stock</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {products.filter(p => p.stock_qty > 0 && p.stock_qty <= (p.low_stock_threshold || 10)).map(p => (
+                    <span key={p.id} style={{ fontSize: 12, background: '#FFF3E0', color: '#e65100', padding: '3px 10px', borderRadius: 99, fontWeight: 600 }}>{p.name} <span style={{ opacity: 0.7 }}>({p.stock_qty} left)</span></span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -469,18 +497,6 @@ export default function Orders() {
                   {s.label}
                   <span style={{ fontSize: 10, fontWeight: 700, background: filter === s.key ? '#f0f0f0' : 'transparent', borderRadius: 99, padding: filter === s.key ? '1px 5px' : '0', color: filter === s.key ? '#555' : '#bbb' }}>{s.count}</span>
                 </button>
-              ))}
-            </div>
-            {/* Payment filters */}
-            <div style={{ display: 'flex', background: '#f5f5f5', borderRadius: 10, padding: 3, gap: 2 }}>
-              {[{ key: 'all', label: 'All' },{ key: 'unpaid', label: 'Unpaid', color: '#E24B4A' },{ key: 'paid', label: 'Paid', color: '#1D9E75' },{ key: 'partial', label: 'Partial', color: '#FFA500' }].map(s => (
-                <button key={s.key} onClick={() => setPayFilter(s.key)} style={{
-                  padding: '6px 13px', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'inherit',
-                  fontSize: 12, fontWeight: payFilter === s.key ? 700 : 500,
-                  background: payFilter === s.key ? (s.color || '#0d1b2a') : 'transparent',
-                  color: payFilter === s.key ? '#fff' : '#999',
-                  transition: 'all 0.15s',
-                }}>{s.label}</button>
               ))}
             </div>
           </div>
@@ -552,11 +568,10 @@ export default function Orders() {
                     {/* Product (relevant — bigger) */}
                     <div style={{ fontSize: 16, color: '#333', fontWeight: 600 }}>{o.product_name} <span style={{ color: '#aaa', fontWeight: 500 }}>× {o.qty}</span></div>
 
-                    {/* Price (relevant — bigger) + invoice (smaller) */}
+                    {/* Price (relevant — bigger) */}
                     <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
                       <span style={{ fontWeight: 800, fontSize: 19, color: '#0d1b2a' }}>MVR {Number(o.total_price || 0).toFixed(2)}</span>
                       {o.discount > 0 && <span style={{ fontSize: 11, color: '#1D9E75', fontWeight: 600 }}>-MVR {Number(o.discount).toFixed(2)}</span>}
-                      <span style={{ fontSize: 10, color: '#bbb', fontFamily: 'monospace' }}>{o.invoice_number || '—'}</span>
                     </div>
 
                     {/* Status + Payment row */}
@@ -597,10 +612,11 @@ export default function Orders() {
                       </div>
                     )}
 
-                    {/* Date · created by */}
+                    {/* Date · created by · invoice */}
                     <div style={{ fontSize: 11, color: '#bbb' }}>
                       {o.order_date}
                       {o.created_by_email && <span style={{ color: '#cfcfc9' }}> · by {creatorName(o.created_by_email)}</span>}
+                      {o.invoice_number && <span style={{ fontFamily: 'monospace', color: '#d4d4d4' }}> · {o.invoice_number}</span>}
                     </div>
                   </div>
                 </div>
