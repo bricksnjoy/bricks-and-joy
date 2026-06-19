@@ -4,6 +4,7 @@ import { PageHeader, Card, Button, Input, Select, Table, Modal, StatusBadge, Sto
 import { Plus, Trash2, AlertTriangle, Package, Upload, Eye, CreditCard, X, Camera, Edit2, RotateCcw, MessageSquare, MoreVertical, LayoutGrid, List, Instagram } from 'lucide-react'
 import BarcodeScanner from '../components/BarcodeScanner'
 import { sendSMS } from '../lib/sms'
+import { getSettings } from '../lib/settings'
 
 const CHANNELS = ['Retail store','Online','Wholesale','Pop-up / Market','Instagram','Phone']
 const STATUSES = [{ value: 'created', label: 'Order created' },{ value: 'transit', label: 'Dispatched' },{ value: 'delivered', label: 'Delivered' },{ value: 'cancelled', label: 'Cancelled' }]
@@ -37,7 +38,6 @@ export default function Orders() {
   const [stockOpen, setStockOpen] = useState(false)
   const [view, setView] = useState('cards') // cards | list
   const [kebabOpen, setKebabOpen] = useState(null)
-  const [slipModal, setSlipModal] = useState(null) // { url, label }
   const kebabRef = useRef(null)
   const toast = useToast()
 
@@ -70,7 +70,8 @@ export default function Orders() {
   }
 
   function openAdd() {
-    const num = `INV-${Date.now().toString().slice(-6)}`
+    const { invoicePrefix } = getSettings()
+    const num = `${invoicePrefix || 'INV'}-${Date.now().toString().slice(-6)}`
     setForm({ ...EMPTY_FORM, order_date: new Date().toISOString().split('T')[0], invoice_number: num })
     setCartItems([{ ...EMPTY_ITEM }])
     setEditOrder(null)
@@ -206,9 +207,10 @@ export default function Orders() {
       const { data: prod } = await supabase.from('products').select('stock_qty, name, low_stock_threshold').eq('id', item.product_id).single()
       if (prod) {
         const newStock = (prod.stock_qty || 0) - parseInt(item.qty)
+        const { lowStockThreshold } = getSettings()
         await supabase.from('products').update({ stock_qty: newStock }).eq('id', item.product_id)
         if (newStock <= 0) toast.error(`⚠️ ${prod.name} OUT OF STOCK!`)
-        else if (newStock <= (prod.low_stock_threshold || 10)) toast.info(`⚠️ Low stock: ${prod.name} — ${newStock} left`)
+        else if (newStock <= (prod.low_stock_threshold || lowStockThreshold || 10)) toast.info(`⚠️ Low stock: ${prod.name} — ${newStock} left`)
       }
     }
     setSaving(false)
@@ -429,15 +431,6 @@ export default function Orders() {
         .ord-paybtn:hover { background:#0d1b2a !important; color:#fff !important; border-color:#0d1b2a !important; }
         .ord-status { transition: background 0.2s, color 0.2s; }
         .stock-detail { overflow:hidden; transition: max-height 0.3s ease, opacity 0.3s ease; }
-        .slip-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.88); z-index:9999; display:flex; flex-direction:column; align-items:center; justify-content:center; animation: slipFade 0.18s ease; }
-        @keyframes slipFade { from { opacity:0 } to { opacity:1 } }
-        .slip-toolbar { position:fixed; top:0; left:0; right:0; display:flex; justify-content:space-between; align-items:center; padding:14px 18px; z-index:10000; background:linear-gradient(to bottom,rgba(0,0,0,0.7),transparent); }
-        .slip-btn { background:rgba(255,255,255,0.15); border:1px solid rgba(255,255,255,0.25); color:#fff; border-radius:8px; padding:7px 14px; cursor:pointer; font-size:13px; font-weight:600; font-family:inherit; display:flex; align-items:center; gap:6px; backdrop-filter:blur(4px); transition:background 0.15s; }
-        .slip-btn:hover { background:rgba(255,255,255,0.28); }
-        .slip-img { max-width:min(92vw,900px); max-height:85vh; border-radius:10px; box-shadow:0 20px 60px rgba(0,0,0,0.5); object-fit:contain; }
-        .slip-pdf { width:min(92vw,900px); height:85vh; border:none; border-radius:10px; }
-        .slip-badge { display:inline-flex; align-items:center; gap:4px; padding:3px 9px; background:#EEF4FF; color:#378ADD; border-radius:99px; font-size:11px; font-weight:700; cursor:pointer; border:none; font-family:inherit; transition:background 0.15s; flex-shrink:0; }
-        .slip-badge:hover { background:#D8E9FF; }
         @media (max-width: 860px) {
           .ord-card { flex-direction:column; gap:14px; }
           .ord-photo { width:100%; height:auto; aspect-ratio:1/1; max-width:340px; align-self:center; }
@@ -627,13 +620,6 @@ export default function Orders() {
                       </button>
                     </div>
 
-                    {/* Slip badge */}
-                    {o.transfer_slip_url && (
-                      <button className="slip-badge" onClick={() => setSlipModal({ url: o.transfer_slip_url, label: o.invoice_number || o.customer_name || 'Slip' })}>
-                        <Upload size={10} /> View slip
-                      </button>
-                    )}
-
                     {/* Delivered by */}
                     {o.delivery_person && (
                       <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, color: '#378ADD', background: '#EEF4FF', padding: '4px 10px', borderRadius: 99, alignSelf: 'flex-start', fontWeight: 600 }}>
@@ -688,9 +674,11 @@ export default function Orders() {
           )}
           {viewModal.transfer_slip_url && (
             <div style={{ marginBottom: 12 }}>
-              <button className="slip-badge" style={{ fontSize: 12, padding: '6px 14px' }} onClick={() => setSlipModal({ url: viewModal.transfer_slip_url, label: viewModal.invoice_number || viewModal.customer_name || 'Slip' })}>
-                <Upload size={12} /> View transfer slip
-              </button>
+              <div style={{ fontSize: 11, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: 6 }}>Transfer slip</div>
+              {viewModal.transfer_slip_url.match(/\.pdf$/i)
+                ? <a href={viewModal.transfer_slip_url} target="_blank" rel="noreferrer" style={{ color: '#378ADD', fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 5, fontWeight: 600 }}><Upload size={13} /> Open PDF slip</a>
+                : <img src={viewModal.transfer_slip_url} alt="slip" style={{ maxWidth: '100%', maxHeight: 320, borderRadius: 10, border: '1px solid #eee', display: 'block', objectFit: 'contain' }} />
+              }
             </div>
           )}
           <div style={{ display: 'flex', gap: 8, justifyContent: 'space-between', alignItems: 'center' }}>
@@ -720,11 +708,12 @@ export default function Orders() {
           <div style={{ marginBottom: 16 }}>
             <label style={{ fontSize: 12, color: '#666', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.4px', display: 'block', marginBottom: 6 }}>Attach transfer slip</label>
             {payForm.transfer_slip_url ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <button className="slip-badge" style={{ fontSize: 12, padding: '6px 14px' }} onClick={() => setSlipModal({ url: payForm.transfer_slip_url, label: 'Transfer slip' })}>
-                  <Upload size={12} /> View attached slip
-                </button>
-                <button onClick={() => setPayForm(p => ({ ...p, transfer_slip_url: '' }))} style={{ background: 'none', border: '1px solid #eee', borderRadius: 8, padding: '5px 10px', cursor: 'pointer', color: '#c62828', fontSize: 12, fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4 }}><X size={12} /> Remove</button>
+              <div style={{ position: 'relative', display: 'inline-block' }}>
+                {payForm.transfer_slip_url.match(/\.pdf$/i)
+                  ? <div style={{ padding: '10px 14px', background: '#f0f0f0', borderRadius: 8, fontSize: 13 }}>📎 PDF slip attached</div>
+                  : <img src={payForm.transfer_slip_url} alt="slip" style={{ maxHeight: 150, maxWidth: '100%', borderRadius: 8, border: '1px solid #eee', display: 'block', objectFit: 'contain' }} />
+                }
+                <button onClick={() => setPayForm(p => ({ ...p, transfer_slip_url: '' }))} style={{ position: 'absolute', top: -6, right: -6, background: '#c62828', border: 'none', borderRadius: '50%', width: 20, height: 20, cursor: 'pointer', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={11} /></button>
               </div>
             ) : (
               <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: '#f0f0f0', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 500, color: '#555' }}>
@@ -920,28 +909,6 @@ export default function Orders() {
             <Button onClick={sendSms} disabled={smsSending}><MessageSquare size={13} /> {smsSending ? 'Sending…' : 'Send SMS'}</Button>
           </div>
         </Modal>
-      )}
-
-      {/* ── SLIP LIGHTBOX ── */}
-      {slipModal && (
-        <div className="slip-overlay" onClick={() => setSlipModal(null)}>
-          <div className="slip-toolbar" onClick={e => e.stopPropagation()}>
-            <span style={{ color: '#fff', fontSize: 13, fontWeight: 600, opacity: 0.85 }}>{slipModal.label}</span>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <a href={slipModal.url} download target="_blank" rel="noreferrer" className="slip-btn" onClick={e => e.stopPropagation()}>
-                ⬇ Download
-              </a>
-              <button className="slip-btn" onClick={() => setSlipModal(null)}><X size={14} /> Close</button>
-            </div>
-          </div>
-          <div onClick={e => e.stopPropagation()}>
-            {slipModal.url.match(/\.(pdf)/i)
-              ? <iframe src={slipModal.url} className="slip-pdf" title="Transfer slip" />
-              : <img src={slipModal.url} alt="Transfer slip" className="slip-img" />
-            }
-          </div>
-          <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12, marginTop: 16 }}>Tap outside to close</div>
-        </div>
       )}
 
       <Toasts toasts={toast.toasts} />
