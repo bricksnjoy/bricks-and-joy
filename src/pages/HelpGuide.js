@@ -25,6 +25,21 @@ const GUIDES = [
     ],
   },
   {
+    id: 'team',
+    icon: Users,
+    color: '#0d1b2a',
+    title: 'Adding staff & managing access',
+    desc: 'Sign-ups are invite-only — here’s how the owner adds a team member.',
+    steps: [
+      { text: 'For security, no one can create their own account. Only an administrator can add staff.', tip: 'The login screen is sign-in only — there is no public sign-up.' },
+      { text: 'Open your Supabase dashboard → Authentication → Users → “Add user”.' },
+      { text: 'Enter the staff member’s email and a temporary password, and tick “Auto confirm user” so they can log in right away.' },
+      { text: 'Share that email and password with them — they sign in on the app’s login screen and can change the password later.' },
+      { text: 'Add the same person under Message Center → Contacts using the exact same email.', tip: 'Matching the email means orders they create show “by <their name>” instead of the raw email.' },
+      { text: 'To remove access, go back to Authentication → Users and delete or ban that user.' },
+    ],
+  },
+  {
     id: 'customers',
     icon: Users,
     color: '#378ADD',
