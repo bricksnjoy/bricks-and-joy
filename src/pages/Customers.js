@@ -1,9 +1,22 @@
 import React, { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Button, Input, Table, Modal, Spinner, FormRow, useToast, Toasts, Badge, StatusBadge } from '../components/UI'
-import { Plus, Trash2, Edit2, Eye, Printer } from 'lucide-react'
+import { Plus, Trash2, Edit2, Eye, Printer, MessageSquare, Crown, Sparkles } from 'lucide-react'
+import { loyaltyProfile, TIERS, AT_RISK_DAYS } from '../lib/loyalty'
+import { sendSMS } from '../lib/sms'
+import { getSettings } from '../lib/settings'
 
 const EMPTY = { name: '', email: '', instagram: '', phone: '', address: '', landmark: '', notes: '' }
+
+function TierBadge({ tier, size = 'md' }) {
+  const pad = size === 'sm' ? '2px 8px' : '3px 10px'
+  const fs = size === 'sm' ? 10.5 : 11.5
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: pad, borderRadius: 99, fontSize: fs, fontWeight: 700, background: tier.color + '18', color: tier.color, whiteSpace: 'nowrap' }}>
+      <span style={{ fontSize: fs + 1 }}>{tier.emoji}</span> {tier.label}
+    </span>
+  )
+}
 
 export default function Customers() {
   const [customers, setCustomers] = useState([])
@@ -14,6 +27,10 @@ export default function Customers() {
   const [form, setForm] = useState(EMPTY)
   const [saving, setSaving] = useState(false)
   const [search, setSearch] = useState('')
+  const [tierFilter, setTierFilter] = useState('all') // all | vip | loyal | returning | new | atrisk
+  const [rewardModal, setRewardModal] = useState(null) // { customer, profile }
+  const [rewardMsg, setRewardMsg] = useState('')
+  const [sendingReward, setSendingReward] = useState(false)
   const toast = useToast()
 
   useEffect(() => { load() }, [])
@@ -170,33 +187,103 @@ export default function Customers() {
       unpaidAmount: unpaid.reduce((s, o) => s + Number(o.total_price || 0), 0),
       lastOrder: custOrders[0]?.order_date || null,
       orders: custOrders,
+      loyalty: loyaltyProfile(custOrders),
     }
   }
 
-  const filtered = customers.filter(c =>
-    c.name.toLowerCase().includes(search.toLowerCase()) ||
-    (c.email || '').toLowerCase().includes(search.toLowerCase()) ||
-    (c.phone || '').includes(search)
-  )
+  function openReward(customer, profile) {
+    const t = profile.tier
+    const footer = getSettings().smsFooter || "— Brick's & Joy"
+    const first = (customer.name || 'there').split(' ')[0]
+    let msg
+    if (profile.atRisk) msg = `Hi ${first}! We miss you at Brick's & Joy 🧱 It's been a while — here's 10% off your next order to welcome you back. ${footer}`
+    else if (t.key === 'vip') msg = `Hi ${first}! As one of our top customers 👑 you get early access to new sets + an exclusive bundle deal. Thank you for your loyalty! ${footer}`
+    else if (t.key === 'loyal') msg = `Hi ${first}! Thanks for being a loyal customer ⭐ Here's a special discount on your next order as our thank-you. ${footer}`
+    else if (t.key === 'returning') msg = `Hi ${first}! Thanks for coming back 🔁 Order one more and get a little something extra on us. ${footer}`
+    else msg = `Hi ${first}! Thanks for your order 🌱 We'd love to see you again — here's a treat for your next purchase. ${footer}`
+    setRewardMsg(msg)
+    setRewardModal({ customer, profile })
+  }
+
+  async function sendReward() {
+    if (!rewardModal?.customer?.phone) { toast.error('No phone number on file'); return }
+    if (!rewardMsg.trim()) { toast.error('Message is empty'); return }
+    setSendingReward(true)
+    try {
+      await sendSMS(rewardModal.customer.phone, rewardMsg)
+      toast.success('Reward SMS sent!')
+      setRewardModal(null)
+    } catch (e) {
+      toast.error('SMS failed: ' + e.message)
+    }
+    setSendingReward(false)
+  }
+
+  const filtered = customers.filter(c => {
+    const matchesSearch = c.name.toLowerCase().includes(search.toLowerCase()) ||
+      (c.email || '').toLowerCase().includes(search.toLowerCase()) ||
+      (c.phone || '').includes(search)
+    if (!matchesSearch) return false
+    if (tierFilter === 'all') return true
+    const p = getStats(c.id).loyalty
+    if (tierFilter === 'atrisk') return p.atRisk
+    return p.tier.key === tierFilter
+  })
+
+  // Loyalty roll-up across all customers
+  const loyaltySummary = (() => {
+    const counts = { vip: 0, loyal: 0, returning: 0, new: 0, prospect: 0, atRisk: 0, repeat: 0 }
+    customers.forEach(c => {
+      const p = getStats(c.id).loyalty
+      counts[p.tier.key] = (counts[p.tier.key] || 0) + 1
+      if (p.atRisk) counts.atRisk++
+      if (p.isRepeat) counts.repeat++
+    })
+    return counts
+  })()
+
+  const TIER_TABS = [
+    { key: 'all', label: 'All', count: customers.length, color: '#0d1b2a' },
+    { key: 'vip', label: '👑 VIP', count: loyaltySummary.vip, color: '#7F77DD' },
+    { key: 'loyal', label: '⭐ Loyal', count: loyaltySummary.loyal, color: '#1D9E75' },
+    { key: 'returning', label: '🔁 Returning', count: loyaltySummary.returning, color: '#378ADD' },
+    { key: 'new', label: '🌱 New', count: loyaltySummary.new, color: '#FFA500' },
+    { key: 'atrisk', label: '⚠️ At risk', count: loyaltySummary.atRisk, color: '#E24B4A' },
+  ]
 
   const columns = [
-    { key: 'name', label: 'Customer', render: r => (
-      <div>
-        <div style={{ fontWeight: 600, color: '#0d1b2a' }}>{r.name}</div>
-        <div style={{ fontSize: 11, color: '#aaa' }}>{r.email || r.phone || '—'}</div>
-      </div>
-    )},
+    { key: 'name', label: 'Customer', render: r => {
+      const p = getStats(r.id).loyalty
+      return (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontWeight: 600, color: '#0d1b2a', display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+              {r.name}
+              {p.atRisk && <span style={{ fontSize: 10, fontWeight: 700, color: '#E24B4A', background: '#FDECEA', padding: '1px 7px', borderRadius: 99 }}>⚠️ At risk</span>}
+            </div>
+            <div style={{ fontSize: 11, color: '#aaa' }}>{r.email || r.phone || '—'}</div>
+          </div>
+        </div>
+      )
+    }},
+    { key: 'tier', label: 'Loyalty', render: r => { const p = getStats(r.id).loyalty; return <TierBadge tier={p.tier} size="sm" /> }},
     { key: 'orders', label: 'Orders', render: r => { const s = getStats(r.id); return <strong>{s.totalOrders}</strong> }},
     { key: 'spent', label: 'Total spent', render: r => { const s = getStats(r.id); return <span style={{ fontWeight: 600, color: '#1D9E75' }}>MVR {s.totalSpent.toFixed(2)}</span> }},
     { key: 'unpaid', label: 'Unpaid', render: r => { const s = getStats(r.id); return s.unpaidAmount > 0 ? <span style={{ fontWeight: 600, color: '#c62828' }}>MVR {s.unpaidAmount.toFixed(2)}</span> : <span style={{ color: '#aaa' }}>—</span> }},
     { key: 'last_order', label: 'Last order', render: r => { const s = getStats(r.id); return <span style={{ color: '#888', fontSize: 12 }}>{s.lastOrder || '—'}</span> }},
-    { key: 'actions', label: '', render: r => (
-      <div style={{ display: 'flex', gap: 5 }}>
-        <Button variant="ghost" size="sm" onClick={() => openView(r)}><Eye size={13} /></Button>
-        <Button variant="ghost" size="sm" onClick={() => openEdit(r)}><Edit2 size={13} /></Button>
-        <Button variant="danger" size="sm" onClick={() => del(r.id)}><Trash2 size={13} /></Button>
-      </div>
-    )},
+    { key: 'actions', label: '', render: r => {
+      const p = getStats(r.id).loyalty
+      return (
+        <div style={{ display: 'flex', gap: 5 }}>
+          {r.phone && p.tier.key !== 'prospect' && (
+            <Button variant="ghost" size="sm" onClick={() => openReward(r, p)} title="Send reward / win-back SMS"><Sparkles size={13} color="#FFA500" /></Button>
+          )}
+          <Button variant="ghost" size="sm" onClick={() => openView(r)}><Eye size={13} /></Button>
+          <Button variant="ghost" size="sm" onClick={() => openEdit(r)}><Edit2 size={13} /></Button>
+          <Button variant="danger" size="sm" onClick={() => del(r.id)}><Trash2 size={13} /></Button>
+        </div>
+      )
+    }},
   ]
 
   const viewStats = viewModal ? getStats(viewModal.id) : null
@@ -206,17 +293,68 @@ export default function Customers() {
       <PageHeader title="Customers" subtitle={`${customers.length} customers`}
         action={<Button onClick={openAdd}><Plus size={15} /> Add customer</Button>} />
 
+      {/* Loyalty roll-up */}
+      {!loading && customers.length > 0 && (
+        <Card style={{ marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 14 }}>
+            <Crown size={15} color="#FFA500" />
+            <span style={{ fontSize: 13.5, fontWeight: 700, color: '#0d1b2a' }}>Loyalty overview</span>
+            <span style={{ fontSize: 12, color: '#aaa' }}>· {loyaltySummary.repeat} repeat buyers</span>
+          </div>
+          <div className="grid-collapse" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
+            {TIERS.filter(t => t.key !== 'prospect').map(t => (
+              <div key={t.key} onClick={() => setTierFilter(tierFilter === t.key ? 'all' : t.key)}
+                style={{ background: tierFilter === t.key ? t.color + '14' : '#f8f7f4', border: `1px solid ${tierFilter === t.key ? t.color + '55' : 'transparent'}`, borderRadius: 10, padding: '12px 14px', cursor: 'pointer', transition: 'all 0.15s' }}>
+                <div style={{ fontSize: 11, color: '#888', fontWeight: 600, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>{t.emoji} {t.label}</div>
+                <div style={{ fontSize: 20, fontWeight: 800, color: t.color }}>{loyaltySummary[t.key] || 0}</div>
+              </div>
+            ))}
+          </div>
+          {loyaltySummary.atRisk > 0 && (
+            <div onClick={() => setTierFilter('atrisk')} style={{ marginTop: 12, background: '#FDECEA', border: '1px solid #f8d7d2', borderRadius: 10, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+              <span style={{ fontSize: 13, color: '#c0392b', fontWeight: 600 }}>⚠️ {loyaltySummary.atRisk} repeat {loyaltySummary.atRisk === 1 ? 'buyer hasn’t' : 'buyers haven’t'} ordered in {AT_RISK_DAYS}+ days</span>
+              <span style={{ fontSize: 12, color: '#e08b80', marginLeft: 'auto', fontWeight: 600 }}>Win them back →</span>
+            </div>
+          )}
+        </Card>
+      )}
+
       <Card>
-        <div style={{ marginBottom: 16 }}>
+        <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search customers…"
-            style={{ padding: '9px 14px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', width: 260, outline: 'none' }} />
+            style={{ padding: '9px 14px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', flex: 1, minWidth: 200, outline: 'none' }} />
+          <div className="x-scroll" style={{ display: 'flex', background: '#f5f5f5', borderRadius: 10, padding: 3, gap: 2 }}>
+            {TIER_TABS.map(tab => (
+              <button key={tab.key} onClick={() => setTierFilter(tab.key)} style={{
+                padding: '6px 12px', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                fontSize: 12, fontWeight: tierFilter === tab.key ? 700 : 500, whiteSpace: 'nowrap',
+                background: tierFilter === tab.key ? '#fff' : 'transparent',
+                color: tierFilter === tab.key ? tab.color : '#999',
+                boxShadow: tierFilter === tab.key ? '0 1px 4px rgba(0,0,0,0.08)' : 'none',
+                transition: 'all 0.15s',
+              }}>{tab.label} <span style={{ opacity: 0.6 }}>{tab.count}</span></button>
+            ))}
+          </div>
         </div>
-        {loading ? <Spinner /> : <Table columns={columns} data={filtered} emptyMessage="No customers yet." />}
+        {loading ? <Spinner /> : <Table columns={columns} data={filtered} emptyMessage="No customers match this filter." />}
       </Card>
 
       {/* Customer detail view */}
       {viewModal && viewStats && (
         <Modal title={viewModal.name} onClose={() => setViewModal(null)} width={860}>
+          {/* Loyalty banner */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', background: viewStats.loyalty.tier.color + '0f', border: `1px solid ${viewStats.loyalty.tier.color}33`, borderRadius: 12, padding: '12px 16px', marginBottom: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <TierBadge tier={viewStats.loyalty.tier} />
+              <div style={{ fontSize: 12.5, color: '#555' }}>
+                {viewStats.loyalty.tier.perk}
+                {viewStats.loyalty.atRisk && <span style={{ color: '#c0392b', fontWeight: 600 }}> · ⚠️ Quiet for {viewStats.loyalty.daysSinceLast} days</span>}
+              </div>
+            </div>
+            {viewModal.phone && viewStats.loyalty.tier.key !== 'prospect' && (
+              <Button size="sm" onClick={() => openReward(viewModal, viewStats.loyalty)}><Sparkles size={13} /> {viewStats.loyalty.atRisk ? 'Win back' : 'Send reward'}</Button>
+            )}
+          </div>
           <div className="grid-collapse" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 20 }}>
             {[
               { label: 'Total orders', value: viewStats.totalOrders, color: '#0d1b2a' },
@@ -327,6 +465,30 @@ export default function Customers() {
           </div>
         </Modal>
       )}
+      {/* Reward / win-back SMS modal */}
+      {rewardModal && (
+        <Modal title={`${rewardModal.profile.atRisk ? 'Win-back' : 'Reward'} — ${rewardModal.customer.name}`} onClose={() => setRewardModal(null)} width={480}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#f8f7f4', borderRadius: 10, padding: '12px 14px', marginBottom: 16, flexWrap: 'wrap' }}>
+            <TierBadge tier={rewardModal.profile.tier} />
+            <span style={{ fontSize: 12.5, color: '#666' }}>
+              {rewardModal.profile.deliveredCount} delivered · MVR {rewardModal.profile.totalSpent.toFixed(0)} spent
+              {rewardModal.profile.lastOrder && ` · last ${rewardModal.profile.lastOrder}`}
+            </span>
+          </div>
+          <Input label="Send to" value={rewardModal.customer.phone || ''} disabled style={{ marginBottom: 12 }} />
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ fontSize: 12, color: '#666', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.4px', display: 'block', marginBottom: 5 }}>Message (editable)</label>
+            <textarea value={rewardMsg} onChange={e => setRewardMsg(e.target.value)}
+              style={{ width: '100%', padding: '9px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', resize: 'vertical', minHeight: 100, boxSizing: 'border-box', outline: 'none' }} />
+            <div style={{ fontSize: 11, color: '#aaa', marginTop: 4 }}>{rewardMsg.length} characters · ~{Math.max(1, Math.ceil(rewardMsg.length / 160))} SMS</div>
+          </div>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+            <Button variant="ghost" onClick={() => setRewardModal(null)}>Cancel</Button>
+            <Button onClick={sendReward} disabled={sendingReward}><MessageSquare size={13} /> {sendingReward ? 'Sending…' : 'Send SMS'}</Button>
+          </div>
+        </Modal>
+      )}
+
       <Toasts toasts={toast.toasts} />
     </div>
   )
