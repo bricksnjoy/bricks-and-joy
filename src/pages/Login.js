@@ -6,26 +6,14 @@ export default function Login() {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [mode, setMode] = useState('login') // 'login' | 'signup'
-  const [name, setName] = useState('')
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     setLoading(true)
     setError('')
     try {
-      if (mode === 'login') {
-        const { error } = await supabase.auth.signInWithPassword({ email, password })
-        if (error) throw error
-      } else {
-        const { error } = await supabase.auth.signUp({
-          email, password,
-          options: { data: { full_name: name } }
-        })
-        if (error) throw error
-        setError('Account created! You can now log in.')
-        setMode('login')
-      }
+      const { error } = await supabase.auth.signInWithPassword({ email, password })
+      if (error) throw error
     } catch (err) {
       setError(err.message)
     } finally {
@@ -87,16 +75,10 @@ export default function Login() {
         {/* Card */}
         <div className="bnj-card" style={{ background: '#fff', borderRadius: 18, border: '1px solid #f0f0f0', padding: '32px 28px', boxShadow: '0 12px 40px rgba(13,27,42,0.10)' }}>
           <h2 style={{ fontSize: 18, fontWeight: 600, margin: '0 0 24px', color: '#0d1b2a' }}>
-            {mode === 'login' ? 'Sign in to your account' : 'Create an account'}
+            Sign in to your account
           </h2>
 
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            {mode === 'signup' && (
-              <div>
-                <label style={{ fontSize: 12, color: '#666', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.4px', display: 'block', marginBottom: 5 }}>Full name</label>
-                <input className="bnj-input" value={name} onChange={e => setName(e.target.value)} placeholder="Your name" required />
-              </div>
-            )}
             <div>
               <label style={{ fontSize: 12, color: '#666', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.4px', display: 'block', marginBottom: 5 }}>Email</label>
               <input className="bnj-input" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" required />
@@ -113,16 +95,12 @@ export default function Login() {
             )}
 
             <button type="submit" disabled={loading} className="bnj-btn" style={{ cursor: loading ? 'wait' : 'pointer', opacity: loading ? 0.7 : 1 }}>
-              {loading ? 'Please wait…' : mode === 'login' ? 'Sign in' : 'Create account'}
+              {loading ? 'Please wait…' : 'Sign in'}
             </button>
           </form>
 
-          <p style={{ textAlign: 'center', fontSize: 13, color: '#999', margin: '20px 0 0' }}>
-            {mode === 'login' ? "Don't have an account? " : 'Already have an account? '}
-            <button onClick={() => { setMode(mode === 'login' ? 'signup' : 'login'); setError('') }}
-              style={{ background: 'none', border: 'none', color: '#FFA500', cursor: 'pointer', fontWeight: 500, fontFamily: 'inherit', fontSize: 13 }}>
-              {mode === 'login' ? 'Sign up' : 'Sign in'}
-            </button>
+          <p style={{ textAlign: 'center', fontSize: 12.5, color: '#aaa', margin: '20px 0 0' }}>
+            Staff access only. Contact an administrator to get an account.
           </p>
         </div>
       </div>
