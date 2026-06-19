@@ -43,7 +43,6 @@ const ITEMS = {
   costs:              { label: 'Cost Management',    icon: DollarSign,      render: <CostManagement /> },
   vendors:            { label: 'Vendors',           icon: Building2,       render: <Vendors /> },
   statistics:         { label: 'Analytics',         icon: BarChart2,       render: <Statistics /> },
-  settings:           { label: 'Settings',          icon: SettingsIcon,    render: <Settings /> },
 }
 
 const DEFAULT_NAV = [
@@ -51,7 +50,6 @@ const DEFAULT_NAV = [
   { id: 'pos',        section: 'Point of Sale',  items: ['orders', 'customers', 'deliveries', 'tasks', 'messages', 'planning'] },
   { id: 'inventory',  section: 'Inventory',      items: ['inventory', 'categories', 'purchase-orders', 'supplier-catalog'] },
   { id: 'accounting', section: 'Accounting',     items: ['profit-loss', 'costs', 'vendors', 'statistics'] },
-  { id: 'config',     section: 'Configuration',  items: ['settings'] },
 ]
 
 const NAV_KEY = 'bnj_nav_layout_v1'
@@ -94,6 +92,7 @@ export default function App() {
   const [drag, setDrag] = useState(null) // { type:'item'|'section', id }
   const [menuOpen, setMenuOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -326,6 +325,10 @@ export default function App() {
                   style={{ color: '#0d1b2a', fontWeight: 600 }}>
                   <LifeBuoy size={15} color="#FFA500" /> How-to guide
                 </button>
+                <button className="nav-item" onClick={() => { setSettingsOpen(true); setMenuOpen(false) }}
+                  style={{ color: '#0d1b2a', fontWeight: 600 }}>
+                  <SettingsIcon size={15} color="#FFA500" /> Settings
+                </button>
                 <button className="nav-item" onClick={() => { setEditMode(true); setMenuOpen(false); setDrag(null) }}
                   style={{ color: '#0d1b2a', fontWeight: 600 }}>
                   <Settings2 size={15} color="#FFA500" /> Reorganize menu
@@ -361,6 +364,7 @@ export default function App() {
       </div>
 
       {helpOpen && <HelpGuide onClose={() => setHelpOpen(false)} />}
+      {settingsOpen && <Settings onClose={() => setSettingsOpen(false)} />}
     </div>
   )
 }

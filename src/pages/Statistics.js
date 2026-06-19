@@ -19,6 +19,16 @@ const DEFAULT_ALLOC = [
 // Default share of average monthly revenue to reinvest into growth.
 const DEFAULT_MKT_RATE = 15
 
+// Maps each growth plan bucket → the Cost Management categories that count toward it
+const ALLOC_CATS = {
+  ig:       ['Instagram Ads'],
+  ads:      ['Marketing Ads', 'Facebook Ads'],
+  research: ['Sample Testing'],
+  promo:    ['Giveaway'],
+  content:  [],
+  buffer:   [],
+}
+
 // ─── Chart / section title ──────────────────────────────────────────────────────
 function ChartTitle({ icon: Icon, color = '#0d1b2a', gap = 16, children }) {
   return (
@@ -215,7 +225,7 @@ export default function Statistics() {
     const avgMonthlyRevenue = revenue / monthsCount
     const netMargin = revenue > 0 ? netProfit / revenue * 100 : 0
 
-    setData({ revenueChart, productChart, channelChart, forecastData, forecastMeta, hotProducts, topCustomers, expChart, statusCount, revenue, cogs, netProfit, netMargin, avgMonthlyRevenue, avgOrderValue, returnRate, totalOrders: ords.length, deliveredOrders: delivered.length, fulfilmentRate: ords.length > 0 ? (delivered.length / ords.length * 100).toFixed(0) : 0, totalCustomers: custs.length, lowStockCount: prods.filter(p => p.stock_qty <= (p.low_stock_threshold || 10)).length, _allDelivered: deliveredWithCat, _catPeriod: 'all' })
+    setData({ revenueChart, productChart, channelChart, forecastData, forecastMeta, hotProducts, topCustomers, expChart, statusCount, revenue, cogs, netProfit, netMargin, avgMonthlyRevenue, avgOrderValue, returnRate, totalOrders: ords.length, deliveredOrders: delivered.length, fulfilmentRate: ords.length > 0 ? (delivered.length / ords.length * 100).toFixed(0) : 0, totalCustomers: custs.length, lowStockCount: prods.filter(p => p.stock_qty <= (p.low_stock_threshold || 10)).length, _allDelivered: deliveredWithCat, _catPeriod: 'all', _exps: exps })
     setLoading(false)
   }
 
@@ -590,6 +600,16 @@ export default function Statistics() {
         const budget = budgetOverride !== '' && !isNaN(parseFloat(budgetOverride)) ? Math.max(0, parseFloat(budgetOverride)) : recommended
         const totalPct = alloc.reduce((s, a) => s + Number(a.pct || 0), 0)
         const setPct = (key, v) => setAlloc(a => a.map(x => x.key === key ? { ...x, pct: v === '' ? '' : Math.max(0, Math.min(100, Number(v))) } : x))
+
+        // Actual spend this month per alloc key
+        const thisMonth = new Date().toISOString().slice(0, 7)
+        const actualByKey = {}
+        for (const key of Object.keys(ALLOC_CATS)) {
+          actualByKey[key] = (t._exps || [])
+            .filter(e => e.expense_date?.startsWith(thisMonth) && (ALLOC_CATS[key] || []).includes(e.category))
+            .reduce((s, e) => s + Number(e.amount || 0), 0)
+        }
+        const totalActual = Object.values(actualByKey).reduce((s, v) => s + v, 0)
         const milestones = [
           { name: 'Grow', mult: 1.5, color: '#1D9E75', actions: ['Add 1–2 new product lines', 'Raise ad budget toward 18% of revenue', 'Start a simple loyalty / repeat-buyer offer'] },
           { name: 'Scale', mult: 3, color: '#378ADD', actions: ['Negotiate bulk / wholesale pricing with suppliers', 'Bring on part-time help for packing & delivery', 'Add a second sales channel (marketplace / website)'] },
@@ -601,6 +621,24 @@ export default function Statistics() {
               <div style={{ background: 'rgba(255,165,0,0.16)', borderRadius: 8, padding: 6, display: 'flex', flexShrink: 0 }}><Rocket size={15} color="#FFA500" /></div>
               <span><strong style={{ fontWeight: 600 }}>Your growth plan:</strong> set aside a slice of revenue each month for marketing, research & sampling, then follow the roadmap as you hit revenue milestones. Everything below is editable.</span>
             </div>
+
+            {/* Actual vs planned summary banner */}
+            {totalActual > 0 && (
+              <div style={{ background: '#fff', border: '1px solid #eee', borderRadius: 12, padding: '14px 18px', marginBottom: 20, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+                <div>
+                  <div style={{ fontSize: 11, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 700, marginBottom: 3 }}>This month — actual vs planned</div>
+                  <div style={{ fontSize: 13, color: '#333' }}>
+                    Spent <strong style={{ color: '#0d1b2a' }}>MVR {totalActual.toFixed(0)}</strong> of planned <strong style={{ color: '#FFA500' }}>MVR {budget.toFixed(0)}</strong>
+                    {totalActual <= budget
+                      ? <span style={{ color: '#1D9E75', fontWeight: 600, marginLeft: 8 }}>✓ MVR {(budget - totalActual).toFixed(0)} remaining</span>
+                      : <span style={{ color: '#E24B4A', fontWeight: 600, marginLeft: 8 }}>↑ MVR {(totalActual - budget).toFixed(0)} over budget</span>}
+                  </div>
+                </div>
+                <div style={{ height: 8, flex: 1, minWidth: 120, background: '#f0f0f0', borderRadius: 99, overflow: 'hidden' }}>
+                  <div style={{ height: '100%', width: `${Math.min(100, totalActual / Math.max(1, budget) * 100)}%`, background: totalActual > budget ? '#E24B4A' : '#1D9E75', borderRadius: 99, transition: 'width 0.5s ease' }} />
+                </div>
+              </div>
+            )}
 
             {/* Budget basis */}
             <Card style={{ marginBottom: 20 }}>
@@ -640,11 +678,15 @@ export default function Statistics() {
               <div style={{ marginTop: 10 }}>
                 {alloc.map(a => {
                   const mvr = budget * Number(a.pct || 0) / 100
+                  const actual = actualByKey[a.key] || 0
+                  const hasCats = (ALLOC_CATS[a.key] || []).length > 0
+                  const over = hasCats && actual > mvr && mvr > 0
+                  const under = hasCats && actual > 0 && actual <= mvr
                   return (
-                    <div key={a.key} style={{ marginBottom: 16 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 6, flexWrap: 'wrap' }}>
+                    <div key={a.key} style={{ marginBottom: 18 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, marginBottom: 6, flexWrap: 'wrap' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
-                          <div style={{ width: 11, height: 11, borderRadius: 3, background: a.color, flexShrink: 0 }} />
+                          <div style={{ width: 11, height: 11, borderRadius: 3, background: a.color, flexShrink: 0, marginTop: 2 }} />
                           <div style={{ minWidth: 0 }}>
                             <div style={{ fontSize: 13.5, fontWeight: 600, color: '#0d1b2a' }}>{a.label}</div>
                             <div style={{ fontSize: 11.5, color: '#aaa' }}>{a.note}</div>
@@ -656,12 +698,36 @@ export default function Statistics() {
                               style={{ width: 52, padding: '6px 8px', border: '1px solid #ddd', borderRadius: 7, fontSize: 13, fontFamily: 'inherit', textAlign: 'right', outline: 'none' }} />
                             <span style={{ fontSize: 12, color: '#aaa' }}>%</span>
                           </div>
-                          <div style={{ fontWeight: 800, fontSize: 14, color: '#0d1b2a', minWidth: 96, textAlign: 'right' }}>MVR {mvr.toFixed(0)}/mo</div>
+                          <div style={{ textAlign: 'right', minWidth: 100 }}>
+                            <div style={{ fontWeight: 800, fontSize: 14, color: '#0d1b2a' }}>MVR {mvr.toFixed(0)}<span style={{ fontSize: 10, fontWeight: 500, color: '#bbb' }}>/mo plan</span></div>
+                            {hasCats && actual > 0 && (
+                              <div style={{ fontSize: 11.5, fontWeight: 700, color: over ? '#E24B4A' : '#1D9E75', marginTop: 1 }}>
+                                {over ? '↑' : '✓'} MVR {actual.toFixed(0)} actual
+                              </div>
+                            )}
+                            {hasCats && actual === 0 && mvr > 0 && (
+                              <div style={{ fontSize: 11, color: '#ccc', marginTop: 1 }}>no spend yet</div>
+                            )}
+                          </div>
                         </div>
                       </div>
-                      <div style={{ height: 7, background: '#f0f0f0', borderRadius: 99, overflow: 'hidden' }}>
-                        <div style={{ height: '100%', width: `${Math.min(100, Number(a.pct || 0))}%`, background: a.color, borderRadius: 99, transition: 'width 0.4s ease' }} />
+                      {/* Stacked bar: planned (light) + actual (solid) */}
+                      <div style={{ height: 8, background: '#f0f0f0', borderRadius: 99, overflow: 'hidden', position: 'relative' }}>
+                        <div style={{ position: 'absolute', height: '100%', width: `${Math.min(100, Number(a.pct || 0))}%`, background: a.color + '28', borderRadius: 99 }} />
+                        {hasCats && actual > 0 && mvr > 0 && (
+                          <div style={{ position: 'absolute', height: '100%', width: `${Math.min(100, actual / Math.max(1, mvr) * Number(a.pct || 0))}%`, background: over ? '#E24B4A' : a.color, borderRadius: 99, transition: 'width 0.5s ease' }} />
+                        )}
                       </div>
+                      {hasCats && over && (
+                        <div style={{ fontSize: 11, color: '#E24B4A', marginTop: 3, fontWeight: 600 }}>
+                          ↑ MVR {(actual - mvr).toFixed(0)} over budget this month
+                        </div>
+                      )}
+                      {under && (
+                        <div style={{ fontSize: 11, color: '#1D9E75', marginTop: 3, fontWeight: 600 }}>
+                          MVR {(mvr - actual).toFixed(0)} left to spend this month
+                        </div>
+                      )}
                     </div>
                   )
                 })}

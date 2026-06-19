@@ -1,43 +1,100 @@
 import React, { useState } from 'react'
-import { PageHeader, Card, Button, useToast, Toasts } from '../components/UI'
-import { Building2, DollarSign, Package, Save, RotateCcw } from 'lucide-react'
+import { createPortal } from 'react-dom'
+import { Building2, DollarSign, Package, Save, RotateCcw, X, Monitor, ShoppingCart, MessageSquare, ChevronDown } from 'lucide-react'
 import { getSettings, saveSettings, DEFAULT_SETTINGS } from '../lib/settings'
+import { useToast, Toasts } from '../components/UI'
 
-function Section({ icon: Icon, title, children }) {
+const CHANNELS = ['Retail store', 'Online', 'Wholesale', 'Pop-up / Market', 'Instagram', 'Phone']
+const PAY_METHODS = ['Cash', 'BML Transfer', 'Bank Transfer', 'Card', 'Other']
+const DATE_FORMATS = [
+  { value: 'YYYY-MM-DD', label: '2026-06-19  (ISO)' },
+  { value: 'DD/MM/YYYY', label: '19/06/2026  (Day first)' },
+  { value: 'MM/DD/YYYY', label: '06/19/2026  (US)' },
+]
+
+// ── small helpers ──────────────────────────────────────────────────────────────
+function SectionHead({ icon: Icon, title }) {
   return (
-    <Card style={{ marginBottom: 20 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20, paddingBottom: 14, borderBottom: '1px solid #f0f0f0' }}>
-        <div style={{ width: 34, height: 34, borderRadius: 10, background: '#FFF3DF', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-          <Icon size={16} color="#FFA500" />
-        </div>
-        <span style={{ fontSize: 15, fontWeight: 700, color: '#0d1b2a' }}>{title}</span>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 16, paddingBottom: 10, borderBottom: '1px solid #f0f0f0' }}>
+      <div style={{ width: 30, height: 30, borderRadius: 8, background: '#FFF3DF', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+        <Icon size={14} color="#FFA500" />
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-        {children}
-      </div>
-    </Card>
+      <span style={{ fontSize: 13.5, fontWeight: 700, color: '#0d1b2a' }}>{title}</span>
+    </div>
   )
 }
 
-function Field({ label, hint, span, children }) {
+function Field({ label, hint, half, children }) {
   return (
-    <div style={{ gridColumn: span === 2 ? 'span 2' : undefined }}>
-      <label style={{ fontSize: 12, color: '#666', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.4px', display: 'block', marginBottom: 5 }}>{label}</label>
+    <div style={{ gridColumn: half ? undefined : 'span 2' }}>
+      <label style={{ fontSize: 11, color: '#666', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: 5 }}>{label}</label>
       {children}
       {hint && <div style={{ fontSize: 11, color: '#bbb', marginTop: 3 }}>{hint}</div>}
     </div>
   )
 }
 
-const inputStyle = { width: '100%', padding: '9px 12px', border: '1px solid #e6e6e6', borderRadius: 9, fontSize: 13, fontFamily: 'inherit', outline: 'none', background: '#fafafa', boxSizing: 'border-box', transition: 'border-color 0.15s, box-shadow 0.15s' }
+const inp = { width: '100%', padding: '9px 12px', border: '1px solid #e6e6e6', borderRadius: 9, fontSize: 13, fontFamily: 'inherit', outline: 'none', background: '#fafafa', boxSizing: 'border-box', transition: 'border-color 0.15s, box-shadow 0.15s' }
 
-export default function Settings() {
+function TInput({ value, onChange, ...rest }) {
+  return <input style={inp} value={value} onChange={onChange} {...rest}
+    onFocus={e => { e.target.style.borderColor = '#FFA500'; e.target.style.boxShadow = '0 0 0 3px rgba(255,165,0,0.10)'; e.target.style.background = '#fff' }}
+    onBlur={e => { e.target.style.borderColor = '#e6e6e6'; e.target.style.boxShadow = ''; e.target.style.background = '#fafafa' }} />
+}
+
+function TSelect({ value, onChange, options }) {
+  return (
+    <div style={{ position: 'relative' }}>
+      <select value={value} onChange={onChange}
+        style={{ ...inp, appearance: 'none', WebkitAppearance: 'none', paddingRight: 30, cursor: 'pointer' }}>
+        {options.map(o => typeof o === 'string'
+          ? <option key={o} value={o}>{o}</option>
+          : <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+      <ChevronDown size={14} color="#aaa" style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
+    </div>
+  )
+}
+
+function Toggle({ checked, onChange, label }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, paddingTop: 2 }}>
+      <label style={{ position: 'relative', display: 'inline-block', width: 40, height: 22, cursor: 'pointer', flexShrink: 0 }}>
+        <input type="checkbox" checked={checked} onChange={onChange} style={{ opacity: 0, width: 0, height: 0 }} />
+        <span style={{ position: 'absolute', inset: 0, background: checked ? '#FFA500' : '#ddd', borderRadius: 99, transition: 'background 0.2s' }}>
+          <span style={{ position: 'absolute', width: 16, height: 16, left: checked ? 21 : 3, top: 3, background: '#fff', borderRadius: '50%', transition: 'left 0.2s', boxShadow: '0 1px 4px rgba(0,0,0,0.15)' }} />
+        </span>
+      </label>
+      <span style={{ fontSize: 13, color: checked ? '#1D9E75' : '#aaa', fontWeight: 600 }}>{label}</span>
+    </div>
+  )
+}
+
+function PillGroup({ value, onChange, options }) {
+  return (
+    <div style={{ display: 'flex', background: '#f5f5f5', borderRadius: 9, padding: 3, gap: 2 }}>
+      {options.map(o => (
+        <button key={o.value} onClick={() => onChange(o.value)} style={{
+          flex: 1, padding: '7px 10px', borderRadius: 7, border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+          fontSize: 12, fontWeight: value === o.value ? 700 : 500,
+          background: value === o.value ? '#fff' : 'transparent',
+          color: value === o.value ? '#0d1b2a' : '#999',
+          boxShadow: value === o.value ? '0 1px 4px rgba(0,0,0,0.08)' : 'none',
+          transition: 'all 0.15s', whiteSpace: 'nowrap',
+        }}>{o.label}</button>
+      ))}
+    </div>
+  )
+}
+
+export default function Settings({ onClose }) {
   const [form, setForm] = useState(() => getSettings())
   const [dirty, setDirty] = useState(false)
   const toast = useToast()
 
   const set = (k, v) => { setForm(p => ({ ...p, [k]: v })); setDirty(true) }
   const f = k => e => set(k, e.target.value)
+  const fb = k => e => set(k, e.target.checked)
 
   function handleSave() {
     saveSettings(form)
@@ -47,130 +104,188 @@ export default function Settings() {
 
   function handleReset() {
     if (!window.confirm('Reset all settings to defaults?')) return
-    setForm({ ...DEFAULT_SETTINGS })
-    saveSettings({ ...DEFAULT_SETTINGS })
-    setDirty(false)
-    toast.success('Settings reset to defaults.')
+    const d = { ...DEFAULT_SETTINGS }
+    setForm(d); saveSettings(d); setDirty(false)
+    toast.success('Reset to defaults.')
   }
 
-  return (
-    <div>
+  return createPortal(
+    <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', justifyContent: 'flex-end' }}>
       <style>{`
-        .sett-input:focus { border-color: #FFA500 !important; box-shadow: 0 0 0 3px rgba(255,165,0,0.10) !important; background: #fff !important; }
-        .sett-toggle { position: relative; display: inline-block; width: 42px; height: 24px; }
-        .sett-toggle input { opacity: 0; width: 0; height: 0; }
-        .sett-slider { position: absolute; inset: 0; background: #ddd; border-radius: 99px; cursor: pointer; transition: background 0.2s; }
-        .sett-slider:before { content:''; position: absolute; width: 18px; height: 18px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: transform 0.2s; box-shadow: 0 1px 4px rgba(0,0,0,0.15); }
-        .sett-toggle input:checked + .sett-slider { background: #FFA500; }
-        .sett-toggle input:checked + .sett-slider:before { transform: translateX(18px); }
-        @media (max-width: 600px) {
-          .sett-grid { grid-template-columns: 1fr !important; }
-          .sett-grid [style*="span 2"] { grid-column: span 1 !important; }
-        }
+        .sett-drawer { animation: settSlide 0.25s cubic-bezier(0.4,0,0.2,1) both; }
+        @keyframes settSlide { from { transform: translateX(100%); opacity: 0.6 } to { transform: translateX(0); opacity: 1 } }
+        .sett-overlay-bg { animation: settFade 0.2s ease both; }
+        @keyframes settFade { from { opacity: 0 } to { opacity: 1 } }
       `}</style>
 
-      <PageHeader
-        title="Settings"
-        subtitle="Business configuration and defaults"
-        action={
-          <div style={{ display: 'flex', gap: 8 }}>
-            <Button variant="ghost" onClick={handleReset}><RotateCcw size={13} /> Reset</Button>
-            <Button onClick={handleSave} disabled={!dirty}><Save size={13} /> {dirty ? 'Save changes' : 'Saved'}</Button>
+      {/* Backdrop */}
+      <div className="sett-overlay-bg" onClick={onClose}
+        style={{ position: 'absolute', inset: 0, background: 'rgba(13,27,42,0.45)', backdropFilter: 'blur(2px)' }} />
+
+      {/* Drawer */}
+      <div className="sett-drawer" style={{ position: 'relative', width: 'min(480px, 100vw)', height: '100%', background: '#fff', display: 'flex', flexDirection: 'column', boxShadow: '-12px 0 48px rgba(0,0,0,0.14)', overflowY: 'auto' }}>
+
+        {/* Header */}
+        <div style={{ padding: '18px 22px 14px', borderBottom: '1px solid #f0f0f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, background: '#fff', zIndex: 2 }}>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 800, color: '#0d1b2a', letterSpacing: '-0.3px' }}>Settings</div>
+            <div style={{ fontSize: 11.5, color: '#aaa', marginTop: 1 }}>Business configuration & app defaults</div>
           </div>
-        }
-      />
-
-      {/* Company Profile */}
-      <Section icon={Building2} title="Company Profile">
-        <div style={{ display: 'contents' }} className="sett-grid">
-          <Field label="Business name" span={2}>
-            <input className="sett-input" style={inputStyle} value={form.businessName} onChange={f('businessName')} placeholder="Brick's & Joy" />
-          </Field>
-          <Field label="Tagline">
-            <input className="sett-input" style={inputStyle} value={form.tagline} onChange={f('tagline')} placeholder="e.g. Premium LEGO & Building Sets" />
-          </Field>
-          <Field label="Instagram handle">
-            <div style={{ display: 'flex', alignItems: 'center', border: '1px solid #e6e6e6', borderRadius: 9, background: '#fafafa', overflow: 'hidden' }}>
-              <span style={{ padding: '9px 10px', fontSize: 13, color: '#aaa', borderRight: '1px solid #f0f0f0', background: '#f5f5f5', flexShrink: 0 }}>@</span>
-              <input className="sett-input" style={{ ...inputStyle, border: 'none', borderRadius: 0, background: 'transparent' }} value={form.instagram} onChange={f('instagram')} placeholder="bricksandjoy" />
-            </div>
-          </Field>
-          <Field label="Phone">
-            <input className="sett-input" style={inputStyle} value={form.phone} onChange={f('phone')} placeholder="+960 XXX XXXX" />
-          </Field>
-          <Field label="Email">
-            <input className="sett-input" style={inputStyle} type="email" value={form.email} onChange={f('email')} placeholder="hello@bricksandjoy.mv" />
-          </Field>
-          <Field label="Address" span={2}>
-            <input className="sett-input" style={inputStyle} value={form.address} onChange={f('address')} placeholder="Male', Maldives" />
-          </Field>
-          <Field label="Business hours" span={2}>
-            <input className="sett-input" style={inputStyle} value={form.businessHours} onChange={f('businessHours')} placeholder="e.g. Sun–Thu 9am–6pm, Fri closed" />
-          </Field>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            {dirty && (
+              <button onClick={handleSave} style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#FFA500', color: '#fff', border: 'none', borderRadius: 9, padding: '8px 16px', cursor: 'pointer', fontWeight: 700, fontSize: 13, fontFamily: 'inherit' }}>
+                <Save size={13} /> Save
+              </button>
+            )}
+            <button onClick={onClose} style={{ width: 34, height: 34, border: '1px solid #eee', borderRadius: 9, background: '#fafafa', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888' }}>
+              <X size={16} />
+            </button>
+          </div>
         </div>
-      </Section>
 
-      {/* Financial */}
-      <Section icon={DollarSign} title="Financial">
-        <div style={{ display: 'contents' }} className="sett-grid">
-          <Field label="Currency" hint="Used as the prefix throughout the app (e.g. MVR, USD)">
-            <input className="sett-input" style={{ ...inputStyle, maxWidth: 120 }} value={form.currency} onChange={f('currency')} placeholder="MVR" maxLength={5} />
-          </Field>
-          <Field label="Tax / GST label">
-            <input className="sett-input" style={{ ...inputStyle, maxWidth: 120 }} value={form.taxLabel} onChange={f('taxLabel')} placeholder="GST" maxLength={10} />
-          </Field>
-          <Field label="Tax rate (%)" hint="Set to 0 to disable tax calculations">
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <input className="sett-input" style={{ ...inputStyle, maxWidth: 100 }} type="number" min="0" max="100" step="0.1" value={form.taxRate} onChange={e => set('taxRate', parseFloat(e.target.value) || 0)} />
-              <span style={{ fontSize: 13, color: '#aaa' }}>%</span>
-            </div>
-          </Field>
-          <Field label="Tax included in price?" hint="Toggle on if prices already include tax">
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, paddingTop: 4 }}>
-              <label className="sett-toggle">
-                <input type="checkbox" checked={form.taxIncluded} onChange={e => set('taxIncluded', e.target.checked)} />
-                <span className="sett-slider" />
-              </label>
-              <span style={{ fontSize: 13, color: form.taxIncluded ? '#1D9E75' : '#aaa', fontWeight: 600 }}>{form.taxIncluded ? 'Yes — tax inclusive' : 'No — add on top'}</span>
-            </div>
-          </Field>
-          {form.taxRate > 0 && (
-            <div style={{ gridColumn: 'span 2', background: '#f8f7f4', borderRadius: 10, padding: '12px 16px', fontSize: 13, color: '#555' }}>
-              Example: MVR 100 product → {form.taxIncluded
-                ? `tax portion = MVR ${(100 - 100 / (1 + form.taxRate / 100)).toFixed(2)} (${form.taxLabel} already inside price)`
-                : `total with ${form.taxLabel} = MVR ${(100 * (1 + form.taxRate / 100)).toFixed(2)}`}
-            </div>
-          )}
-        </div>
-      </Section>
+        {/* Body */}
+        <div style={{ padding: '22px', flex: 1, display: 'flex', flexDirection: 'column', gap: 22 }}>
 
-      {/* Inventory Defaults */}
-      <Section icon={Package} title="Inventory Defaults">
-        <div style={{ display: 'contents' }} className="sett-grid">
-          <Field label="Default low-stock threshold" hint="Alert triggers when stock drops to or below this number">
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <input className="sett-input" style={{ ...inputStyle, maxWidth: 100 }} type="number" min="1" max="999" value={form.lowStockThreshold} onChange={e => set('lowStockThreshold', parseInt(e.target.value) || 10)} />
-              <span style={{ fontSize: 13, color: '#aaa' }}>units</span>
+          {/* ── Company Profile ── */}
+          <div style={{ background: '#fafafa', borderRadius: 14, padding: 18, border: '1px solid #f0f0f0' }}>
+            <SectionHead icon={Building2} title="Company Profile" />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+              <Field label="Business name">
+                <TInput value={form.businessName} onChange={f('businessName')} placeholder="Brick's & Joy" />
+              </Field>
+              <Field label="Tagline">
+                <TInput value={form.tagline} onChange={f('tagline')} placeholder="Premium LEGO & Building Sets" />
+              </Field>
+              <Field label="Phone" half>
+                <TInput value={form.phone} onChange={f('phone')} placeholder="+960 XXX XXXX" />
+              </Field>
+              <Field label="Email" half>
+                <TInput value={form.email} onChange={f('email')} type="email" placeholder="hello@bricksandjoy.mv" />
+              </Field>
+              <Field label="Address">
+                <TInput value={form.address} onChange={f('address')} placeholder="Male', Maldives" />
+              </Field>
+              <Field label="Instagram handle" half>
+                <div style={{ display: 'flex', alignItems: 'center', border: '1px solid #e6e6e6', borderRadius: 9, background: '#fafafa', overflow: 'hidden' }}>
+                  <span style={{ padding: '9px 10px', fontSize: 12, color: '#aaa', borderRight: '1px solid #f0f0f0', flexShrink: 0 }}>@</span>
+                  <TInput value={form.instagram} onChange={f('instagram')} placeholder="bricksandjoy" style={{ ...inp, border: 'none', borderRadius: 0, background: 'transparent' }} />
+                </div>
+              </Field>
+              <Field label="Business hours" half>
+                <TInput value={form.businessHours} onChange={f('businessHours')} placeholder="Sun–Thu 9am–6pm" />
+              </Field>
             </div>
-          </Field>
-          <Field label="Invoice number prefix" hint="Invoices will be named like INV-123456">
-            <div style={{ display: 'flex', alignItems: 'center', border: '1px solid #e6e6e6', borderRadius: 9, background: '#fafafa', overflow: 'hidden', maxWidth: 220 }}>
-              <input className="sett-input" style={{ ...inputStyle, border: 'none', borderRadius: 0, background: 'transparent', maxWidth: 120 }} value={form.invoicePrefix} onChange={f('invoicePrefix')} placeholder="INV" maxLength={10} />
-              <span style={{ padding: '9px 10px', fontSize: 12, color: '#bbb', borderLeft: '1px solid #f0f0f0', background: '#f5f5f5', flexShrink: 0 }}>-123456</span>
-            </div>
-          </Field>
-        </div>
-      </Section>
+          </div>
 
-      {/* Unsaved changes banner */}
-      {dirty && (
-        <div style={{ position: 'fixed', bottom: 24, right: 24, background: '#0d1b2a', color: '#fff', borderRadius: 12, padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 14, boxShadow: '0 8px 28px rgba(0,0,0,0.22)', zIndex: 999, fontSize: 13, fontFamily: 'inherit', animation: 'fadeSlideUp 0.2s ease' }}>
-          <span>Unsaved changes</span>
-          <button onClick={handleSave} style={{ background: '#FFA500', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 16px', cursor: 'pointer', fontWeight: 700, fontSize: 13, fontFamily: 'inherit' }}>Save</button>
+          {/* ── Financial ── */}
+          <div style={{ background: '#fafafa', borderRadius: 14, padding: 18, border: '1px solid #f0f0f0' }}>
+            <SectionHead icon={DollarSign} title="Financial" />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+              <Field label="Currency symbol" half hint="Used throughout the app">
+                <TInput value={form.currency} onChange={f('currency')} placeholder="MVR" maxLength={5} />
+              </Field>
+              <Field label="Tax / GST label" half>
+                <TInput value={form.taxLabel} onChange={f('taxLabel')} placeholder="GST" maxLength={10} />
+              </Field>
+              <Field label="Tax rate (%)" half hint="Set 0 to disable">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                  <TInput value={form.taxRate} onChange={e => set('taxRate', parseFloat(e.target.value) || 0)} type="number" min="0" max="100" step="0.1" />
+                  <span style={{ fontSize: 13, color: '#aaa', flexShrink: 0 }}>%</span>
+                </div>
+              </Field>
+              <Field label="Tax included in price?" half>
+                <Toggle checked={form.taxIncluded} onChange={fb('taxIncluded')} label={form.taxIncluded ? 'Tax-inclusive' : 'Add on top'} />
+              </Field>
+              {form.taxRate > 0 && (
+                <div style={{ gridColumn: 'span 2', background: '#f0f7ff', border: '1px solid #dbeafe', borderRadius: 9, padding: '10px 14px', fontSize: 12, color: '#1e4d8c' }}>
+                  Example: {form.currency} 100 → {form.taxIncluded
+                    ? `tax inside = ${form.currency} ${(100 - 100 / (1 + form.taxRate / 100)).toFixed(2)}`
+                    : `with ${form.taxLabel} = ${form.currency} ${(100 * (1 + form.taxRate / 100)).toFixed(2)}`}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* ── Display Preferences ── */}
+          <div style={{ background: '#fafafa', borderRadius: 14, padding: 18, border: '1px solid #f0f0f0' }}>
+            <SectionHead icon={Monitor} title="Display Preferences" />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+              <Field label="Date format">
+                <TSelect value={form.dateFormat} onChange={f('dateFormat')} options={DATE_FORMATS} />
+              </Field>
+              <Field label="Default order view" half>
+                <PillGroup value={form.defaultOrderView} onChange={v => set('defaultOrderView', v)}
+                  options={[{ value: 'cards', label: 'Cards' }, { value: 'list', label: 'List' }]} />
+              </Field>
+              <Field label="Default orders filter">
+                <TSelect value={form.defaultOrderFilter} onChange={f('defaultOrderFilter')} options={[
+                  { value: 'created', label: 'Created' },
+                  { value: 'transit', label: 'Dispatched' },
+                  { value: 'delivered', label: 'Delivered' },
+                  { value: 'all', label: 'All' },
+                ]} />
+              </Field>
+            </div>
+          </div>
+
+          {/* ── Order Defaults ── */}
+          <div style={{ background: '#fafafa', borderRadius: 14, padding: 18, border: '1px solid #f0f0f0' }}>
+            <SectionHead icon={ShoppingCart} title="Order Defaults" />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+              <Field label="Default sales channel" half>
+                <TSelect value={form.defaultChannel} onChange={f('defaultChannel')} options={CHANNELS} />
+              </Field>
+              <Field label="Default payment method" half>
+                <TSelect value={form.defaultPaymentMethod} onChange={f('defaultPaymentMethod')} options={PAY_METHODS} />
+              </Field>
+              <Field label="Invoice number prefix" hint="Invoices will look like INV-123456">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <TInput value={form.invoicePrefix} onChange={f('invoicePrefix')} placeholder="INV" maxLength={10} />
+                  <span style={{ fontSize: 12, color: '#bbb', flexShrink: 0, fontFamily: 'monospace' }}>-123456</span>
+                </div>
+              </Field>
+            </div>
+          </div>
+
+          {/* ── Inventory ── */}
+          <div style={{ background: '#fafafa', borderRadius: 14, padding: 18, border: '1px solid #f0f0f0' }}>
+            <SectionHead icon={Package} title="Inventory" />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+              <Field label="Default low-stock alert threshold" hint="Alert fires when stock ≤ this number">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                  <TInput value={form.lowStockThreshold} onChange={e => set('lowStockThreshold', parseInt(e.target.value) || 10)} type="number" min="1" max="999" />
+                  <span style={{ fontSize: 13, color: '#aaa', flexShrink: 0 }}>units</span>
+                </div>
+              </Field>
+            </div>
+          </div>
+
+          {/* ── Communication ── */}
+          <div style={{ background: '#fafafa', borderRadius: 14, padding: 18, border: '1px solid #f0f0f0' }}>
+            <SectionHead icon={MessageSquare} title="Communication" />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 14 }}>
+              <Field label="SMS signature / footer" hint="Appended to all outgoing SMS messages">
+                <TInput value={form.smsFooter} onChange={f('smsFooter')} placeholder="— Brick's & Joy" />
+              </Field>
+            </div>
+          </div>
+
         </div>
-      )}
+
+        {/* Footer */}
+        <div style={{ padding: '14px 22px', borderTop: '1px solid #f0f0f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fff', position: 'sticky', bottom: 0 }}>
+          <button onClick={handleReset} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: '1px solid #ddd', borderRadius: 9, padding: '8px 14px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, color: '#888', fontWeight: 600 }}>
+            <RotateCcw size={12} /> Reset to defaults
+          </button>
+          <button onClick={handleSave} disabled={!dirty}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, background: dirty ? '#FFA500' : '#f0f0f0', color: dirty ? '#fff' : '#bbb', border: 'none', borderRadius: 9, padding: '9px 20px', cursor: dirty ? 'pointer' : 'default', fontWeight: 700, fontSize: 13.5, fontFamily: 'inherit', transition: 'all 0.15s' }}>
+            <Save size={14} /> {dirty ? 'Save changes' : 'All saved'}
+          </button>
+        </div>
+      </div>
 
       <Toasts toasts={toast.toasts} />
-    </div>
+    </div>,
+    document.body
   )
 }
