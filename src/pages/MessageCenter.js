@@ -252,9 +252,6 @@ Please confirm once delivered.
       subject: '', body: '', source: 'contacts', sel: new Set([contact.id]),
     })
   }
-  function openStaffBroadcast() {
-    openCompose({ title: 'Message staff & directors', channel: 'sms', subject: '', body: '', source: 'contacts' })
-  }
   // Free compose — send to anyone by typing an email/phone, regarding anything
   function openFreeCompose() {
     openCompose({ title: 'New message', channel: 'email', subject: '', body: '', source: 'contacts', freeTo: true, to: '' })
@@ -302,14 +299,16 @@ Please confirm once delivered.
         .mc-in { width:100%; padding:9px 12px; border:1px solid #ddd; border-radius:8px; font-size:13px; font-family:inherit; outline:none; box-sizing:border-box; }
       `}</style>
 
-      <PageHeader title="Message Center" subtitle="Email & SMS in one place — broadcasts, delivery notes, alerts and staff" />
+      <PageHeader title="Message Center" subtitle="Email & SMS in one place — broadcasts, delivery notes, alerts and staff"
+        action={<Button onClick={openFreeCompose}><Mail size={15} /> Compose</Button>} />
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 22, flexWrap: 'wrap' }}>
         {[
           ['broadcast', 'Broadcast', Megaphone],
           ['deliveries', 'Deliveries', Truck],
-          ['stock', 'Stock & Tasks', AlertTriangle],
+          ['stock', 'Stock', AlertTriangle],
+          ['tasks', 'Tasks', ClipboardList],
           ['contacts', 'Contacts', Users],
         ].map(([id, label, Icon]) => {
           const active = activeTab === id
@@ -424,64 +423,61 @@ Please confirm once delivered.
           </div>
         )}
 
-        {/* ── STOCK & TASKS ── */}
+        {/* ── STOCK ── */}
         {activeTab === 'stock' && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, alignItems: 'start' }} className="mc-grid">
-            {/* Stock */}
-            <Card>
-              <h3 style={{ fontSize: 14, fontWeight: 700, color: '#0d1b2a', marginBottom: 14 }}>Stock alert</h3>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
-                <div style={{ background: '#FCEBEB', borderRadius: 12, padding: '14px 16px', border: '1px solid #f5c6c6' }}>
-                  <div style={{ fontSize: 11, color: '#c62828', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Out of stock</div>
-                  <div style={{ fontSize: 26, fontWeight: 800, color: '#c62828' }}>{outOfStock.length}</div>
-                </div>
-                <div style={{ background: '#FFF8E1', borderRadius: 12, padding: '14px 16px', border: '1px solid #FAEEDA' }}>
-                  <div style={{ fontSize: 11, color: '#f57f17', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Low stock</div>
-                  <div style={{ fontSize: 26, fontWeight: 800, color: '#f57f17' }}>{lowStock.length}</div>
-                </div>
+          <Card>
+            <h3 style={{ fontSize: 14, fontWeight: 700, color: '#0d1b2a', marginBottom: 14 }}>Stock alert</h3>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16, maxWidth: 460 }}>
+              <div style={{ background: '#FCEBEB', borderRadius: 12, padding: '14px 16px', border: '1px solid #f5c6c6' }}>
+                <div style={{ fontSize: 11, color: '#c62828', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Out of stock</div>
+                <div style={{ fontSize: 26, fontWeight: 800, color: '#c62828' }}>{outOfStock.length}</div>
               </div>
-              <Button onClick={openStockAlert} disabled={outOfStock.length === 0 && lowStock.length === 0} style={{ width: '100%', justifyContent: 'center' }}>
-                <AlertTriangle size={14} /> Compose stock alert
-              </Button>
-              <div style={{ marginTop: 14 }}>
-                {[...outOfStock, ...lowStock].slice(0, 8).map(p => (
-                  <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderTop: '1px solid #f5f5f5', fontSize: 13 }}>
-                    <span style={{ color: '#444' }}>{p.name}</span>
-                    {p.stock_qty <= 0
-                      ? <span style={{ color: '#c62828', fontWeight: 600, fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}><XCircle size={12} /> Out</span>
-                      : <span style={{ color: '#f57f17', fontWeight: 600, fontSize: 12 }}>{p.stock_qty} left</span>}
-                  </div>
-                ))}
-                {outOfStock.length === 0 && lowStock.length === 0 && (
-                  <p style={{ color: '#1D9E75', fontSize: 13, textAlign: 'center', padding: '14px 0', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7 }}><CheckCircle size={15} /> All products well stocked!</p>
-                )}
+              <div style={{ background: '#FFF8E1', borderRadius: 12, padding: '14px 16px', border: '1px solid #FAEEDA' }}>
+                <div style={{ fontSize: 11, color: '#f57f17', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Low stock</div>
+                <div style={{ fontSize: 26, fontWeight: 800, color: '#f57f17' }}>{lowStock.length}</div>
               </div>
-            </Card>
-
-            {/* Tasks */}
-            <Card>
-              <h3 style={{ fontSize: 14, fontWeight: 700, color: '#0d1b2a', marginBottom: 14 }}>Tasks</h3>
-              {tasks.length === 0 ? (
-                <p style={{ color: '#aaa', fontSize: 13, textAlign: 'center', padding: '24px 0', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7 }}><ClipboardList size={15} /> No pending tasks.</p>
-              ) : tasks.map(t => (
-                <div key={t.id} className="mc-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '10px 8px', borderTop: '1px solid #f5f5f5', borderRadius: 8 }}>
-                  <div>
-                    <div style={{ fontWeight: 600, fontSize: 13, color: '#0d1b2a' }}>{t.title}</div>
-                    <div style={{ fontSize: 11, color: '#aaa', display: 'flex', alignItems: 'center', gap: 4 }}><Calendar size={11} /> {t.date} · {t.priority}</div>
-                  </div>
-                  <Button variant="ghost" size="sm" onClick={() => openTask(t)}><Send size={12} /> Send</Button>
+            </div>
+            <Button onClick={openStockAlert} disabled={outOfStock.length === 0 && lowStock.length === 0} style={{ maxWidth: 460, width: '100%', justifyContent: 'center' }}>
+              <AlertTriangle size={14} /> Compose stock alert
+            </Button>
+            <div style={{ marginTop: 14 }}>
+              {[...outOfStock, ...lowStock].slice(0, 12).map(p => (
+                <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderTop: '1px solid #f5f5f5', fontSize: 13, maxWidth: 460 }}>
+                  <span style={{ color: '#444' }}>{p.name}</span>
+                  {p.stock_qty <= 0
+                    ? <span style={{ color: '#c62828', fontWeight: 600, fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}><XCircle size={12} /> Out</span>
+                    : <span style={{ color: '#f57f17', fontWeight: 600, fontSize: 12 }}>{p.stock_qty} left</span>}
                 </div>
               ))}
-            </Card>
-          </div>
+              {outOfStock.length === 0 && lowStock.length === 0 && (
+                <p style={{ color: '#1D9E75', fontSize: 13, textAlign: 'center', padding: '14px 0', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7 }}><CheckCircle size={15} /> All products well stocked!</p>
+              )}
+            </div>
+          </Card>
+        )}
+
+        {/* ── TASKS ── */}
+        {activeTab === 'tasks' && (
+          <Card>
+            <h3 style={{ fontSize: 14, fontWeight: 700, color: '#0d1b2a', marginBottom: 14 }}>Tasks</h3>
+            {tasks.length === 0 ? (
+              <p style={{ color: '#aaa', fontSize: 13, textAlign: 'center', padding: '24px 0', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7 }}><ClipboardList size={15} /> No pending tasks.</p>
+            ) : tasks.map(t => (
+              <div key={t.id} className="mc-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '10px 8px', borderTop: '1px solid #f5f5f5', borderRadius: 8, maxWidth: 640 }}>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 13, color: '#0d1b2a' }}>{t.title}</div>
+                  <div style={{ fontSize: 11, color: '#aaa', display: 'flex', alignItems: 'center', gap: 4 }}><Calendar size={11} /> {t.date} · {t.priority}</div>
+                </div>
+                <Button variant="ghost" size="sm" onClick={() => openTask(t)}><Send size={12} /> Send</Button>
+              </div>
+            ))}
+          </Card>
         )}
 
         {/* ── CONTACTS ── */}
         {activeTab === 'contacts' && (
           <div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
-              <Button variant="ghost" onClick={openFreeCompose}><Mail size={14} /> Compose</Button>
-              <Button variant="ghost" onClick={openStaffBroadcast} disabled={contacts.length === 0}><Send size={14} /> Message staff</Button>
               <Button onClick={() => { setContactForm({ name: '', email: '', role: '', phone: '' }); setEditContact(null); setContactModal(true) }}><Plus size={14} /> Add contact</Button>
             </div>
             <div style={{ background: '#EEF4FF', border: '1px solid #d0e4ff', borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 12.5, color: '#378ADD', display: 'flex', alignItems: 'flex-start', gap: 8 }}>

@@ -1,10 +1,23 @@
 import React, { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Spinner, Badge } from '../components/UI'
-import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, AreaChart, Area } from 'recharts'
-import { TrendingUp, TrendingDown, Package, ShoppingCart, Users, AlertTriangle, BarChart3, PieChart as PieIcon, LineChart as LineIcon, Activity, Trophy, Medal, Award, Flame, ArrowUpRight, ArrowDownRight, ArrowRight, CheckCircle, Minus, Coins, Tag } from 'lucide-react'
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, AreaChart, Area, ComposedChart } from 'recharts'
+import { TrendingUp, TrendingDown, Package, ShoppingCart, Users, AlertTriangle, BarChart3, PieChart as PieIcon, LineChart as LineIcon, Activity, Trophy, Medal, Award, Flame, ArrowUpRight, ArrowDownRight, ArrowRight, CheckCircle, Minus, Coins, Tag, Rocket, Wallet, Target, RotateCcw } from 'lucide-react'
 
 const COLORS = ['#FFA500','#0d1b2a','#1D9E75','#378ADD','#f57f17','#7F77DD','#c62828','#29b6f6']
+
+// Recommended split of the monthly growth/marketing budget for a growing
+// online toy business. Percentages are a sensible starting framework — editable.
+const DEFAULT_ALLOC = [
+  { key: 'ig',       label: 'Instagram / social ads',     pct: 40, color: '#E1306C', note: 'Your main sales channel — put the most here.' },
+  { key: 'ads',      label: 'Other paid ads & boosts',    pct: 15, color: '#378ADD', note: 'Google, influencer shoutouts, occasional boosts.' },
+  { key: 'research', label: 'Research & product sampling', pct: 20, color: '#7F77DD', note: 'Order samples & test new sets before buying in bulk.' },
+  { key: 'promo',    label: 'Promotions & giveaways',     pct: 10, color: '#FFA500', note: 'Discounts, bundles & giveaways to pull in new buyers.' },
+  { key: 'content',  label: 'Content & creatives',        pct: 10, color: '#1D9E75', note: 'Product photos, reels and design.' },
+  { key: 'buffer',   label: 'Contingency buffer',         pct: 5,  color: '#9CA3AF', note: 'Set aside for opportunities or cost overruns.' },
+]
+// Default share of average monthly revenue to reinvest into growth.
+const DEFAULT_MKT_RATE = 15
 
 // ─── Chart / section title ──────────────────────────────────────────────────────
 function ChartTitle({ icon: Icon, color = '#0d1b2a', gap = 16, children }) {
@@ -38,6 +51,10 @@ export default function Statistics() {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('overview')
+  // Growth Plan state
+  const [alloc, setAlloc] = useState(DEFAULT_ALLOC)
+  const [mktRate, setMktRate] = useState(DEFAULT_MKT_RATE)   // % of avg monthly revenue
+  const [budgetOverride, setBudgetOverride] = useState('')   // '' = use recommended
 
   useEffect(() => { load() }, [])
 
@@ -69,43 +86,79 @@ export default function Statistics() {
       orders: ordByMonth[month] || 0,
     }))
 
-    // Product performance
+    // Product performance (with profit = revenue − COGS)
+    const prodById = Object.fromEntries(prods.map(p => [p.id, p]))
     const productPerf = {}
     ords.forEach(o => {
-      if (!productPerf[o.product_name]) productPerf[o.product_name] = { name: o.product_name, revenue: 0, units: 0, orders: 0, cancelled: 0 }
-      if (o.status === 'delivered') { productPerf[o.product_name].revenue += Number(o.total_price || 0); productPerf[o.product_name].units += o.qty }
+      if (!productPerf[o.product_name]) productPerf[o.product_name] = { name: o.product_name, revenue: 0, units: 0, orders: 0, cancelled: 0, cogs: 0 }
+      if (o.status === 'delivered') {
+        productPerf[o.product_name].revenue += Number(o.total_price || 0)
+        productPerf[o.product_name].units += o.qty
+        const p = prodById[o.product_id]
+        productPerf[o.product_name].cogs += p ? o.qty * Number(p.cost_price || 0) : 0
+      }
       if (o.status === 'cancelled') productPerf[o.product_name].cancelled++
       productPerf[o.product_name].orders++
     })
-    const productChart = Object.values(productPerf).sort((a, b) => b.revenue - a.revenue)
+    const productChart = Object.values(productPerf).map(p => ({
+      ...p,
+      profit: p.revenue - p.cogs,
+      margin: p.revenue > 0 ? (p.revenue - p.cogs) / p.revenue * 100 : 0,
+    })).sort((a, b) => b.revenue - a.revenue)
 
     // Channel performance
     const chanPerf = {}
     delivered.forEach(o => { chanPerf[o.channel] = (chanPerf[o.channel] || 0) + Number(o.total_price || 0) })
     const channelChart = Object.entries(chanPerf).sort((a, b) => b[1] - a[1]).map(([name, value]) => ({ name, value: parseFloat(value.toFixed(2)) }))
 
-    // Forecasting — linear regression on monthly revenue
+    // Smarter forecasting — blends a linear trend with compounding growth
+    // momentum, and adds a confidence band from historical volatility.
     const months = Object.keys(revByMonth).sort()
     const forecastData = []
+    let forecastMeta = null
+    const r2 = v => parseFloat(Number(v).toFixed(2))
     if (months.length >= 2) {
       const n = months.length
-      const xVals = months.map((_, i) => i)
       const yVals = months.map(m => revByMonth[m])
+      // 1) Linear regression (overall direction)
+      const xVals = months.map((_, i) => i)
       const xMean = xVals.reduce((a, b) => a + b, 0) / n
       const yMean = yVals.reduce((a, b) => a + b, 0) / n
-      const slope = xVals.reduce((s, x, i) => s + (x - xMean) * (yVals[i] - yMean), 0) / xVals.reduce((s, x) => s + (x - xMean) ** 2, 0)
+      const denom = xVals.reduce((s, x) => s + (x - xMean) ** 2, 0) || 1
+      const slope = xVals.reduce((s, x, i) => s + (x - xMean) * (yVals[i] - yMean), 0) / denom
       const intercept = yMean - slope * xMean
-      // Historical
-      months.forEach((m, i) => {
-        forecastData.push({ month: new Date(m + '-01').toLocaleDateString('en', { month: 'short', year: '2-digit' }), actual: parseFloat(revByMonth[m].toFixed(2)), forecast: null })
-      })
-      // Next 3 months forecast
+      // 2) Compounding growth momentum — geometric mean of recent MoM ratios
+      const recent = yVals.slice(-6)
+      const ratios = []
+      for (let i = 1; i < recent.length; i++) if (recent[i - 1] > 0) ratios.push(recent[i] / recent[i - 1])
+      const g = ratios.length ? Math.pow(ratios.reduce((a, b) => a * b, 1), 1 / ratios.length) : 1
+      // 3) Volatility — stddev of MoM % changes → drives the confidence band
+      const pct = []
+      for (let i = 1; i < n; i++) if (yVals[i - 1] > 0) pct.push((yVals[i] - yVals[i - 1]) / yVals[i - 1])
+      const pMean = pct.length ? pct.reduce((a, b) => a + b, 0) / pct.length : 0
+      const vol = pct.length ? Math.sqrt(pct.reduce((s, x) => s + (x - pMean) ** 2, 0) / pct.length) : 0.2
+      const last = yVals[n - 1]
+      months.forEach(m => forecastData.push({ month: new Date(m + '-01').toLocaleDateString('en', { month: 'short', year: '2-digit' }), actual: r2(revByMonth[m]) }))
+      const proj = []
       for (let i = 1; i <= 3; i++) {
-        const lastDate = new Date(months[months.length - 1] + '-01')
-        lastDate.setMonth(lastDate.getMonth() + i)
-        const futureMonth = lastDate.toLocaleDateString('en', { month: 'short', year: '2-digit' })
-        const predicted = Math.max(0, intercept + slope * (n - 1 + i))
-        forecastData.push({ month: futureMonth, actual: null, forecast: parseFloat(predicted.toFixed(2)) })
+        const lastDate = new Date(months[n - 1] + '-01'); lastDate.setMonth(lastDate.getMonth() + i)
+        const lin = Math.max(0, intercept + slope * (n - 1 + i))
+        const grow = Math.max(0, last * Math.pow(g, i))
+        const expected = lin * 0.5 + grow * 0.5            // blend trend + momentum
+        const band = Math.min(0.6, vol * Math.sqrt(i))     // widens further out, capped
+        proj.push(expected)
+        forecastData.push({
+          month: lastDate.toLocaleDateString('en', { month: 'short', year: '2-digit' }),
+          expected: r2(expected), low: r2(expected * (1 - band)), high: r2(expected * (1 + band)),
+        })
+      }
+      forecastMeta = {
+        momentum: (g - 1) * 100,
+        nextMonth: proj[0] || 0,
+        proj3: proj.reduce((a, b) => a + b, 0),
+        avgMonthly: yMean,
+        confidence: vol < 0.2 ? 'High' : vol < 0.45 ? 'Medium' : 'Low',
+        volatility: vol,
       }
     }
 
@@ -158,7 +211,11 @@ export default function Statistics() {
     const avgOrderValue = delivered.length > 0 ? revenue / delivered.length : 0
     const returnRate = ords.length > 0 ? (statusCount['cancelled'] || 0) / ords.length * 100 : 0
 
-    setData({ revenueChart, productChart, channelChart, forecastData, hotProducts, topCustomers, expChart, statusCount, revenue, netProfit, avgOrderValue, returnRate, totalOrders: ords.length, deliveredOrders: delivered.length, fulfilmentRate: ords.length > 0 ? (delivered.length / ords.length * 100).toFixed(0) : 0, totalCustomers: custs.length, lowStockCount: prods.filter(p => p.stock_qty <= (p.low_stock_threshold || 10)).length, _allDelivered: deliveredWithCat, _catPeriod: 'all' })
+    const monthsCount = Object.keys(revByMonth).length || 1
+    const avgMonthlyRevenue = revenue / monthsCount
+    const netMargin = revenue > 0 ? netProfit / revenue * 100 : 0
+
+    setData({ revenueChart, productChart, channelChart, forecastData, forecastMeta, hotProducts, topCustomers, expChart, statusCount, revenue, cogs, netProfit, netMargin, avgMonthlyRevenue, avgOrderValue, returnRate, totalOrders: ords.length, deliveredOrders: delivered.length, fulfilmentRate: ords.length > 0 ? (delivered.length / ords.length * 100).toFixed(0) : 0, totalCustomers: custs.length, lowStockCount: prods.filter(p => p.stock_qty <= (p.low_stock_threshold || 10)).length, _allDelivered: deliveredWithCat, _catPeriod: 'all' })
     setLoading(false)
   }
 
@@ -166,7 +223,7 @@ export default function Statistics() {
   const t = data
   const tt = { background: '#fff', border: '1px solid #eee', borderRadius: 8, fontSize: 12 }
 
-  const tabs = [['overview','Overview',BarChart3],['products','Products',Package],['categories','By Category',Tag],['forecast','Forecast',LineIcon],['customers','Customers',Users],['costs','Cost Analysis',Coins]]
+  const tabs = [['overview','Overview',BarChart3],['products','Products',Package],['categories','By Category',Tag],['forecast','Forecast',LineIcon],['plan','Growth Plan',Rocket],['customers','Customers',Users],['costs','Cost Analysis',Coins]]
 
   return (
     <div style={{ fontFamily: "'Poppins', sans-serif" }}>
@@ -290,12 +347,40 @@ export default function Statistics() {
             </Card>
           )}
 
+          {/* Profit summary cards */}
+          {(() => {
+            const totRev = t.productChart.reduce((s, p) => s + p.revenue, 0)
+            const totProfit = t.productChart.reduce((s, p) => s + p.profit, 0)
+            const avgMargin = totRev > 0 ? totProfit / totRev * 100 : 0
+            const best = [...t.productChart].filter(p => p.revenue > 0).sort((a, b) => b.margin - a.margin)[0]
+            const cards = [
+              { label: 'Product revenue', val: `MVR ${totRev.toFixed(2)}`, color: '#1D9E75', icon: TrendingUp },
+              { label: 'Gross profit', val: `MVR ${totProfit.toFixed(2)}`, sub: 'Revenue − cost of goods', color: totProfit >= 0 ? '#1D9E75' : '#c62828', icon: Coins },
+              { label: 'Avg margin', val: `${avgMargin.toFixed(1)}%`, color: avgMargin >= 30 ? '#1D9E75' : avgMargin >= 15 ? '#f57f17' : '#c62828', icon: Activity },
+              { label: 'Best margin', val: best ? `${best.margin.toFixed(0)}%` : '—', sub: best ? best.name : '', color: '#7F77DD', icon: Trophy },
+            ]
+            return (
+              <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+                {cards.map((m, i) => (
+                  <div key={i} className="kpi-card" style={{ '--accent': m.color }}>
+                    <div>
+                      <div style={{ fontSize: 11, color: '#bbb', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 5, fontWeight: 600 }}>{m.label}</div>
+                      <div style={{ fontSize: 19, fontWeight: 700, color: m.color, letterSpacing: '-0.5px' }}>{m.val}</div>
+                      {m.sub && <div style={{ fontSize: 11, color: '#aaa', marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.sub}</div>}
+                    </div>
+                    <div style={{ background: m.color + '14', borderRadius: 9, padding: 8 }}><m.icon size={16} color={m.color} /></div>
+                  </div>
+                ))}
+              </div>
+            )
+          })()}
+
           <Card>
-            <ChartTitle icon={Package} color="#0d1b2a">Product performance table</ChartTitle>
+            <ChartTitle icon={Package} color="#0d1b2a">Product performance & profit</ChartTitle>
             <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
-                  <tr>{['Product','Revenue','Units sold','Orders','Cancelled'].map(h => (
+                  <tr>{['Product','Revenue','Cost (COGS)','Profit','Margin','Units','Cancelled'].map(h => (
                     <th key={h} style={{ textAlign: 'left', padding: '8px 12px', fontSize: 11, color: '#999', borderBottom: '1px solid #eee', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.4px', whiteSpace: 'nowrap' }}>{h}</th>
                   ))}</tr>
                 </thead>
@@ -309,14 +394,19 @@ export default function Statistics() {
                         </span>
                       </td>
                       <td style={{ padding: '10px 12px', fontWeight: 700, color: '#1D9E75' }}>MVR {p.revenue.toFixed(2)}</td>
+                      <td style={{ padding: '10px 12px', color: '#888' }}>MVR {p.cogs.toFixed(2)}</td>
+                      <td style={{ padding: '10px 12px', fontWeight: 700, color: p.profit >= 0 ? '#0d1b2a' : '#c62828' }}>MVR {p.profit.toFixed(2)}</td>
+                      <td style={{ padding: '10px 12px' }}>
+                        <span style={{ fontWeight: 700, fontSize: 12, color: p.margin >= 30 ? '#1D9E75' : p.margin >= 15 ? '#f57f17' : '#c62828' }}>{p.margin.toFixed(0)}%</span>
+                      </td>
                       <td style={{ padding: '10px 12px' }}>{p.units}</td>
-                      <td style={{ padding: '10px 12px' }}>{p.orders}</td>
                       <td style={{ padding: '10px 12px', color: p.cancelled > 0 ? '#c62828' : '#aaa' }}>{p.cancelled}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+            <p style={{ fontSize: 11.5, color: '#aaa', marginTop: 10 }}>Profit = delivered revenue − cost of goods (unit cost × units sold). Set each product’s cost price in Inventory for accurate margins.</p>
           </Card>
         </>
       )}
@@ -406,23 +496,46 @@ export default function Statistics() {
         <>
           <div style={{ background: '#E1F5EE', border: '1px solid #c8eed8', borderRadius: 12, padding: '14px 18px', marginBottom: 20, fontSize: 13, color: '#0F6E56', display: 'flex', alignItems: 'flex-start', gap: 10 }}>
             <div style={{ background: 'rgba(15,110,86,0.12)', borderRadius: 8, padding: 6, display: 'flex', flexShrink: 0 }}><LineIcon size={15} color="#0F6E56" /></div>
-            <span><strong style={{ fontWeight: 600 }}>How forecasting works:</strong> We use linear regression on your monthly revenue trend to project the next 3 months. The more data you have, the more accurate the forecast.</span>
+            <span><strong style={{ fontWeight: 600 }}>Smarter forecast:</strong> we blend your long-term trend with recent month-over-month momentum, then add a confidence band from how steady your sales have been. The shaded area is the likely range (best ↔ worst case).</span>
           </div>
+
+          {/* Forecast momentum cards */}
+          {t.forecastMeta && (
+            <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+              {[
+                { label: 'Monthly momentum', val: `${t.forecastMeta.momentum >= 0 ? '+' : ''}${t.forecastMeta.momentum.toFixed(1)}%`, sub: 'avg growth per month', color: t.forecastMeta.momentum >= 0 ? '#1D9E75' : '#c62828', icon: t.forecastMeta.momentum >= 0 ? TrendingUp : TrendingDown },
+                { label: 'Next month (est.)', val: `MVR ${t.forecastMeta.nextMonth.toFixed(0)}`, color: '#378ADD', icon: LineIcon },
+                { label: 'Next 3 months', val: `MVR ${t.forecastMeta.proj3.toFixed(0)}`, sub: 'projected revenue', color: '#FFA500', icon: BarChart3 },
+                { label: 'Confidence', val: t.forecastMeta.confidence, sub: `±${(t.forecastMeta.volatility * 100).toFixed(0)}% swing`, color: t.forecastMeta.confidence === 'High' ? '#1D9E75' : t.forecastMeta.confidence === 'Medium' ? '#f57f17' : '#c62828', icon: Activity },
+              ].map((m, i) => (
+                <div key={i} className="kpi-card" style={{ '--accent': m.color }}>
+                  <div>
+                    <div style={{ fontSize: 11, color: '#bbb', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 5, fontWeight: 600 }}>{m.label}</div>
+                    <div style={{ fontSize: 19, fontWeight: 700, color: m.color, letterSpacing: '-0.5px' }}>{m.val}</div>
+                    {m.sub && <div style={{ fontSize: 11, color: '#aaa', marginTop: 3 }}>{m.sub}</div>}
+                  </div>
+                  <div style={{ background: m.color + '14', borderRadius: 9, padding: 8 }}><m.icon size={16} color={m.color} /></div>
+                </div>
+              ))}
+            </div>
+          )}
 
           {t.forecastData.length > 0 && (
             <Card style={{ marginBottom: 20 }}>
               <ChartTitle icon={LineIcon} color="#378ADD" gap={4}>Revenue forecast — next 3 months</ChartTitle>
-              <p style={{ fontSize: 12, color: '#999', marginBottom: 16, marginTop: 0 }}>Solid line = actual · Dashed = forecast</p>
-              <ResponsiveContainer width="100%" height={260}>
-                <LineChart data={t.forecastData}>
+              <p style={{ fontSize: 12, color: '#999', marginBottom: 16, marginTop: 0 }}>Orange = actual · Blue dashed = expected · Shaded = likely range</p>
+              <ResponsiveContainer width="100%" height={280}>
+                <ComposedChart data={t.forecastData}>
+                  <defs><linearGradient id="bandGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#378ADD" stopOpacity={0.18}/><stop offset="95%" stopColor="#378ADD" stopOpacity={0.02}/></linearGradient></defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                   <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#999' }} />
                   <YAxis tick={{ fontSize: 11, fill: '#999' }} tickFormatter={v => `MVR ${v}`} />
-                  <Tooltip contentStyle={tt} formatter={(v, name) => [`MVR ${v}`, name === 'actual' ? 'Actual' : 'Forecast']} />
-                  <Legend />
+                  <Tooltip contentStyle={tt} formatter={(v, name) => [`MVR ${v}`, name === 'actual' ? 'Actual' : name === 'expected' ? 'Expected' : name === 'high' ? 'Best case' : 'Worst case']} />
+                  <Area type="monotone" dataKey="high" stroke="none" fill="url(#bandGrad)" connectNulls={false} />
+                  <Area type="monotone" dataKey="low" stroke="none" fill="#fff" connectNulls={false} />
                   <Line type="monotone" dataKey="actual" stroke="#FFA500" strokeWidth={2.5} dot={{ fill: '#FFA500', r: 4 }} connectNulls={false} />
-                  <Line type="monotone" dataKey="forecast" stroke="#378ADD" strokeWidth={2.5} strokeDasharray="6 3" dot={{ fill: '#378ADD', r: 4 }} connectNulls={false} />
-                </LineChart>
+                  <Line type="monotone" dataKey="expected" stroke="#378ADD" strokeWidth={2.5} strokeDasharray="6 3" dot={{ fill: '#378ADD', r: 4 }} connectNulls={false} />
+                </ComposedChart>
               </ResponsiveContainer>
             </Card>
           )}
@@ -469,6 +582,128 @@ export default function Statistics() {
           {t.forecastData.length === 0 && <Card><p style={{ color: '#aaa', fontSize: 13, textAlign: 'center', padding: '40px 0' }}>Add more orders over multiple months to enable forecasting.</p></Card>}
         </>
       )}
+
+      {/* ── GROWTH PLAN ── */}
+      {activeTab === 'plan' && (() => {
+        const amr = t.avgMonthlyRevenue || 0
+        const recommended = Math.round(amr * mktRate / 100)
+        const budget = budgetOverride !== '' && !isNaN(parseFloat(budgetOverride)) ? Math.max(0, parseFloat(budgetOverride)) : recommended
+        const totalPct = alloc.reduce((s, a) => s + Number(a.pct || 0), 0)
+        const setPct = (key, v) => setAlloc(a => a.map(x => x.key === key ? { ...x, pct: v === '' ? '' : Math.max(0, Math.min(100, Number(v))) } : x))
+        const milestones = [
+          { name: 'Grow', mult: 1.5, color: '#1D9E75', actions: ['Add 1–2 new product lines', 'Raise ad budget toward 18% of revenue', 'Start a simple loyalty / repeat-buyer offer'] },
+          { name: 'Scale', mult: 3, color: '#378ADD', actions: ['Negotiate bulk / wholesale pricing with suppliers', 'Bring on part-time help for packing & delivery', 'Add a second sales channel (marketplace / website)'] },
+          { name: 'Expand', mult: 6, color: '#7F77DD', actions: ['Consider a pop-up or small physical shop', 'Broaden the catalog & pre-order popular sets', 'Automate delivery dispatch & invoicing'] },
+        ]
+        return (
+          <>
+            <div style={{ background: '#FFF4E5', border: '1px solid #FAE2C0', borderRadius: 12, padding: '14px 18px', marginBottom: 20, fontSize: 13, color: '#9a5b00', display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+              <div style={{ background: 'rgba(255,165,0,0.16)', borderRadius: 8, padding: 6, display: 'flex', flexShrink: 0 }}><Rocket size={15} color="#FFA500" /></div>
+              <span><strong style={{ fontWeight: 600 }}>Your growth plan:</strong> set aside a slice of revenue each month for marketing, research & sampling, then follow the roadmap as you hit revenue milestones. Everything below is editable.</span>
+            </div>
+
+            {/* Budget basis */}
+            <Card style={{ marginBottom: 20 }}>
+              <ChartTitle icon={Wallet} color="#1D9E75">Monthly growth budget</ChartTitle>
+              <div className="chart-grid" style={{ marginBottom: 4 }}>
+                <div>
+                  <div style={{ fontSize: 12, color: '#888', fontWeight: 600, marginBottom: 6 }}>Reinvest this % of average monthly revenue</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+                    <input type="range" min="5" max="30" value={mktRate} onChange={e => setMktRate(Number(e.target.value))} style={{ flex: 1, minWidth: 140, accentColor: '#FFA500' }} />
+                    <span style={{ fontWeight: 800, fontSize: 18, color: '#0d1b2a', minWidth: 48 }}>{mktRate}%</span>
+                  </div>
+                  <div style={{ fontSize: 12, color: '#888', fontWeight: 600, marginBottom: 6 }}>Or set a fixed monthly budget (MVR)</div>
+                  <input type="number" value={budgetOverride} onChange={e => setBudgetOverride(e.target.value)} placeholder={`Recommended: ${recommended}`}
+                    style={{ width: '100%', padding: '9px 12px', border: '1px solid #ddd', borderRadius: 9, fontSize: 14, fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none' }} />
+                </div>
+                <div style={{ background: 'linear-gradient(135deg,#0d1b2a,#1a2f44)', borderRadius: 14, padding: '20px 22px', color: '#fff', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: '0.8px', fontWeight: 700 }}>Growth budget / month</div>
+                  <div style={{ fontSize: 32, fontWeight: 800, color: '#FFA500', letterSpacing: '-1px', margin: '4px 0' }}>MVR {budget.toFixed(0)}</div>
+                  <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>Avg monthly revenue: MVR {amr.toFixed(0)} · Net margin: {t.netMargin.toFixed(0)}%</div>
+                </div>
+              </div>
+            </Card>
+
+            {/* Allocation */}
+            <Card style={{ marginBottom: 20 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, flexWrap: 'wrap', gap: 8 }}>
+                <ChartTitle icon={Target} color="#FFA500" gap={0}>Where the budget goes</ChartTitle>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: totalPct === 100 ? '#1D9E75' : '#c62828' }}>Total: {totalPct}%</span>
+                  <button onClick={() => { setAlloc(DEFAULT_ALLOC); setMktRate(DEFAULT_MKT_RATE); setBudgetOverride('') }}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: '#f0f0f0', border: 'none', borderRadius: 8, padding: '6px 11px', cursor: 'pointer', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', color: '#666' }}>
+                    <RotateCcw size={12} /> Reset
+                  </button>
+                </div>
+              </div>
+              {totalPct !== 100 && <p style={{ fontSize: 12, color: '#c62828', margin: '0 0 14px' }}>Tip: percentages add up to {totalPct}% — adjust to total 100% for a clean split.</p>}
+              <div style={{ marginTop: 10 }}>
+                {alloc.map(a => {
+                  const mvr = budget * Number(a.pct || 0) / 100
+                  return (
+                    <div key={a.key} style={{ marginBottom: 16 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 6, flexWrap: 'wrap' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
+                          <div style={{ width: 11, height: 11, borderRadius: 3, background: a.color, flexShrink: 0 }} />
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontSize: 13.5, fontWeight: 600, color: '#0d1b2a' }}>{a.label}</div>
+                            <div style={{ fontSize: 11.5, color: '#aaa' }}>{a.note}</div>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                            <input type="number" value={a.pct} onChange={e => setPct(a.key, e.target.value)}
+                              style={{ width: 52, padding: '6px 8px', border: '1px solid #ddd', borderRadius: 7, fontSize: 13, fontFamily: 'inherit', textAlign: 'right', outline: 'none' }} />
+                            <span style={{ fontSize: 12, color: '#aaa' }}>%</span>
+                          </div>
+                          <div style={{ fontWeight: 800, fontSize: 14, color: '#0d1b2a', minWidth: 96, textAlign: 'right' }}>MVR {mvr.toFixed(0)}/mo</div>
+                        </div>
+                      </div>
+                      <div style={{ height: 7, background: '#f0f0f0', borderRadius: 99, overflow: 'hidden' }}>
+                        <div style={{ height: '100%', width: `${Math.min(100, Number(a.pct || 0))}%`, background: a.color, borderRadius: 99, transition: 'width 0.4s ease' }} />
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </Card>
+
+            {/* Expansion roadmap */}
+            <Card>
+              <ChartTitle icon={Rocket} color="#7F77DD">Expansion roadmap</ChartTitle>
+              <p style={{ fontSize: 12.5, color: '#999', margin: '0 0 18px' }}>
+                You're currently averaging <strong style={{ color: '#0d1b2a' }}>MVR {amr.toFixed(0)}/month</strong>. Here's what to focus on as you grow.
+              </p>
+              {amr <= 0 ? (
+                <p style={{ color: '#aaa', fontSize: 13, textAlign: 'center', padding: '20px 0' }}>Deliver some orders first — the roadmap scales to your real numbers.</p>
+              ) : milestones.map((m, i) => {
+                const target = amr * m.mult
+                const progress = Math.min(100, amr / target * 100)
+                return (
+                  <div key={m.name} style={{ display: 'flex', gap: 14, marginBottom: i < milestones.length - 1 ? 22 : 0 }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                      <div style={{ width: 34, height: 34, borderRadius: '50%', background: m.color + '18', color: m.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 14, flexShrink: 0 }}>{i + 1}</div>
+                      {i < milestones.length - 1 && <div style={{ width: 2, flex: 1, background: '#eee', marginTop: 4 }} />}
+                    </div>
+                    <div style={{ flex: 1, paddingBottom: 4 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 6 }}>
+                        <span style={{ fontWeight: 700, fontSize: 15, color: '#0d1b2a' }}>{m.name}</span>
+                        <span style={{ fontSize: 12.5, fontWeight: 700, color: m.color }}>at MVR {target.toFixed(0)}/mo</span>
+                      </div>
+                      <div style={{ height: 6, background: '#f0f0f0', borderRadius: 99, overflow: 'hidden', margin: '8px 0 10px' }}>
+                        <div style={{ height: '100%', width: `${progress}%`, background: m.color, borderRadius: 99 }} />
+                      </div>
+                      <ul style={{ margin: 0, paddingLeft: 18, color: '#555', fontSize: 12.5, lineHeight: 1.7 }}>
+                        {m.actions.map((a, j) => <li key={j}>{a}</li>)}
+                      </ul>
+                    </div>
+                  </div>
+                )
+              })}
+            </Card>
+          </>
+        )
+      })()}
 
       {/* ── CUSTOMERS ── */}
       {activeTab === 'customers' && (
