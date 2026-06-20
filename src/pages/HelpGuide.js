@@ -310,11 +310,17 @@ export default function HelpGuide({ onClose }) {
         .help-back { display: inline-flex; align-items: center; gap: 7px; background: #fff; border: 1px solid #eee; border-radius: 99px; padding: 8px 16px 8px 12px; cursor: pointer; font-family: inherit; font-size: 13px; font-weight: 600; color: #555; transition: all 0.15s; margin-bottom: 20px; }
         .help-back:hover { border-color: #FFA500; color: #FFA500; transform: translateX(-2px); }
         .help-hero { text-align: center; padding: 48px 24px 36px; animation: helpRise 0.4s ease both; }
-        @media (max-width: 720px) { .help-grid { grid-template-columns: 1fr; } }
+        @media (max-width: 720px) { .help-grid { grid-template-columns: 1fr; gap: 10px; } }
         @media (max-width: 600px) {
-          .help-scroll { padding: 0 14px 50px !important; }
-          .help-hero { padding: 36px 10px 28px !important; }
-          .help-hero h1 { font-size: 24px !important; }
+          .help-scroll { padding: 0 12px 50px !important; }
+          .help-hero { padding: 20px 6px 24px !important; }
+          .help-hero h1 { font-size: 22px !important; letter-spacing: -0.3px !important; }
+          .help-hero p { font-size: 13px !important; margin-bottom: 20px !important; }
+          .help-hero-icon { width: 44px !important; height: 44px !important; margin-bottom: 14px !important; }
+          .help-tile { padding: 14px 16px !important; gap: 12px !important; }
+          .help-tile .chev { display: none; }
+          .help-back { font-size: 12px !important; padding: 7px 13px 7px 10px !important; }
+          .help-step { padding: 10px 6px !important; }
         }
       `}</style>
 
@@ -369,7 +375,7 @@ export default function HelpGuide({ onClose }) {
             <>
               {/* ── HERO: title + search ── */}
               <div className="help-hero">
-                <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg,#FFA500,#ff8c00)', borderRadius: 18, width: 56, height: 56, marginBottom: 20, boxShadow: '0 6px 18px rgba(255,165,0,0.3)' }}>
+                <div className="help-hero-icon" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg,#FFA500,#ff8c00)', borderRadius: 18, width: 56, height: 56, marginBottom: 20, boxShadow: '0 6px 18px rgba(255,165,0,0.3)' }}>
                   <LifeBuoy size={28} color="#fff" />
                 </div>
                 <h1 style={{ margin: '0 0 10px', fontSize: 32, fontWeight: 900, color: '#0d1b2a', letterSpacing: '-0.8px', lineHeight: 1.2 }}>

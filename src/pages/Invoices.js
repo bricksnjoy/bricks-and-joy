@@ -223,8 +223,21 @@ export default function Invoices() {
         .inv-action:hover { background:#0d1b2a; color:#fff; border-color:#0d1b2a; }
         .inv-action.print:hover { background:#FFA500; border-color:#FFA500; color:#fff; }
         @media (max-width: 700px) {
-          .inv-head { grid-template-columns:1fr auto; gap:8px; }
           .inv-col-date, .inv-col-items, .inv-col-channel { display:none; }
+          .inv-head { grid-template-columns:1fr auto; gap:10px; }
+        }
+        @media (max-width: 600px) {
+          .inv-col-hdr { display:none !important; }
+          .inv-head { display:flex !important; align-items:center; gap:10px; padding:12px 14px; }
+          .inv-invnum { font-size:10.5px !important; padding:2px 6px !important; }
+          .inv-items { padding:10px 14px; }
+          .inv-item-line { flex-wrap:wrap; gap:2px; }
+          .inv-item-line > span:last-child { margin-left:auto; }
+          .inv-exp-footer { flex-direction:column !important; align-items:flex-start !important; gap:10px !important; }
+          .inv-exp-footer .inv-action { width:100%; justify-content:center; padding:10px 14px; font-size:13px; }
+          .inv-filter-wrap { overflow-x:auto; -webkit-overflow-scrolling:touch; scrollbar-width:none; }
+          .inv-filter-wrap::-webkit-scrollbar { display:none; }
+          .inv-filter-wrap > div { flex-wrap:nowrap !important; }
         }
       `}</style>
 
@@ -241,9 +254,9 @@ export default function Invoices() {
       />
 
       <Card style={{ marginBottom: 16 }}>
-        <div style={{ display:'flex', gap:12, flexWrap:'wrap', alignItems:'center' }}>
+        <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
           {/* Search */}
-          <div style={{ position:'relative', flex:1, minWidth:200 }}>
+          <div style={{ position:'relative' }}>
             <Search size={14} color="#bbb" style={{ position:'absolute', left:11, top:'50%', transform:'translateY(-50%)', pointerEvents:'none' }} />
             <input
               value={search}
@@ -253,26 +266,28 @@ export default function Invoices() {
             />
           </div>
 
-          {/* Payment filter */}
-          <div style={{ display:'flex', background:'#f5f5f5', borderRadius:10, padding:3, gap:2 }}>
-            {[
-              { key:'all', label:'All', count: counts.all },
-              { key:'paid', label:'Paid', count: counts.paid },
-              { key:'partial', label:'Partial', count: counts.partial },
-              { key:'unpaid', label:'Unpaid', count: counts.unpaid },
-            ].map(f => (
-              <button key={f.key} onClick={() => setPayFilter(f.key)} style={{
-                padding:'6px 12px', borderRadius:8, border:'none', cursor:'pointer', fontFamily:'inherit',
-                fontSize:12, fontWeight: payFilter === f.key ? 700 : 500,
-                background: payFilter === f.key ? '#fff' : 'transparent',
-                color: payFilter === f.key ? (payColors[f.key] || '#0d1b2a') : '#999',
-                boxShadow: payFilter === f.key ? '0 1px 4px rgba(0,0,0,0.08)' : 'none',
-                transition:'all 0.15s', display:'flex', alignItems:'center', gap:5,
-              }}>
-                {f.label}
-                <span style={{ fontSize:10, fontWeight:700, background: payFilter === f.key ? '#f0f0f0' : 'transparent', borderRadius:99, padding: payFilter === f.key ? '1px 5px' : '0', color: payFilter === f.key ? '#555' : '#bbb' }}>{f.count}</span>
-              </button>
-            ))}
+          {/* Payment filter — scrollable on mobile */}
+          <div className="inv-filter-wrap">
+            <div style={{ display:'flex', background:'#f5f5f5', borderRadius:10, padding:3, gap:2 }}>
+              {[
+                { key:'all', label:'All', count: counts.all },
+                { key:'paid', label:'Paid', count: counts.paid },
+                { key:'partial', label:'Partial', count: counts.partial },
+                { key:'unpaid', label:'Unpaid', count: counts.unpaid },
+              ].map(f => (
+                <button key={f.key} onClick={() => setPayFilter(f.key)} style={{
+                  padding:'6px 12px', borderRadius:8, border:'none', cursor:'pointer', fontFamily:'inherit',
+                  fontSize:12, fontWeight: payFilter === f.key ? 700 : 500,
+                  background: payFilter === f.key ? '#fff' : 'transparent',
+                  color: payFilter === f.key ? (payColors[f.key] || '#0d1b2a') : '#999',
+                  boxShadow: payFilter === f.key ? '0 1px 4px rgba(0,0,0,0.08)' : 'none',
+                  transition:'all 0.15s', display:'flex', alignItems:'center', gap:5, whiteSpace:'nowrap', flexShrink:0,
+                }}>
+                  {f.label}
+                  <span style={{ fontSize:10, fontWeight:700, background: payFilter === f.key ? '#f0f0f0' : 'transparent', borderRadius:99, padding: payFilter === f.key ? '1px 5px' : '0', color: payFilter === f.key ? '#555' : '#bbb' }}>{f.count}</span>
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       </Card>
@@ -288,8 +303,8 @@ export default function Invoices() {
         </Card>
       ) : (
         <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-          {/* Column headers */}
-          <div className="inv-head" style={{ padding:'0 16px 6px', cursor:'default', fontSize:10, color:'#bbb', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.5px' }}>
+          {/* Column headers — hidden on mobile */}
+          <div className="inv-head inv-col-hdr" style={{ padding:'0 16px 6px', cursor:'default', fontSize:10, color:'#bbb', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.5px' }}>
             <span>Invoice #</span>
             <span>Customer</span>
             <span className="inv-col-date">Date</span>
@@ -310,7 +325,7 @@ export default function Invoices() {
                 {/* Row header — click to expand */}
                 <div className="inv-head" onClick={() => setExpanded(isOpen ? null : inv.key)}>
                   {/* Invoice # */}
-                  <span style={{ fontFamily:'monospace', fontSize:12, color:'#888', background:'#f5f5f5', padding:'3px 8px', borderRadius:6, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
+                  <span className="inv-invnum" style={{ fontFamily:'monospace', fontSize:12, color:'#888', background:'#f5f5f5', padding:'3px 8px', borderRadius:6, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
                     {inv.invoice_number || <span style={{ color:'#ccc' }}>No #</span>}
                   </span>
 
@@ -362,7 +377,7 @@ export default function Invoices() {
                       </div>
                     ))}
                     {/* Footer: total + actions */}
-                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', paddingTop:10, marginTop:4, borderTop:'1px solid #eee' }}>
+                    <div className="inv-exp-footer" style={{ display:'flex', justifyContent:'space-between', alignItems:'center', paddingTop:10, marginTop:4, borderTop:'1px solid #eee' }}>
                       <div style={{ fontSize:12, color:'#888' }}>
                         {inv.payment_method && <span>Via {inv.payment_method}</span>}
                         {inv.transfer_reference && <span style={{ marginLeft:8, fontFamily:'monospace' }}>#{inv.transfer_reference}</span>}
