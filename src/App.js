@@ -102,6 +102,13 @@ export default function App() {
     return () => subscription.unsubscribe()
   }, [])
 
+  // Lets any page request navigation (e.g. Dashboard action center) without prop drilling
+  useEffect(() => {
+    const handler = e => { if (e.detail && ITEMS[e.detail]) { setPage(e.detail); setSidebarOpen(false) } }
+    window.addEventListener('bnj-navigate', handler)
+    return () => window.removeEventListener('bnj-navigate', handler)
+  }, [])
+
   function persist(next) {
     setNav(next)
     try { localStorage.setItem(NAV_KEY, JSON.stringify(next)) } catch {}

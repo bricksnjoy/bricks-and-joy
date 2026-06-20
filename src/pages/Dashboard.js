@@ -4,10 +4,21 @@ import { StockBadge, StatusBadge, Spinner } from '../components/UI'
 import {
   Package, ShoppingCart, Users, TrendingUp, TrendingDown,
   AlertTriangle, CheckCircle, DollarSign, Zap, Calendar,
-  ArrowUpRight, ArrowDownRight, Activity, Star, UserCheck
+  ArrowUpRight, ArrowDownRight, Activity, Star, UserCheck,
+  Wallet, Truck, Sparkles, ChevronRight, Lightbulb
 } from 'lucide-react'
+import { actionItems, generateInsights, restockPredictions } from '../lib/insights'
+import { loyaltyProfile } from '../lib/loyalty'
 
 const AVATAR_COLORS = ['#7F77DD','#1D9E75','#FFA500','#378ADD','#E24B4A','#0F6E56']
+
+const ACTION_ICONS = { wallet: Wallet, truck: Truck, package: Package, users: Users }
+const SEV = {
+  high: { bg: '#FDECEA', border: '#f8d7d2', color: '#c0392b', dot: '#E24B4A' },
+  med:  { bg: '#FFF8E7', border: '#FAEEDA', color: '#854F0B', dot: '#FFA500' },
+  low:  { bg: '#E6F1FB', border: '#cfe3f7', color: '#1e4d8c', dot: '#378ADD' },
+}
+const navTo = page => window.dispatchEvent(new CustomEvent('bnj-navigate', { detail: page }))
 
 export default function Dashboard() {
   const [stats, setStats] = useState(null)
@@ -16,6 +27,8 @@ export default function Dashboard() {
   const [recentCustomers, setRecentCustomers] = useState([])
   const [bestSellers, setBestSellers] = useState([])
   const [newCustomers30, setNewCustomers30] = useState([])
+  const [actions, setActions] = useState([])
+  const [insights, setInsights] = useState([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => { loadDashboard() }, [])
@@ -70,6 +83,12 @@ export default function Dashboard() {
     // New customers last 30 days
     const newCusts = custs.filter(c => c.created_at && c.created_at.split('T')[0] >= since30Str)
     setNewCustomers30(newCusts)
+
+    // Action center + AI insights + restock predictions
+    const loyaltyProfiles = custs.map(c => loyaltyProfile(ords.filter(o => o.customer_id === c.id)))
+    const restock = restockPredictions(prods, ords)
+    setActions(actionItems({ orders: ords, products: prods, customers: custs, loyaltyProfiles }))
+    setInsights(generateInsights({ orders: ords, products: prods, customers: custs, restock, loyaltyProfiles }))
 
     setStats({ products: prods.length, totalStock: prods.reduce((s, p) => s + (p.stock_qty || 0), 0), customers: custs.length, activeOrders: ords.filter(o => o.status === 'pending' || o.status === 'transit').length, deliveredOrders: delivered.length, revenue, netProfit, pendingOrders: ords.filter(o => o.status === 'pending').length, todaySales, thisMonthSales, lastMonthSales, monthChange })
     setLowStock(prods.filter(p => p.stock_qty <= (p.low_stock_threshold || 10)).slice(0, 5))
@@ -142,6 +161,68 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* Action center + AI insights */}
+      {(actions.length > 0 || insights.length > 0) && (
+        <div className="grid-collapse" style={{ display: 'grid', gridTemplateColumns: actions.length ? '1fr 1fr' : '1fr', gap: 14, marginBottom: 16 }}>
+          {/* Needs attention */}
+          {actions.length > 0 && (
+            <div className="panel" style={{ animation: 'fadeSlideUp 0.3s ease both' }}>
+              <div className="panel-header">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                  <div style={{ background: '#FDECEA', borderRadius: 9, padding: '6px 7px', display: 'flex' }}><AlertTriangle size={14} color="#E24B4A" /></div>
+                  <span style={{ fontWeight: 700, fontSize: 14, color: '#0d1b2a' }}>Needs attention</span>
+                </div>
+                <span style={{ background: '#FDECEA', color: '#c0392b', fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 99 }}>{actions.length}</span>
+              </div>
+              <div>
+                {actions.map(a => {
+                  const Icon = ACTION_ICONS[a.icon] || AlertTriangle
+                  const s = SEV[a.severity]
+                  return (
+                    <button key={a.key} onClick={() => navTo(a.page)} className="order-row" style={{ width: '100%', border: 'none', background: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 11, minWidth: 0, flex: 1 }}>
+                        <div style={{ width: 34, height: 34, borderRadius: 10, background: s.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                          <Icon size={15} color={s.dot} />
+                        </div>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: '#0d1b2a' }}>{a.title}</div>
+                          <div style={{ fontSize: 11, color: '#aaa', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.detail}</div>
+                        </div>
+                      </div>
+                      <ChevronRight size={15} color="#ccc" style={{ flexShrink: 0 }} />
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* AI insights */}
+          {insights.length > 0 && (
+            <div className="panel" style={{ animation: 'fadeSlideUp 0.3s ease both', animationDelay: '0.05s' }}>
+              <div className="panel-header">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                  <div style={{ background: '#EEEDFE', borderRadius: 9, padding: '6px 7px', display: 'flex' }}><Sparkles size={14} color="#7F77DD" /></div>
+                  <span style={{ fontWeight: 700, fontSize: 14, color: '#0d1b2a' }}>Smart insights</span>
+                </div>
+                <span style={{ fontSize: 10, color: '#bbb', fontWeight: 600 }}>Auto-generated</span>
+              </div>
+              <div style={{ padding: '6px 0' }}>
+                {insights.slice(0, 5).map((ins, i) => {
+                  const c = ins.tone === 'good' ? '#1D9E75' : ins.tone === 'warn' ? '#E24B4A' : '#378ADD'
+                  return (
+                    <div key={i} style={{ display: 'flex', gap: 10, padding: '9px 18px', alignItems: 'flex-start' }}>
+                      <Lightbulb size={14} color={c} style={{ flexShrink: 0, marginTop: 2 }} />
+                      <span style={{ fontSize: 12.5, color: '#444', lineHeight: 1.5 }}>{ins.text}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Metric cards */}
       <div className="dash-metrics">

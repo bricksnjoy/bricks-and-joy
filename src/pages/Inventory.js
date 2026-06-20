@@ -21,6 +21,7 @@ const CakeIcon = ({ size = 14, color = '#378ADD' }) => (
 import JsBarcode from 'jsbarcode'
 import QRCode from 'qrcode'
 import BarcodeScanner from '../components/BarcodeScanner'
+import { restockPredictions } from '../lib/insights'
 
 const CATEGORIES = ['Building & Blocks','Action Figures','Dolls & Plush','Board Games','Outdoor & Sports','Educational','Vehicles & RC','Arts & Crafts','Puzzles','Other']
 const AGE_RANGES = ['0–2','3–5','6–8','9–12','12+','All ages']
@@ -38,6 +39,7 @@ export default function Inventory() {
   const [products, setProducts] = useState([])
   const [suppliers, setSuppliers] = useState([])
   const [customers, setCustomers] = useState([])
+  const [orders, setOrders] = useState([])
   const [orderModal, setOrderModal] = useState(null)
   const [orderForm, setOrderForm] = useState({ qty: 1, unit_price: 0, customer_id: '', customer_name: '', payment_status: 'unpaid', channel: 'Retail store' })
   const [placingOrder, setPlacingOrder] = useState(false)
@@ -52,6 +54,7 @@ export default function Inventory() {
   const [filterCat, setFilterCat] = useState('all')
   const [uploading, setUploading] = useState(false)
   const [barcodeType, setBarcodeType] = useState('barcode') // 'barcode' | 'qr'
+  const [labelQty, setLabelQty] = useState(1)
   const [scanResult, setScanResult] = useState(null)
   const barcodeRef = useRef(null)
   const qrCanvasRef = useRef(null)
@@ -85,14 +88,16 @@ export default function Inventory() {
 
   async function load() {
     setLoading(true)
-    const [p, s, c] = await Promise.all([
+    const [p, s, c, o] = await Promise.all([
       supabase.from('products').select('*, suppliers(name)').order('created_at', { ascending: false }),
       supabase.from('suppliers').select('id, name'),
       supabase.from('customers').select('id, name').order('name'),
+      supabase.from('orders').select('product_id, qty, status, order_date'),
     ])
     setProducts(p.data || [])
     setSuppliers(s.data || [])
     setCustomers(c.data || [])
+    setOrders(o.data || [])
     setLoading(false)
   }
 
@@ -110,7 +115,8 @@ export default function Inventory() {
   function openEdit(p) { setForm({ ...EMPTY, ...p, sizes: p.sizes || '', tags: p.tags || '' }); setModal('edit') }
   function openView(p) { setViewModal(p) }
   function startScanner() { setScanModal(true); setScanResult(null) }
-  function openBarcode(p) { 
+  function openBarcode(p) {
+    setLabelQty(1)
     if (!p.barcode) {
       const bc = genBarcode(p.name, p.id)
       supabase.from('products').update({ barcode: bc }).eq('id', p.id).then(() => {
@@ -270,13 +276,44 @@ export default function Inventory() {
       imgSrc = 'data:image/svg+xml;base64,' + btoa(svgData)
     }
     
+    const qty = Math.max(1, parseInt(labelQty) || 1)
+    const oneLabel = `
+        <div class="label">
+          <div class="label-top">
+            <div class="logo-wrap">
+              <img src="${logoUrl}" alt="" onerror="this.style.display='none'" />
+              <div>
+                <div class="brand-name">Brick's &amp; Joy</div>
+                <div class="brand-sub">Toy Store</div>
+              </div>
+            </div>
+            <div class="top-right">
+              <div class="top-tag">Product Label</div>
+            </div>
+          </div>
+          <div class="barcode-strip">
+            <img src="${imgSrc}" alt="barcode" />
+          </div>
+          <div class="product-info">
+            <div class="product-name">${barcodeModal.name}</div>
+            ${barcodeModal.brand ? `<div class="product-brand">${barcodeModal.brand}</div>` : ''}
+            <div class="product-footer">
+              <div class="price-tag">MVR ${Number(barcodeModal.sell_price).toFixed(2)}</div>
+              <div class="code-block">
+                <div class="code-num">${barcodeModal.barcode}</div>
+                ${barcodeModal.sizes ? `<div class="sizes-text">${barcodeModal.sizes}</div>` : ''}
+              </div>
+            </div>
+          </div>
+        </div>`
     w.document.write(`
       <html><head><title>Label — ${barcodeModal.name}</title>
       <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800&display=swap" rel="stylesheet">
       <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Poppins', Arial, sans-serif; background: #f0f0f0; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
-        .label { background: #fff; border-radius: 16px; overflow: hidden; width: 300px; box-shadow: 0 6px 24px rgba(0,0,0,0.12); }
+        body { font-family: 'Poppins', Arial, sans-serif; background: #f0f0f0; padding: 16px; ${qty === 1 ? 'display: flex; align-items: center; justify-content: center; min-height: 100vh;' : ''} }
+        .sheet { display: grid; grid-template-columns: ${qty === 1 ? '1fr' : 'repeat(2, 1fr)'}; gap: 14px; ${qty === 1 ? 'width: 300px;' : 'max-width: 640px; margin: 0 auto;'} }
+        .label { background: #fff; border-radius: 16px; overflow: hidden; box-shadow: 0 6px 24px rgba(0,0,0,0.12); break-inside: avoid; }
 
         /* Top row: logo left, brand name right */
         .label-top { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px 8px; border-bottom: 1px solid #f5f5f5; }
@@ -304,36 +341,7 @@ export default function Inventory() {
         @media print { body { background: none; min-height: auto; } .label { box-shadow: none; border: 1px solid #ddd; border-radius: 0; } }
       </style></head>
       <body>
-        <div class="label">
-          <div class="label-top">
-            <div class="logo-wrap">
-              <img src="${logoUrl}" alt="" onerror="this.style.display='none'" />
-              <div>
-                <div class="brand-name">Brick's &amp; Joy</div>
-                <div class="brand-sub">Toy Store</div>
-              </div>
-            </div>
-            <div class="top-right">
-              <div class="top-tag">Product Label</div>
-            </div>
-          </div>
-
-          <div class="barcode-strip">
-            <img src="${imgSrc}" alt="barcode" />
-          </div>
-
-          <div class="product-info">
-            <div class="product-name">${barcodeModal.name}</div>
-            ${barcodeModal.brand ? `<div class="product-brand">${barcodeModal.brand}</div>` : ''}
-            <div class="product-footer">
-              <div class="price-tag">MVR ${Number(barcodeModal.sell_price).toFixed(2)}</div>
-              <div class="code-block">
-                <div class="code-num">${barcodeModal.barcode}</div>
-                ${barcodeModal.sizes ? `<div class="sizes-text">${barcodeModal.sizes}</div>` : ''}
-              </div>
-            </div>
-          </div>
-        </div>
+        <div class="sheet">${Array.from({ length: qty }, () => oneLabel).join('')}</div>
         <script>window.onload = () => { window.print(); window.onafterprint = () => window.close(); }</script>
       </body></html>`)
     w.document.close()
@@ -482,6 +490,10 @@ export default function Inventory() {
     w.document.close()
   }
 
+  const restock = restockPredictions(products, orders)
+  const restockMap = Object.fromEntries(restock.map(r => [r.id, r]))
+  const restockNeeded = restock.filter(r => r.urgency === 'out' || r.urgency === 'critical' || r.urgency === 'soon')
+
   const filtered = products.filter(p => {
     const ms = p.name.toLowerCase().includes(search.toLowerCase()) || (p.brand || '').toLowerCase().includes(search.toLowerCase()) || (p.sku || '').toLowerCase().includes(search.toLowerCase()) || (p.barcode || '').includes(search)
     const mc = filterCat === 'all' || p.category === filterCat
@@ -571,11 +583,12 @@ export default function Inventory() {
             { key: 'retired', label: 'Retired', count: products.filter(p => p.discontinued).length, color: '#888' },
             { key: 'lowstock', label: 'Low Stock', count: products.filter(p => !p.discontinued && p.stock_qty > 0 && p.stock_qty <= (p.low_stock_threshold || 10)).length, color: '#FFA500' },
             { key: 'cleared', label: 'Cleared Out', count: products.filter(p => !p.discontinued && p.stock_qty <= 0).length, color: '#E24B4A' },
+            { key: 'restock', label: '📦 Restock', count: restockNeeded.length, color: '#7F77DD' },
           ].map(tab => (
             <button key={tab.key} onClick={() => { setStockFilter(tab.key); setSelected(new Set()) }}
               style={{ padding: '7px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'inherit',
                 fontSize: 12.5, fontWeight: stockFilter === tab.key ? 700 : 500,
-                background: stockFilter === tab.key ? (tab.key === 'active' ? '#1D9E75' : tab.key === 'retired' ? '#666' : tab.key === 'lowstock' ? '#FFA500' : '#E24B4A') : 'transparent',
+                background: stockFilter === tab.key ? (tab.key === 'active' ? '#1D9E75' : tab.key === 'retired' ? '#666' : tab.key === 'lowstock' ? '#FFA500' : tab.key === 'restock' ? '#7F77DD' : '#E24B4A') : 'transparent',
                 color: stockFilter === tab.key ? '#fff' : '#888',
                 transition: 'all 0.15s', display: 'flex', alignItems: 'center', gap: 6 }}>
               {tab.label}
@@ -611,7 +624,9 @@ export default function Inventory() {
           </div>
         </div>
 
-        {loading ? <Spinner /> : view === 'list'
+        {loading ? <Spinner /> : stockFilter === 'restock'
+          ? <RestockView rows={restock} onView={openView} onReorder={p => { setViewModal(null); openOrder(p) }} products={products} />
+          : view === 'list'
           ? <Table columns={columns} data={filtered} emptyMessage="No products found." />
           : (filtered.length === 0
               ? <div style={{ textAlign: 'center', padding: '60px 20px', color: '#bbb' }}>No products found.</div>
@@ -644,6 +659,23 @@ export default function Inventory() {
             {barcodeModal.brand && <div style={{ fontSize: 12, color: '#888' }}>{barcodeModal.brand}</div>}
             <div style={{ fontSize: 13, color: '#FFA500', fontWeight: 700, marginTop: 4 }}>MVR {Number(barcodeModal.sell_price).toFixed(2)}</div>
             {barcodeModal.sizes && <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>Sizes: {barcodeModal.sizes}</div>}
+          </div>
+
+          {/* Print quantity */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 12, padding: '10px 14px', background: '#f8f7f4', borderRadius: 10 }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: '#555' }}>Labels to print</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <button onClick={() => setLabelQty(q => Math.max(1, (parseInt(q) || 1) - 1))} style={{ width: 30, height: 30, borderRadius: 8, border: '1px solid #ddd', background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Minus size={14} /></button>
+              <input type="number" min="1" value={labelQty} onChange={e => setLabelQty(e.target.value)}
+                style={{ width: 56, textAlign: 'center', padding: '6px', border: '1px solid #ddd', borderRadius: 8, fontSize: 14, fontWeight: 700, fontFamily: 'inherit', outline: 'none' }} />
+              <button onClick={() => setLabelQty(q => (parseInt(q) || 0) + 1)} style={{ width: 30, height: 30, borderRadius: 8, border: '1px solid #ddd', background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Plus size={14} /></button>
+              {barcodeModal.stock_qty > 0 && (
+                <button onClick={() => setLabelQty(barcodeModal.stock_qty)} title="One per unit in stock"
+                  style={{ marginLeft: 4, padding: '6px 10px', borderRadius: 8, border: '1px solid #ddd', background: '#fff', cursor: 'pointer', fontSize: 11.5, fontWeight: 600, fontFamily: 'inherit', color: '#7F77DD' }}>
+                  = stock ({barcodeModal.stock_qty})
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Action buttons */}
@@ -916,6 +948,71 @@ export default function Inventory() {
         </Modal>
       )}
       <Toasts toasts={toast.toasts} />
+    </div>
+  )
+}
+
+// ── Restock predictions view ──────────────────────────────
+const URGENCY = {
+  out:      { label: 'Out of stock', color: '#E24B4A', bg: '#FDECEA' },
+  critical: { label: 'Critical',     color: '#E24B4A', bg: '#FDECEA' },
+  soon:     { label: 'Reorder soon', color: '#FFA500', bg: '#FFF8E7' },
+  ok:       { label: 'Healthy',      color: '#1D9E75', bg: '#E1F5EE' },
+}
+function RestockView({ rows, onView, onReorder, products }) {
+  if (!rows.length) {
+    return <div style={{ textAlign: 'center', padding: '50px 20px', color: '#bbb' }}>Not enough sales history yet to predict restocking. Keep recording orders.</div>
+  }
+  const fmtDays = d => d === Infinity ? '—' : d <= 0 ? 'now' : `${d}d`
+  return (
+    <div>
+      <div style={{ background: '#F4F3FE', border: '1px solid #e3e0fb', borderRadius: 12, padding: '12px 16px', marginBottom: 16, fontSize: 12.5, color: '#5b4fb5', display: 'flex', alignItems: 'flex-start', gap: 9 }}>
+        <Package size={15} style={{ flexShrink: 0, marginTop: 1 }} />
+        <span>Predictions use the last 60 days of delivered orders. <strong>Days left</strong> = stock ÷ daily sales pace. <strong>Suggested</strong> reorder covers ~30 days of demand.</span>
+      </div>
+      <div className="x-scroll-wrap">
+        <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 720 }}>
+          <thead>
+            <tr style={{ background: '#fafafa' }}>
+              {['Product', 'Sells/mo', 'In stock', 'Days left', 'Status', 'Suggested reorder', ''].map(h => (
+                <th key={h} style={{ padding: '9px 12px', textAlign: 'left', fontSize: 11, color: '#999', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.4px', borderBottom: '1px solid #eee' }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => {
+              const u = URGENCY[r.urgency] || URGENCY.ok
+              const prod = products.find(p => p.id === r.id)
+              return (
+                <tr key={r.id} style={{ borderBottom: i < rows.length - 1 ? '1px solid #f5f5f5' : 'none' }}>
+                  <td style={{ padding: '10px 12px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      {r.photo_url
+                        ? <img src={r.photo_url} alt="" style={{ width: 34, height: 34, borderRadius: 8, objectFit: 'cover', border: '1px solid #eee', flexShrink: 0 }} />
+                        : <div style={{ width: 34, height: 34, borderRadius: 8, background: '#f0f0f0', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Package size={15} color="#ccc" /></div>}
+                      <div style={{ fontWeight: 600, color: '#0d1b2a' }}>{r.name}</div>
+                    </div>
+                  </td>
+                  <td style={{ padding: '10px 12px', color: '#555' }}>{r.perMonth.toFixed(1)}</td>
+                  <td style={{ padding: '10px 12px', fontWeight: 700, color: r.stock <= 0 ? '#E24B4A' : '#0d1b2a' }}>{r.stock}</td>
+                  <td style={{ padding: '10px 12px', fontWeight: 700, color: u.color }}>{fmtDays(r.daysLeft)}</td>
+                  <td style={{ padding: '10px 12px' }}>
+                    <span style={{ fontSize: 11.5, fontWeight: 700, color: u.color, background: u.bg, padding: '3px 10px', borderRadius: 99 }}>{u.label}</span>
+                  </td>
+                  <td style={{ padding: '10px 12px' }}>
+                    {r.suggestedReorder > 0
+                      ? <span style={{ fontWeight: 800, color: '#7F77DD' }}>+{r.suggestedReorder} units</span>
+                      : <span style={{ color: '#bbb' }}>—</span>}
+                  </td>
+                  <td style={{ padding: '10px 12px' }}>
+                    <Button variant="ghost" size="sm" onClick={() => onView(prod)} title="View product"><Eye size={13} /></Button>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }
