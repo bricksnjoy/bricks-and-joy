@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import {
   X, Search, LifeBuoy, ShoppingCart, BookOpen, Truck, Lightbulb,
   Users, Package, Tag, Building2, MessageSquare, Sparkles, CalendarDays,
-  FileText, DollarSign, BarChart2, LayoutDashboard, Smartphone
+  FileText, DollarSign, BarChart2, LayoutDashboard, Smartphone, ChevronRight, ArrowLeft
 } from 'lucide-react'
 
 // ── Guide content ─────────────────────────────────────────────────────────────
@@ -266,6 +266,7 @@ const GUIDES = [
 
 export default function HelpGuide({ onClose }) {
   const [query, setQuery] = useState('')
+  const [openId, setOpenId] = useState(null)
 
   const q = query.trim().toLowerCase()
   const filtered = useMemo(() => {
@@ -281,13 +282,7 @@ export default function HelpGuide({ onClose }) {
       .filter(Boolean)
   }, [q])
 
-  function jumpTo(id) {
-    setQuery('')
-    setTimeout(() => {
-      const el = document.getElementById('help-' + id)
-      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    }, 30)
-  }
+  const active = openId ? GUIDES.find(g => g.id === openId) : null
 
   return createPortal((
     <div className="help-overlay" style={{
@@ -300,11 +295,22 @@ export default function HelpGuide({ onClose }) {
         @keyframes helpRise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
         .help-card { animation: helpRise 0.35s ease backwards; }
         .help-step:hover { background: #faf9f6; }
-        .help-chip { transition: all 0.15s ease; }
-        .help-chip:hover { border-color: #FFA500 !important; color: #FFA500 !important; transform: translateY(-1px); box-shadow: 0 3px 10px rgba(255,165,0,0.12); }
         .help-x:hover { background: #fee !important; color: #c0392b !important; }
         .help-scroll::-webkit-scrollbar { width: 8px; }
         .help-scroll::-webkit-scrollbar-thumb { background: #e0ddd6; border-radius: 99px; }
+        .help-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        .help-tile {
+          display: flex; align-items: center; gap: 16px; text-align: left;
+          background: #fff; border: 1px solid #eee; border-radius: 16px;
+          padding: 20px 22px; cursor: pointer; font-family: inherit; width: 100%;
+          transition: all 0.16s ease; animation: helpRise 0.35s ease backwards;
+        }
+        .help-tile:hover { border-color: #d8d4cc; box-shadow: 0 6px 20px rgba(0,0,0,0.07); transform: translateY(-2px); }
+        .help-tile .chev { color: #ccc; transition: transform 0.16s ease, color 0.16s ease; }
+        .help-tile:hover .chev { color: #FFA500; transform: translateX(3px); }
+        .help-back { display: inline-flex; align-items: center; gap: 7px; background: #fff; border: 1px solid #eee; border-radius: 99px; padding: 8px 16px 8px 12px; cursor: pointer; font-family: inherit; font-size: 13px; font-weight: 600; color: #555; transition: all 0.15s; margin-bottom: 20px; }
+        .help-back:hover { border-color: #FFA500; color: #FFA500; transform: translateX(-2px); }
+        @media (max-width: 720px) { .help-grid { grid-template-columns: 1fr; } }
         @media (max-width: 600px) {
           .help-header { flex-wrap: wrap; padding: 12px 14px !important; gap: 10px !important; }
           .help-search { order: 3; flex-basis: 100% !important; max-width: 100% !important; margin: 0 !important; }
@@ -335,7 +341,7 @@ export default function HelpGuide({ onClose }) {
           <input
             autoFocus
             value={query}
-            onChange={e => setQuery(e.target.value)}
+            onChange={e => { setQuery(e.target.value); setOpenId(null) }}
             placeholder="Search for a task… e.g. discount, supplier, receive stock"
             style={{ width: '100%', padding: '11px 14px 11px 38px', border: '1px solid #e6e3dd', borderRadius: 99, fontSize: 13.5, fontFamily: 'inherit', outline: 'none', background: '#faf9f6', boxSizing: 'border-box' }}
           />
@@ -354,52 +360,31 @@ export default function HelpGuide({ onClose }) {
       <div className="help-scroll" style={{ flex: 1, overflowY: 'auto', padding: '26px 26px 60px' }}>
         <div style={{ maxWidth: 820, margin: '0 auto' }}>
 
-          {/* Quick jump chips */}
-          {!q && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 9, marginBottom: 26 }}>
-              {GUIDES.map(g => (
-                <button key={g.id} onClick={() => jumpTo(g.id)} className="help-chip" style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 7, padding: '8px 14px',
-                  borderRadius: 99, border: '1px solid #e6e3dd', background: '#fff',
-                  cursor: 'pointer', fontSize: 12.5, fontWeight: 600, color: '#555', fontFamily: 'inherit',
-                }}>
-                  <g.icon size={14} color={g.color} /> {g.title}
-                </button>
-              ))}
-            </div>
-          )}
+          {/* ── DETAIL VIEW — a single guide's steps ── */}
+          {active ? (
+            <div className="help-card">
+              <button className="help-back" onClick={() => setOpenId(null)}>
+                <ArrowLeft size={15} /> All guides
+              </button>
 
-          {filtered.length === 0 && (
-            <div style={{ textAlign: 'center', padding: '70px 0', color: '#c4c4c4' }}>
-              <Search size={34} color="#dcd8d0" />
-              <div style={{ marginTop: 14, fontWeight: 600, color: '#999' }}>No guide matches “{query}”.</div>
-              <div style={{ fontSize: 13, marginTop: 4 }}>Try a simpler word like “order”, “product” or “supplier”.</div>
-            </div>
-          )}
-
-          {filtered.map((g, gi) => (
-            <div key={g.id} id={'help-' + g.id} className="help-card" style={{
-              background: '#fff', border: '1px solid #eee', borderRadius: 16, padding: '22px 24px',
-              marginBottom: 18, boxShadow: '0 1px 4px rgba(0,0,0,0.04)', animationDelay: `${gi * 60}ms`,
-            }}>
-              {/* Card header */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 13, marginBottom: 18 }}>
-                <div style={{ background: `${g.color}18`, borderRadius: 12, width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <g.icon size={22} color={g.color} />
+              {/* Header */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 22 }}>
+                <div style={{ background: `${active.color}18`, borderRadius: 14, width: 52, height: 52, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <active.icon size={26} color={active.color} />
                 </div>
                 <div>
-                  <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: '#0d1b2a', letterSpacing: '-0.3px' }}>{g.title}</h2>
-                  <p style={{ margin: '3px 0 0', fontSize: 13, color: '#999' }}>{g.desc}</p>
+                  <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: '#0d1b2a', letterSpacing: '-0.3px' }}>{active.title}</h2>
+                  <p style={{ margin: '3px 0 0', fontSize: 13.5, color: '#999' }}>{active.desc}</p>
                 </div>
               </div>
 
               {/* Steps */}
-              <div>
-                {g.steps.map((s, i) => (
-                  <div key={i} className="help-step" style={{ display: 'flex', gap: 13, padding: '11px 10px', borderRadius: 10, transition: 'background 0.15s' }}>
+              <div style={{ background: '#fff', border: '1px solid #eee', borderRadius: 16, padding: '14px 18px', boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
+                {active.steps.map((s, i) => (
+                  <div key={i} className="help-step" style={{ display: 'flex', gap: 13, padding: '12px 10px', borderRadius: 10, transition: 'background 0.15s' }}>
                     <div style={{
                       flexShrink: 0, width: 26, height: 26, borderRadius: '50%',
-                      background: g.color, color: '#fff', fontSize: 13, fontWeight: 800,
+                      background: active.color, color: '#fff', fontSize: 13, fontWeight: 800,
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                     }}>{i + 1}</div>
                     <div style={{ paddingTop: 2 }}>
@@ -415,13 +400,40 @@ export default function HelpGuide({ onClose }) {
                 ))}
               </div>
             </div>
-          ))}
+          ) : (
+            <>
+              {filtered.length === 0 && (
+                <div style={{ textAlign: 'center', padding: '70px 0', color: '#c4c4c4' }}>
+                  <Search size={34} color="#dcd8d0" />
+                  <div style={{ marginTop: 14, fontWeight: 600, color: '#999' }}>No guide matches “{query}”.</div>
+                  <div style={{ fontSize: 13, marginTop: 4 }}>Try a simpler word like “order”, “product” or “supplier”.</div>
+                </div>
+              )}
 
-          {/* Footer note */}
-          {!q && (
-            <div style={{ textAlign: 'center', color: '#bbb', fontSize: 12.5, marginTop: 8 }}>
-              More guides will be added here over time.
-            </div>
+              {/* ── CARD GRID — tap a card to open it ── */}
+              <div className="help-grid">
+                {filtered.map((g, gi) => (
+                  <button key={g.id} className="help-tile" onClick={() => { setOpenId(g.id); document.querySelector('.help-scroll')?.scrollTo({ top: 0 }) }}
+                    style={{ animationDelay: `${gi * 40}ms` }}>
+                    <div style={{ background: `${g.color}18`, borderRadius: 12, width: 46, height: 46, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      <g.icon size={22} color={g.color} />
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: '#0d1b2a', letterSpacing: '-0.2px' }}>{g.title}</div>
+                      <div style={{ fontSize: 12.5, color: '#999', marginTop: 3, lineHeight: 1.45 }}>{g.desc}</div>
+                    </div>
+                    <ChevronRight className="chev" size={20} />
+                  </button>
+                ))}
+              </div>
+
+              {/* Footer note */}
+              {!q && (
+                <div style={{ textAlign: 'center', color: '#bbb', fontSize: 12.5, marginTop: 28 }}>
+                  Tap a card to see step-by-step instructions. More guides added over time.
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
