@@ -79,6 +79,13 @@ export default function Customers() {
   }
 
   function printPayslip(o, customer) {
+    // Group all order rows that share this invoice number into one multi-item receipt
+    const lineItems = (o.invoice_number
+      ? orders.filter(x => x.customer_id === customer.id && x.invoice_number === o.invoice_number)
+      : [o])
+    const items = lineItems.length ? lineItems : [o]
+    const itemsTotal = items.reduce((s, it) => s + Number(it.total_price || 0), 0)
+    const discountTotal = items.reduce((s, it) => s + Number(it.discount || 0), 0)
     const w = window.open('', '_blank', 'width=480,height=640')
     const payStatus = o.payment_status || 'unpaid'
     const payColor = payStatus === 'paid' ? '#1D9E75' : payStatus === 'partial' ? '#f57f17' : '#c62828'
@@ -146,17 +153,18 @@ export default function Customers() {
           ${o.channel ? `<div class="info-block"><div class="lbl">Channel</div><div class="val">${o.channel}</div></div>` : ''}
         </div>
         <div class="items-head"><span>Item</span><span>Amount</span></div>
+        ${items.map(it => `
         <div class="item-row">
           <div>
-            <div class="item-name">${o.product_name}</div>
-            <div class="item-qty">${o.qty} unit${o.qty !== 1 ? 's' : ''} × MVR ${Number(o.unit_price || 0).toFixed(2)}</div>
+            <div class="item-name">${it.product_name}</div>
+            <div class="item-qty">${it.qty} unit${it.qty !== 1 ? 's' : ''} × MVR ${Number(it.unit_price || 0).toFixed(2)}</div>
           </div>
-          <div class="item-total">MVR ${Number(o.total_price || 0).toFixed(2)}</div>
-        </div>
-        ${o.discount > 0 ? `<div class="item-row" style="color:#1D9E75"><span style="font-size:12px">Discount</span><span style="font-weight:700">-MVR ${Number(o.discount).toFixed(2)}</span></div>` : ''}
+          <div class="item-total">MVR ${Number(it.total_price || 0).toFixed(2)}</div>
+        </div>`).join('')}
+        ${discountTotal > 0 ? `<div class="item-row" style="color:#1D9E75"><span style="font-size:12px">Discount</span><span style="font-weight:700">-MVR ${discountTotal.toFixed(2)}</span></div>` : ''}
         <div class="total-block">
           <div class="total-label">Total Amount</div>
-          <div class="total-amount">MVR ${Number(o.total_price || 0).toFixed(2)}</div>
+          <div class="total-amount">MVR ${itemsTotal.toFixed(2)}</div>
         </div>
         <div class="pay-section">
           <span class="badge">${payStatus.toUpperCase()}</span>

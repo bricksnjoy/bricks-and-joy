@@ -21,7 +21,7 @@ const CakeIcon = ({ size = 14, color = '#378ADD' }) => (
 import JsBarcode from 'jsbarcode'
 import QRCode from 'qrcode'
 import BarcodeScanner from '../components/BarcodeScanner'
-import { restockPredictions } from '../lib/insights'
+import { restockPredictions, costHistoryByProduct } from '../lib/insights'
 
 const CATEGORIES = ['Building & Blocks','Action Figures','Dolls & Plush','Board Games','Outdoor & Sports','Educational','Vehicles & RC','Arts & Crafts','Puzzles','Other']
 const AGE_RANGES = ['0–2','3–5','6–8','9–12','12+','All ages']
@@ -40,6 +40,7 @@ export default function Inventory() {
   const [suppliers, setSuppliers] = useState([])
   const [customers, setCustomers] = useState([])
   const [orders, setOrders] = useState([])
+  const [purchaseOrders, setPurchaseOrders] = useState([])
   const [orderModal, setOrderModal] = useState(null)
   const [orderForm, setOrderForm] = useState({ qty: 1, unit_price: 0, customer_id: '', customer_name: '', payment_status: 'unpaid', channel: 'Retail store' })
   const [placingOrder, setPlacingOrder] = useState(false)
@@ -88,16 +89,18 @@ export default function Inventory() {
 
   async function load() {
     setLoading(true)
-    const [p, s, c, o] = await Promise.all([
+    const [p, s, c, o, po] = await Promise.all([
       supabase.from('products').select('*, suppliers(name)').order('created_at', { ascending: false }),
       supabase.from('suppliers').select('id, name'),
       supabase.from('customers').select('id, name').order('name'),
       supabase.from('orders').select('product_id, qty, status, order_date'),
+      supabase.from('purchase_orders').select('product_id, unit_cost, total_cost, qty, order_date, created_at'),
     ])
     setProducts(p.data || [])
     setSuppliers(s.data || [])
     setCustomers(c.data || [])
     setOrders(o.data || [])
+    setPurchaseOrders(po.data || [])
     setLoading(false)
   }
 
@@ -492,6 +495,7 @@ export default function Inventory() {
 
   const restock = restockPredictions(products, orders)
   const restockMap = Object.fromEntries(restock.map(r => [r.id, r]))
+  const costHistory = costHistoryByProduct(purchaseOrders)
   const restockNeeded = restock.filter(r => r.urgency === 'out' || r.urgency === 'critical' || r.urgency === 'soon')
 
   const filtered = products.filter(p => {
@@ -807,6 +811,42 @@ export default function Inventory() {
                   ))}
                 </div>
               )}
+
+              {/* Supplier cost history */}
+              {costHistory[vm.id] && costHistory[vm.id].points.length >= 2 && (() => {
+                const ch = costHistory[vm.id]
+                const up = ch.trend === 'up'
+                const col = ch.trend === 'up' ? '#E24B4A' : ch.trend === 'down' ? '#1D9E75' : '#888'
+                const max = Math.max(...ch.points.map(p => p.cost))
+                return (
+                  <div style={{ background: '#f8f7f4', borderRadius: 14, padding: '14px 16px', marginBottom: 22 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
+                      <span style={{ fontSize: 12.5, fontWeight: 700, color: '#0d1b2a', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Supplier cost history</span>
+                      <span style={{ fontSize: 12.5, fontWeight: 700, color: col, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        {up ? '▲' : ch.trend === 'down' ? '▼' : '—'} {ch.changePct >= 0 ? '+' : ''}{ch.changePct.toFixed(0)}%
+                        <span style={{ fontWeight: 500, color: '#999' }}>since first order</span>
+                      </span>
+                    </div>
+                    {/* mini bars */}
+                    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 5, height: 44, marginBottom: 8 }}>
+                      {ch.points.slice(-12).map((p, i) => (
+                        <div key={i} title={`${p.date}: MVR ${p.cost.toFixed(2)}`}
+                          style={{ flex: 1, height: `${Math.max(8, p.cost / max * 100)}%`, background: i === ch.points.slice(-12).length - 1 ? col : '#d8d4c8', borderRadius: '3px 3px 0 0', minWidth: 6 }} />
+                      ))}
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, color: '#888' }}>
+                      <span>First: <strong style={{ color: '#555' }}>MVR {ch.first.toFixed(2)}</strong></span>
+                      <span>Latest: <strong style={{ color: col }}>MVR {ch.last.toFixed(2)}</strong></span>
+                      <span>{ch.points.length} orders</span>
+                    </div>
+                    {up && ch.changePct >= 15 && (
+                      <div style={{ fontSize: 11.5, color: '#c0392b', marginTop: 8, fontWeight: 600 }}>
+                        ⚠️ Cost up {ch.changePct.toFixed(0)}% — consider renegotiating or finding an alternative supplier.
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
 
               <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
                 <button className="prod-order" disabled={vmOut} onClick={() => { setViewModal(null); openOrder(vm) }} style={{ padding: '13px 34px', fontSize: 15.5 }}>

@@ -48,6 +48,36 @@ export function restockPredictions(products, orders, { windowDays = 60, coverDay
     .sort((a, b) => a.daysLeft - b.daysLeft)
 }
 
+// ── Supplier cost history ────────────────────────────────────────────────────
+// Builds a per-product timeline of unit costs from purchase order rows so you
+// can see whether a supplier's prices are creeping up over time.
+export function costHistoryByProduct(purchaseOrders = []) {
+  const byProduct = {}
+  purchaseOrders
+    .filter(po => po.product_id && Number(po.unit_cost) > 0)
+    .forEach(po => {
+      const cost = Number(po.unit_cost) > 0 ? Number(po.unit_cost)
+        : (Number(po.qty) > 0 ? Number(po.total_cost) / Number(po.qty) : 0)
+      if (cost <= 0) return
+      ;(byProduct[po.product_id] = byProduct[po.product_id] || []).push({
+        date: po.order_date || (po.created_at || '').split('T')[0],
+        cost,
+      })
+    })
+  Object.keys(byProduct).forEach(id => {
+    const list = byProduct[id].sort((a, b) => (a.date || '').localeCompare(b.date || ''))
+    const first = list[0].cost
+    const last = list[list.length - 1].cost
+    byProduct[id] = {
+      points: list,
+      first, last,
+      changePct: first > 0 ? (last - first) / first * 100 : 0,
+      trend: last > first ? 'up' : last < first ? 'down' : 'flat',
+    }
+  })
+  return byProduct
+}
+
 // ── Action center ────────────────────────────────────────────────────────────
 // The handful of things that genuinely need attention today.
 export function actionItems({ orders, products, customers, loyaltyProfiles = [] }) {
