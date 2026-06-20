@@ -297,7 +297,7 @@ export default function HelpGuide({ onClose }) {
         .help-x:hover { background: #fee !important; color: #c0392b !important; }
         .help-scroll::-webkit-scrollbar { width: 8px; }
         .help-scroll::-webkit-scrollbar-thumb { background: #e0ddd6; border-radius: 99px; }
-        .help-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+        .help-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
         .help-tile {
           display: flex; align-items: center; gap: 16px; text-align: left;
           background: #fff; border: 1px solid #eee; border-radius: 16px;
@@ -310,9 +310,22 @@ export default function HelpGuide({ onClose }) {
         .help-back { display: inline-flex; align-items: center; gap: 7px; background: #fff; border: 1px solid #eee; border-radius: 99px; padding: 8px 16px 8px 12px; cursor: pointer; font-family: inherit; font-size: 13px; font-weight: 600; color: #555; transition: all 0.15s; margin-bottom: 20px; }
         .help-back:hover { border-color: #FFA500; color: #FFA500; transform: translateX(-2px); }
         .help-hero { text-align: center; padding: 48px 24px 36px; animation: helpRise 0.4s ease both; }
-        @media (max-width: 720px) { .help-grid { grid-template-columns: 1fr; gap: 10px; } }
+        .help-body-inner { max-width: 780px; margin: 0 auto; }
+        /* Large desktops — wider content, 3 columns possible */
+        @media (min-width: 1200px) {
+          .help-body-inner { max-width: 1040px; }
+          .help-grid { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+          .help-hero h1 { font-size: 36px; }
+        }
+        /* Tablets / iPads — keep 2 columns, comfortable padding */
+        @media (min-width: 601px) and (max-width: 1024px) {
+          .help-grid { grid-template-columns: repeat(2, 1fr); }
+          .help-hero { padding: 40px 20px 32px; }
+        }
+        /* Phones — single column, compact */
         @media (max-width: 600px) {
           .help-scroll { padding: 0 12px 50px !important; }
+          .help-grid { grid-template-columns: 1fr !important; gap: 10px; }
           .help-hero { padding: 20px 6px 24px !important; }
           .help-hero h1 { font-size: 22px !important; letter-spacing: -0.3px !important; }
           .help-hero p { font-size: 13px !important; margin-bottom: 20px !important; }
@@ -337,7 +350,7 @@ export default function HelpGuide({ onClose }) {
 
       {/* Body */}
       <div className="help-scroll" style={{ flex: 1, overflowY: 'auto', padding: '0 26px 60px' }}>
-        <div style={{ maxWidth: 780, margin: '0 auto' }}>
+        <div className="help-body-inner">
 
           {/* ── DETAIL VIEW ── */}
           {active ? (

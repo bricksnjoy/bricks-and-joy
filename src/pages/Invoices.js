@@ -214,19 +214,29 @@ export default function Invoices() {
         .inv-row { border:1px solid #eee; border-radius:12px; background:#fff; overflow:hidden; transition:box-shadow 0.15s; animation:invFade 0.25s ease both; }
         .inv-row:hover { box-shadow:0 4px 14px rgba(0,0,0,0.06); }
         @keyframes invFade { from { opacity:0; transform:translateY(4px) } to { opacity:1; transform:none } }
-        .inv-head { display:grid; grid-template-columns:120px 1fr 100px 120px 100px 80px; gap:12px; align-items:center; padding:14px 16px; cursor:pointer; }
+        .inv-head { display:grid; grid-template-columns:minmax(90px,130px) 1.4fr 100px 90px minmax(90px,120px) 110px; gap:12px; align-items:center; padding:14px 16px; cursor:pointer; }
         .inv-items { border-top:1px solid #f5f5f5; background:#fafaf8; padding:12px 16px; display:flex; flex-direction:column; gap:6px; }
         .inv-item-line { display:flex; justify-content:space-between; align-items:center; font-size:13px; padding:6px 0; border-bottom:1px dotted #eee; }
         .inv-item-line:last-child { border-bottom:none; }
-        .inv-pill { display:inline-flex; align-items:center; gap:4px; padding:4px 11px; border-radius:99px; font-size:11px; font-weight:700; }
+        .inv-pill { display:inline-flex; align-items:center; gap:4px; padding:4px 11px; border-radius:99px; font-size:11px; font-weight:700; text-transform:capitalize; }
         .inv-action { padding:6px 11px; border-radius:8px; border:1px solid #eee; background:#fafafa; cursor:pointer; font-size:12px; font-weight:600; font-family:inherit; display:inline-flex; align-items:center; gap:5px; color:#555; transition:all 0.14s; }
         .inv-action:hover { background:#0d1b2a; color:#fff; border-color:#0d1b2a; }
         .inv-action.print:hover { background:#FFA500; border-color:#FFA500; color:#fff; }
-        @media (max-width: 700px) {
-          .inv-col-date, .inv-col-items, .inv-col-channel { display:none; }
-          .inv-head { grid-template-columns:1fr auto; gap:10px; }
+        .inv-controls { display:flex; gap:12px; align-items:center; }
+        .inv-search-wrap { position:relative; flex:1; min-width:200px; }
+        /* Tablets / iPads — hide the less-critical date & items columns */
+        @media (max-width: 1024px) {
+          .inv-head { grid-template-columns:minmax(80px,120px) 1.4fr 90px minmax(80px,110px) 110px; }
+          .inv-col-items { display:none; }
         }
+        @media (max-width: 820px) {
+          .inv-head { grid-template-columns:minmax(80px,120px) 1.4fr minmax(80px,110px) 110px; }
+          .inv-col-date { display:none; }
+        }
+        /* Phones — stack controls, flex rows, scrollable filters */
         @media (max-width: 600px) {
+          .inv-controls { flex-direction:column; align-items:stretch; }
+          .inv-search-wrap { min-width:0; }
           .inv-col-hdr { display:none !important; }
           .inv-head { display:flex !important; align-items:center; gap:10px; padding:12px 14px; }
           .inv-invnum { font-size:10.5px !important; padding:2px 6px !important; }
@@ -254,9 +264,9 @@ export default function Invoices() {
       />
 
       <Card style={{ marginBottom: 16 }}>
-        <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+        <div className="inv-controls">
           {/* Search */}
-          <div style={{ position:'relative' }}>
+          <div className="inv-search-wrap">
             <Search size={14} color="#bbb" style={{ position:'absolute', left:11, top:'50%', transform:'translateY(-50%)', pointerEvents:'none' }} />
             <input
               value={search}
@@ -330,7 +340,7 @@ export default function Invoices() {
                   </span>
 
                   {/* Customer */}
-                  <div style={{ display:'flex', alignItems:'center', gap:8, minWidth:0 }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:8, minWidth:0, flex:1 }}>
                     <div style={{ width:30, height:30, borderRadius:8, background:AVATAR_COLORS[ci]+'18', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:800, color:AVATAR_COLORS[ci], flexShrink:0 }}>
                       {name[0].toUpperCase()}
                     </div>
