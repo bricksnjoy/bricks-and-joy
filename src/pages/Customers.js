@@ -89,7 +89,7 @@ export default function Customers() {
     const w = window.open('', '_blank', 'width=480,height=640')
     const payStatus = o.payment_status || 'unpaid'
     const payColor = payStatus === 'paid' ? '#1D9E75' : payStatus === 'partial' ? '#f57f17' : '#c62828'
-    const logoUrl = window.location.origin + '/logo.png'
+    const logoUrl = window.location.origin + '/logo-full.png'
     w.document.write(`
       <html><head><title>Receipt — ${o.invoice_number || 'Order'}</title>
       <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800&display=swap" rel="stylesheet">
@@ -98,7 +98,7 @@ export default function Customers() {
         body { font-family: 'Poppins', Arial, sans-serif; color: #0d1b2a; padding: 36px; max-width: 560px; margin: 0 auto; }
         .doc-header { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 20px; border-bottom: 3px solid #FFA500; margin-bottom: 24px; }
         .brand { display: flex; align-items: center; gap: 12px; }
-        .brand img { width: 54px; height: 54px; object-fit: contain; }
+        .brand img { height: 50px; width: auto; max-width: 200px; object-fit: contain; }
         .brand-name { font-size: 18px; font-weight: 800; color: #0d1b2a; letter-spacing: -0.3px; line-height: 1.2; }
         .brand-tag { font-size: 10px; color: #aaa; text-transform: uppercase; letter-spacing: 1.2px; margin-top: 2px; }
         .doc-type { text-align: right; }
@@ -132,9 +132,9 @@ export default function Customers() {
       <body>
         <div class="doc-header">
           <div class="brand">
-            <img src="${logoUrl}" alt="Brick's & Joy" onerror="this.style.display='none'" />
+            <img src="${logoUrl}" alt="Brick's & Joy" onerror="this.style.display='none';document.getElementById('brandFallback').style.display='block'" />
             <div>
-              <div class="brand-name">Brick's &amp; Joy</div>
+              <div id="brandFallback" class="brand-name" style="display:none">Brick's &amp; Joy</div>
               <div class="brand-tag">Official Receipt</div>
             </div>
           </div>
@@ -193,7 +193,7 @@ export default function Customers() {
       deliveredOrders: delivered.length,
       totalSpent: delivered.reduce((s, o) => s + Number(o.total_price || 0), 0),
       unpaidAmount: unpaid.reduce((s, o) => s + Number(o.total_price || 0), 0),
-      lastOrder: custOrders[0]?.order_date || null,
+      lastOrder: [...custOrders].map(o => o.order_date).filter(Boolean).sort().pop() || null,
       orders: custOrders,
       loyalty: loyaltyProfile(custOrders),
     }
@@ -228,7 +228,7 @@ export default function Customers() {
   }
 
   const filtered = customers.filter(c => {
-    const matchesSearch = c.name.toLowerCase().includes(search.toLowerCase()) ||
+    const matchesSearch = (c.name || '').toLowerCase().includes(search.toLowerCase()) ||
       (c.email || '').toLowerCase().includes(search.toLowerCase()) ||
       (c.phone || '').includes(search)
     if (!matchesSearch) return false

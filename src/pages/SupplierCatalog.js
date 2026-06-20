@@ -426,7 +426,7 @@ export default function SupplierCatalog() {
   }
 
   function printLabel(preview) {
-    const logoUrl = window.location.origin + '/logo.png'
+    const logoUrl = window.location.origin + '/logo-full.png'
     const w = window.open('','_blank','width=360,height=500')
     w.document.write(`<html><head><title>Label</title>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
@@ -434,7 +434,7 @@ export default function SupplierCatalog() {
       *{margin:0;padding:0;box-sizing:border-box}body{font-family:'Poppins',sans-serif;background:#f0f0f0;display:flex;align-items:center;justify-content:center;min-height:100vh}
       .label{background:#fff;border-radius:16px;width:300px;box-shadow:0 6px 24px rgba(0,0,0,0.12);overflow:hidden}
       .top{display:flex;justify-content:space-between;align-items:center;padding:10px 14px 8px;border-bottom:1px solid #f5f5f5}
-      .logo{display:flex;align-items:center;gap:8px}.logo img{height:44px;width:44px;object-fit:contain}
+      .logo{display:flex;align-items:center;gap:8px}.logo img{height:40px;width:auto;max-width:150px;object-fit:contain}
       .brand{font-size:12px;font-weight:600;color:#0d1b2a}.sub{font-size:8px;color:#bbb;text-transform:uppercase;letter-spacing:0.8px}
       .tag{font-size:8px;color:#FFA500;font-weight:600;text-transform:uppercase;letter-spacing:1px}
       .bc{padding:14px 16px 8px;text-align:center}.bc img{max-width:100%;display:block;margin:0 auto}
@@ -449,8 +449,7 @@ export default function SupplierCatalog() {
     <div class="label">
       <div class="top">
         <div class="logo">
-          <img src="${logoUrl}" onerror="this.style.display='none'" />
-          <div><div class="brand">Brick's &amp; Joy</div><div class="sub">Toy Store</div></div>
+          <img src="${logoUrl}" alt="Brick's & Joy" onerror="this.style.display='none'" />
         </div>
         <div class="tag">Supplier Label</div>
       </div>

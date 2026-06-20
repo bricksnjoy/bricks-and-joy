@@ -267,7 +267,7 @@ export default function Inventory() {
 
   // Print barcode label
   function printBarcode() {
-    const logoUrl = window.location.origin + '/logo.png'
+    const logoUrl = window.location.origin + '/logo-full.png'
     const w = window.open('', '_blank', 'width=400,height=300')
     const isQR = barcodeType === 'qr'
     let imgSrc = ''
@@ -284,11 +284,7 @@ export default function Inventory() {
         <div class="label">
           <div class="label-top">
             <div class="logo-wrap">
-              <img src="${logoUrl}" alt="" onerror="this.style.display='none'" />
-              <div>
-                <div class="brand-name">Brick's &amp; Joy</div>
-                <div class="brand-sub">Toy Store</div>
-              </div>
+              <img class="brand-logo" src="${logoUrl}" alt="Brick's & Joy" onerror="this.style.display='none'" />
             </div>
             <div class="top-right">
               <div class="top-tag">Product Label</div>
@@ -321,7 +317,7 @@ export default function Inventory() {
         /* Top row: logo left, brand name right */
         .label-top { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px 8px; border-bottom: 1px solid #f5f5f5; }
         .logo-wrap { display: flex; align-items: center; gap: 9px; }
-        .logo-wrap img { height: 48px; width: 48px; object-fit: contain; }
+        .logo-wrap img { height: 40px; width: auto; max-width: 150px; object-fit: contain; }
         .brand-name { font-size: 12px; font-weight: 600; color: #0d1b2a; letter-spacing: -0.2px; }
         .brand-sub { font-size: 8px; color: #bbb; text-transform: uppercase; letter-spacing: 0.8px; margin-top: 1px; }
         .top-right { text-align: right; }
@@ -352,7 +348,7 @@ export default function Inventory() {
 
   // Print all barcodes
   async function printAllBarcodes() {
-    const logoUrl = window.location.origin + '/logo.png'
+    const logoUrl = window.location.origin + '/logo-full.png'
     const w = window.open('', '_blank')
     const labelGroups = await Promise.all(products.filter(p => p.barcode && !p.discontinued).map(async p => {
       try {
@@ -378,7 +374,7 @@ export default function Inventory() {
       .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
       .label { background: #fff; border: 1px solid #eee; border-radius: 10px; overflow: hidden; break-inside: avoid; }
       .label-top { display: flex; justify-content: space-between; align-items: center; padding: 5px 8px; border-bottom: 1px solid #f0f0f0; }
-      .label-top-logo { height: 26px; width: 26px; object-fit: contain; }
+      .label-top-logo { height: 16px; width: auto; max-width: 90px; object-fit: contain; }
       .label-top-text { font-size: 7px; color: #FFA500; text-transform: uppercase; letter-spacing: 0.8px; font-weight: 600; }
       .label-body { padding: 6px 8px 8px; text-align: center; }
       .label-body img { max-width: 100%; height: 40px; display: block; margin: 0 auto; }
@@ -389,9 +385,9 @@ export default function Inventory() {
       @media print { body { background: none; padding: 8px; } .page-header { display: none; } .grid { grid-template-columns: repeat(3, 1fr); gap: 8px; } }
     </style></head><body>
     <div class="page-header">
-      <img src="${logoUrl}" alt="" style="height:38px;width:38px;object-fit:contain;flex-shrink:0" onerror="this.style.display='none'" />
+      <img src="${logoUrl}" alt="" style="height:40px;width:auto;max-width:170px;object-fit:contain;flex-shrink:0;background:#fff;border-radius:6px;padding:3px" onerror="this.style.display='none'" />
       <div>
-        <div class="brand-title">Brick's &amp; Joy — Product Labels</div>
+        <div class="brand-title">Product Labels</div>
         <div class="brand-sub">Printed ${new Date().toLocaleDateString()} · ${allLabels.length} labels</div>
       </div>
     </div>
@@ -399,8 +395,8 @@ export default function Inventory() {
       ${allLabels.map(l => `
         <div class="label">
           <div class="label-top">
-            <img class="label-top-logo" src="${logoUrl}" alt="" onerror="this.style.display='none'" />
-            <div class="label-top-text">Brick's &amp; Joy</div>
+            <img class="label-top-logo" src="${logoUrl}" alt="Brick's & Joy" onerror="this.style.display='none'" />
+            <div class="label-top-text">Product</div>
           </div>
           <div class="label-body">
             <img src="data:image/svg+xml;base64,${btoa(l.svg)}" alt="barcode" />
@@ -454,7 +450,7 @@ export default function Inventory() {
   async function bulkPrint() {
     const selProds = products.filter(p => selected.has(p.id) && p.barcode)
     if (!selProds.length) { toast.error('No selected products have barcodes'); return }
-    const logoUrl = window.location.origin + '/logo.png'
+    const logoUrl = window.location.origin + '/logo-full.png'
     // One label per unit in stock (min 1 per product)
     const allLabels = selProds.flatMap(p => Array.from({ length: Math.max(1, parseInt(p.stock_qty) || 1) }, () => p))
     const labelSvgs = await Promise.all(allLabels.map(async p => {
@@ -475,7 +471,7 @@ export default function Inventory() {
     .grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
     .label { background:#fff; border:1px solid #eee; border-radius:10px; overflow:hidden; break-inside:avoid; }
     .lt { display:flex; justify-content:space-between; align-items:center; padding:5px 8px; border-bottom:1px solid #f0f0f0; }
-    .lt img { height:22px; width:22px; object-fit:contain; }
+    .lt img { height:15px; width:auto; max-width:85px; object-fit:contain; }
     .lt span { font-size:7px; color:#FFA500; text-transform:uppercase; letter-spacing:0.8px; font-weight:600; }
     .lb { padding:6px 8px 8px; text-align:center; }
     .lb img { max-width:100%; height:40px; display:block; margin:0 auto; }
@@ -486,7 +482,7 @@ export default function Inventory() {
     @media print { body { background:none; } }
     </style></head><body><div class="grid">
     ${labels.map(l => `<div class="label">
-      <div class="lt"><img src="${logoUrl}" onerror="this.style.display='none'" /><span>Brick's &amp; Joy</span></div>
+      <div class="lt"><img src="${logoUrl}" alt="Brick's & Joy" onerror="this.style.display='none'" /><span>Product</span></div>
       <div class="lb"><img src="data:image/svg+xml;base64,${btoa(l.svg)}" /><div class="ln">${l.name}</div>
       <div class="lf"><div class="lp">MVR ${Number(l.price).toFixed(2)}</div><div class="lc">${l.barcode}</div></div></div></div>`).join('')}
     </div><script>window.onload=()=>window.print()</script></body></html>`)
@@ -494,7 +490,6 @@ export default function Inventory() {
   }
 
   const restock = restockPredictions(products, orders)
-  const restockMap = Object.fromEntries(restock.map(r => [r.id, r]))
   const costHistory = costHistoryByProduct(purchaseOrders)
   const restockNeeded = restock.filter(r => r.urgency === 'out' || r.urgency === 'critical' || r.urgency === 'soon')
 

@@ -215,7 +215,7 @@ export default function Statistics() {
 
     // KPIs
     const revenue = delivered.reduce((s, o) => s + Number(o.total_price || 0), 0)
-    const cogs = delivered.reduce((s, o) => { const p = prods.find(p => p.id === o.product_id); return s + (p ? o.qty * Number(p.cost_price) : 0) }, 0)
+    const cogs = delivered.reduce((s, o) => { const p = prods.find(p => p.id === o.product_id); return s + (p ? (Number(o.qty) || 0) * Number(p.cost_price || 0) : 0) }, 0)
     const totalExp = exps.reduce((s, e) => s + Number(e.amount), 0)
     const netProfit = revenue - cogs - totalExp
     const avgOrderValue = delivered.length > 0 ? revenue / delivered.length : 0

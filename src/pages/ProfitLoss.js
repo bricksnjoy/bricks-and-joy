@@ -206,7 +206,7 @@ export default function Accounting() {
   }
 
   function printIncomeStatement() {
-    const logoUrl = window.location.origin + '/logo.png'
+    const logoUrl = window.location.origin + '/logo-full.png'
     const w = window.open('', '_blank')
     w.document.write(`
       <html><head><title>Income Statement — ${companyName}</title>
@@ -216,7 +216,7 @@ export default function Accounting() {
         body { font-family: 'Poppins', Arial, sans-serif; color: #0d1b2a; padding: 40px; max-width: 640px; margin: 0 auto; }
         .doc-header { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 20px; border-bottom: 3px solid #FFA500; margin-bottom: 28px; }
         .brand { display: flex; align-items: center; gap: 12px; }
-        .brand img { width: 60px; height: 60px; object-fit: contain; }
+        .brand img { height: 56px; width: auto; max-width: 220px; object-fit: contain; }
         .brand-name { font-size: 20px; font-weight: 800; color: #0d1b2a; letter-spacing: -0.3px; }
         .brand-tag { font-size: 10px; color: #aaa; text-transform: uppercase; letter-spacing: 1.2px; margin-top: 2px; }
         .doc-meta { text-align: right; }
@@ -245,9 +245,9 @@ export default function Accounting() {
       <body>
         <div class="doc-header">
           <div class="brand">
-            <img src="${logoUrl}" alt="Brick's & Joy" onerror="this.style.display='none'" />
+            <img src="${logoUrl}" alt="Brick's & Joy" onerror="this.style.display='none';document.getElementById('plBrandFallback').style.display='block'" />
             <div>
-              <div class="brand-name">Brick's &amp; Joy</div>
+              <div id="plBrandFallback" class="brand-name" style="display:none">Brick's &amp; Joy</div>
               <div class="brand-tag">Toy Company · Maldives</div>
             </div>
           </div>

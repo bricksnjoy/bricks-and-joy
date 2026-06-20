@@ -48,7 +48,7 @@ export default function Dashboard() {
     const revenue = delivered.reduce((s, o) => s + Number(o.total_price || 0), 0)
     const cogs = delivered.reduce((s, o) => {
       const p = prods.find(p => p.id === o.product_id)
-      return s + (p ? o.qty * Number(p.cost_price) : 0)
+      return s + (p ? (Number(o.qty) || 0) * Number(p.cost_price || 0) : 0)
     }, 0)
     const totalExp = (expenses.data || []).reduce((s, e) => s + Number(e.amount), 0)
     const netProfit = revenue - cogs - totalExp
@@ -438,7 +438,7 @@ export default function Dashboard() {
                   onMouseEnter={e => e.currentTarget.style.background = '#fafafa'}
                   onMouseLeave={e => e.currentTarget.style.background = ''}>
                   <div style={{ width: 34, height: 34, borderRadius: 10, background: AVATAR_COLORS[i % AVATAR_COLORS.length] + '18', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: AVATAR_COLORS[i % AVATAR_COLORS.length], flexShrink: 0 }}>
-                    {c.name.charAt(0).toUpperCase()}
+                    {(c.name || '?').charAt(0).toUpperCase()}
                   </div>
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <div style={{ fontSize: 13, fontWeight: 600, color: '#0d1b2a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</div>
