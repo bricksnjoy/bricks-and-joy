@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Button, Input, Select, Table, Modal, StatusBadge, StockBadge, Spinner, FormRow, useToast, Toasts, Badge } from '../components/UI'
-import { Plus, Trash2, AlertTriangle, Package, Upload, Eye, CreditCard, X, Camera, Edit2, RotateCcw, MessageSquare, MoreVertical, LayoutGrid, List, Instagram } from 'lucide-react'
+import { Plus, Trash2, AlertTriangle, Package, Upload, Eye, CreditCard, X, Camera, Edit2, RotateCcw, MessageSquare, MoreVertical, LayoutGrid, List, Instagram, Printer } from 'lucide-react'
 import BarcodeScanner from '../components/BarcodeScanner'
 import { sendSMS } from '../lib/sms'
 import { getSettings } from '../lib/settings'
@@ -19,6 +19,7 @@ export default function Orders() {
   const [loading, setLoading] = useState(true)
   const [modal, setModal] = useState(false)
   const [editOrder, setEditOrder] = useState(null)
+  const [editOrderRows, setEditOrderRows] = useState([])
   const [viewModal, setViewModal] = useState(null)
   const [payModal, setPayModal] = useState(null)
   const [returnModal, setReturnModal] = useState(null)
@@ -79,11 +80,17 @@ export default function Orders() {
   }
 
   function openEdit(order) {
+    // Load all rows belonging to this invoice (multi-item support)
+    const siblings = order.invoice_number
+      ? orders.filter(o => o.customer_id === order.customer_id && o.invoice_number === order.invoice_number)
+      : [order]
+    const rows = siblings.length ? siblings : [order]
+    const totalDiscount = rows.reduce((s, r) => s + Number(r.discount || 0), 0)
     setForm({
       customer_id: order.customer_id || '',
       customer_name: order.customer_name || '',
       channel: order.channel || 'Retail store',
-      status: order.status || 'pending',
+      status: order.status || 'created',
       order_date: order.order_date || new Date().toISOString().split('T')[0],
       notes: order.notes || '',
       payment_status: order.payment_status || 'unpaid',
@@ -91,11 +98,12 @@ export default function Orders() {
       transfer_reference: order.transfer_reference || '',
       invoice_number: order.invoice_number || '',
       delivery_person: order.delivery_person || '',
-      discount_value: order.discount || 0,
+      discount_value: totalDiscount,
       discount_type: 'amount',
     })
-    setCartItems([{ product_id: order.product_id || '', product_name: order.product_name || '', qty: order.qty || 1, unit_price: order.unit_price || 0 }])
+    setCartItems(rows.map(r => ({ product_id: r.product_id || '', product_name: r.product_name || '', qty: r.qty || 1, unit_price: r.unit_price || 0 })))
     setEditOrder(order)
+    setEditOrderRows(rows)
     setModal(true)
   }
 
@@ -175,23 +183,49 @@ export default function Orders() {
     setSaving(true)
 
     if (editOrder) {
-      const item = validItems[0]
-      const payload = buildPayload(item, discountAmount)
-      let { error } = await supabase.from('orders').update(payload).eq('id', editOrder.id)
-      while (error && dropMissingCol(error, payload)) { error = (await supabase.from('orders').update(payload).eq('id', editOrder.id)).error }
-      if (error) { console.error(error); setSaving(false); toast.error('Failed to update: ' + error.message); return }
-      if (editOrder.status !== 'cancelled') {
-        const oldQty = parseInt(editOrder.qty) || 0
-        const newQty = parseInt(item.qty) || 0
-        if (editOrder.product_id === item.product_id) {
-          await applyStockDelta(item.product_id, -(newQty - oldQty))
-        } else {
-          await applyStockDelta(editOrder.product_id, oldQty)
-          await applyStockDelta(item.product_id, -newQty)
+      // Reconcile each cart item against its original row (by position)
+      const maxLen = Math.max(validItems.length, editOrderRows.length)
+      for (let idx = 0; idx < maxLen; idx++) {
+        const newItem = validItems[idx]
+        const oldRow = editOrderRows[idx]
+        const itemSubtotal = newItem ? parseFloat(newItem.unit_price) * parseInt(newItem.qty) : 0
+        const itemDiscount = form.discount_type === 'percent'
+          ? itemSubtotal * (parseFloat(form.discount_value || 0) / 100)
+          : parseFloat(form.discount_value || 0) / validItems.length
+
+        if (newItem && oldRow) {
+          // UPDATE existing row
+          const payload = buildPayload(newItem, itemDiscount)
+          let { error } = await supabase.from('orders').update(payload).eq('id', oldRow.id)
+          while (error && dropMissingCol(error, payload)) { error = (await supabase.from('orders').update(payload).eq('id', oldRow.id)).error }
+          if (error) { console.error(error); setSaving(false); toast.error('Failed to update: ' + error.message); return }
+          if (editOrder.status !== 'cancelled') {
+            const oldQty = parseInt(oldRow.qty) || 0
+            const newQty = parseInt(newItem.qty) || 0
+            if (oldRow.product_id === newItem.product_id) {
+              await applyStockDelta(newItem.product_id, -(newQty - oldQty))
+            } else {
+              await applyStockDelta(oldRow.product_id, oldQty)
+              await applyStockDelta(newItem.product_id, -newQty)
+            }
+          }
+        } else if (newItem && !oldRow) {
+          // INSERT newly added row
+          const payload = buildPayload(newItem, itemDiscount)
+          let { error } = await supabase.from('orders').insert(payload)
+          while (error && dropMissingCol(error, payload)) { error = (await supabase.from('orders').insert(payload)).error }
+          if (error) { console.error(error); setSaving(false); toast.error('Failed to add item: ' + error.message); return }
+          await applyStockDelta(newItem.product_id, -parseInt(newItem.qty))
+        } else if (!newItem && oldRow) {
+          // DELETE removed row and restore its stock
+          await supabase.from('orders').delete().eq('id', oldRow.id)
+          if (editOrder.status !== 'cancelled' && oldRow.product_id) {
+            await applyStockDelta(oldRow.product_id, parseInt(oldRow.qty) || 0)
+          }
         }
       }
       setSaving(false)
-      toast.success('Order updated!')
+      toast.success(`Order updated!${validItems.length > 1 ? ` (${validItems.length} items)` : ''}`)
       setModal(false); load(); return
     }
 
@@ -328,7 +362,106 @@ export default function Orders() {
     setSmsSending(false)
   }
 
-  const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
+  function printReceipt(order) {
+    const customer = customers.find(c => c.id === order.customer_id) || { name: order.customer_name || 'Walk-in' }
+    const lineItems = order.invoice_number
+      ? orders.filter(o => o.customer_id === order.customer_id && o.invoice_number === order.invoice_number)
+      : [order]
+    const items = lineItems.length ? lineItems : [order]
+    const itemsTotal = items.reduce((s, it) => s + Number(it.total_price || 0), 0)
+    const discountTotal = items.reduce((s, it) => s + Number(it.discount || 0), 0)
+    const w = window.open('', '_blank', 'width=480,height=640')
+    const payStatus = order.payment_status || 'unpaid'
+    const payColor = payStatus === 'paid' ? '#1D9E75' : payStatus === 'partial' ? '#f57f17' : '#c62828'
+    const logoUrl = window.location.origin + '/logo-full.png'
+    w.document.write(`
+      <html><head><title>Receipt — ${order.invoice_number || 'Order'}</title>
+      <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800&display=swap" rel="stylesheet">
+      <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Poppins', Arial, sans-serif; color: #0d1b2a; padding: 36px; max-width: 560px; margin: 0 auto; }
+        .doc-header { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 20px; border-bottom: 3px solid #FFA500; margin-bottom: 24px; }
+        .brand img { height: 50px; width: auto; max-width: 200px; object-fit: contain; }
+        .brand-tag { font-size: 10px; color: #aaa; text-transform: uppercase; letter-spacing: 1.2px; margin-top: 2px; }
+        .doc-type { text-align: right; }
+        .doc-type-label { font-size: 11px; font-weight: 700; color: #FFA500; text-transform: uppercase; letter-spacing: 1.5px; }
+        .doc-inv { font-size: 20px; font-weight: 900; color: #0d1b2a; letter-spacing: -0.5px; margin-top: 4px; }
+        .doc-date { font-size: 12px; color: #aaa; margin-top: 3px; }
+        .info-row { display: flex; gap: 32px; margin-bottom: 22px; padding-bottom: 18px; border-bottom: 1px solid #f0f0f0; }
+        .info-block .lbl { font-size: 10px; color: #bbb; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; font-weight: 600; }
+        .info-block .val { font-size: 14px; font-weight: 700; color: #0d1b2a; }
+        .info-block .sub { font-size: 11px; color: #aaa; margin-top: 2px; }
+        .items-head { display: flex; justify-content: space-between; font-size: 10px; color: #bbb; text-transform: uppercase; letter-spacing: 0.6px; font-weight: 700; padding: 0 0 8px; border-bottom: 1px solid #eee; margin-bottom: 4px; }
+        .item-row { display: flex; justify-content: space-between; align-items: center; padding: 11px 0; border-bottom: 1px solid #f5f5f5; }
+        .item-name { font-size: 14px; font-weight: 600; color: #0d1b2a; }
+        .item-qty { font-size: 12px; color: #aaa; margin-top: 2px; }
+        .item-total { font-size: 14px; font-weight: 700; color: #0d1b2a; }
+        .total-block { display: flex; justify-content: space-between; align-items: center; margin-top: 16px; padding: 16px 20px; background: #0d1b2a; border-radius: 10px; }
+        .total-label { font-size: 11px; color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 1px; }
+        .total-amount { font-size: 24px; font-weight: 900; color: #FFA500; letter-spacing: -0.8px; }
+        .pay-section { margin-top: 18px; display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; padding-top: 14px; border-top: 1px solid #f0f0f0; }
+        .badge { display: inline-flex; padding: 4px 14px; border-radius: 99px; font-size: 11px; font-weight: 700; background: ${payColor}15; color: ${payColor}; border: 1px solid ${payColor}40; }
+        .pay-detail .lbl { font-size: 10px; color: #bbb; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 3px; }
+        .pay-detail .val { font-size: 13px; font-weight: 600; color: #333; }
+        .notes { margin-top: 14px; background: #fffbf0; border-left: 3px solid #FFA500; padding: 10px 14px; border-radius: 0 8px 8px 0; }
+        .notes .lbl { font-size: 10px; color: #aaa; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+        .notes .val { font-size: 12px; color: #555; line-height: 1.6; }
+        .doc-footer { margin-top: 36px; padding-top: 14px; border-top: 1px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center; }
+        .footer-msg { font-size: 11px; color: #ccc; font-style: italic; }
+        .footer-brand { font-size: 11px; font-weight: 700; color: #0d1b2a; }
+        @media print { body { padding: 20px; } }
+      </style></head>
+      <body>
+        <div class="doc-header">
+          <div class="brand">
+            <img src="${logoUrl}" alt="Brick's &amp; Joy" onerror="this.style.display='none';document.getElementById('bFb').style.display='block'" />
+            <div id="bFb" style="display:none;font-size:18px;font-weight:800;color:#0d1b2a">Brick's &amp; Joy</div>
+            <div class="brand-tag">Official Receipt</div>
+          </div>
+          <div class="doc-type">
+            <div class="doc-type-label">Receipt</div>
+            <div class="doc-inv">${order.invoice_number || '—'}</div>
+            <div class="doc-date">${order.order_date || '—'}</div>
+          </div>
+        </div>
+        <div class="info-row">
+          <div class="info-block">
+            <div class="lbl">Customer</div>
+            <div class="val">${customer.name}</div>
+            ${customer.phone ? `<div class="sub">${customer.phone}</div>` : ''}
+          </div>
+          ${order.channel ? `<div class="info-block"><div class="lbl">Channel</div><div class="val">${order.channel}</div></div>` : ''}
+        </div>
+        <div class="items-head"><span>Item</span><span>Amount</span></div>
+        ${items.map(it => `
+        <div class="item-row">
+          <div>
+            <div class="item-name">${it.product_name}</div>
+            <div class="item-qty">${it.qty} unit${it.qty !== 1 ? 's' : ''} × MVR ${Number(it.unit_price || 0).toFixed(2)}</div>
+          </div>
+          <div class="item-total">MVR ${Number(it.total_price || 0).toFixed(2)}</div>
+        </div>`).join('')}
+        ${discountTotal > 0 ? `<div class="item-row" style="color:#1D9E75"><span style="font-size:12px">Discount</span><span style="font-weight:700">-MVR ${discountTotal.toFixed(2)}</span></div>` : ''}
+        <div class="total-block">
+          <div class="total-label">Total Amount</div>
+          <div class="total-amount">MVR ${itemsTotal.toFixed(2)}</div>
+        </div>
+        <div class="pay-section">
+          <span class="badge">${payStatus.toUpperCase()}</span>
+          ${order.payment_method ? `<div class="pay-detail"><div class="lbl">Method</div><div class="val">${order.payment_method}</div></div>` : ''}
+          ${order.transfer_reference ? `<div class="pay-detail"><div class="lbl">Reference</div><div class="val" style="font-family:monospace">${order.transfer_reference}</div></div>` : ''}
+        </div>
+        ${order.notes ? `<div class="notes"><div class="lbl">Notes</div><div class="val">${order.notes}</div></div>` : ''}
+        <div class="doc-footer">
+          <div class="footer-msg">This is a computer generated receipt.</div>
+          <div class="footer-brand">Brick's &amp; Joy</div>
+        </div>
+        <script>window.onload = () => { window.print(); window.onafterprint = () => window.close(); }</script>
+      </body></html>`)
+    w.document.close()
+  }
+
+const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
   const pf = k => e => setPayForm(p => ({ ...p, [k]: e.target.value }))
 
   const creatorName = email => {
