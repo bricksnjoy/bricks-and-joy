@@ -702,6 +702,7 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
                         {kebabOpen === o.id && (
                           <div className="ord-kebab-menu">
                             <button className="ord-kebab-item" onClick={() => { openEdit(o); setKebabOpen(null) }}><Edit2 size={13} /> Edit</button>
+                            <button className="ord-kebab-item" onClick={() => { printReceipt(o); setKebabOpen(null) }}><Printer size={13} /> Print receipt</button>
                             <button className="ord-kebab-item" onClick={() => { openSms(o); setKebabOpen(null) }}><MessageSquare size={13} /> SMS</button>
                             {o.status !== 'cancelled' && (
                               <button className="ord-kebab-item" onClick={() => { setReturnModal(o); setReturnForm({ reason: '', refund_amount: o.total_price || 0 }); setKebabOpen(null) }}><RotateCcw size={13} /> Return</button>
@@ -819,6 +820,7 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
               {viewModal.created_by_email ? `Created by ${creatorName(viewModal.created_by_email)}` : ''}
             </span>
             <div style={{ display: 'flex', gap: 8 }}>
+              <Button variant="ghost" onClick={() => printReceipt(viewModal)}><Printer size={13} /> Print</Button>
               <Button variant="ghost" onClick={() => { openEdit(viewModal); setViewModal(null) }}><Edit2 size={13} /> Edit</Button>
               <Button variant="ghost" onClick={() => setViewModal(null)}>Close</Button>
             </div>
@@ -910,7 +912,7 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
           <div style={{ marginBottom: 14 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
               <label style={{ fontSize: 12, color: '#666', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.4px' }}>Products *</label>
-              {!editOrder && <button onClick={addCartItem} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', background: '#f0f0f0', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', color: '#555' }}><Plus size={12} /> Add item</button>}
+              <button onClick={addCartItem} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', background: '#f0f0f0', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', color: '#555' }}><Plus size={12} /> Add item</button>
             </div>
             {cartItems.map((item, idx) => {
               const prod = products.find(p => p.id === item.product_id)

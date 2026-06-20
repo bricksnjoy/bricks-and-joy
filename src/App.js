@@ -15,6 +15,7 @@ import Categories from './pages/Categories'
 import SupplierCatalog from './pages/SupplierCatalog'
 import MessageCenter from './pages/MessageCenter'
 import Deliveries from './pages/Deliveries'
+import Invoices from './pages/Invoices'
 import Planning from './pages/Planning'
 import HelpGuide from './pages/HelpGuide'
 import Settings from './pages/Settings'
@@ -30,6 +31,7 @@ import {
 const ITEMS = {
   dashboard:          { label: 'Dashboard',         icon: LayoutDashboard, render: <Dashboard /> },
   orders:             { label: 'Orders',            icon: ShoppingCart,    render: <Orders /> },
+  invoices:           { label: 'Invoices',          icon: FileText,        render: <Invoices /> },
   customers:          { label: 'Customers',         icon: Users,           render: <Customers /> },
   deliveries:         { label: 'Deliveries',        icon: Truck,           render: <Deliveries /> },
   tasks:              { label: 'Tasks & Calendar',  icon: CalendarDays,    render: <TasksCalendar /> },
@@ -47,7 +49,7 @@ const ITEMS = {
 
 const DEFAULT_NAV = [
   { id: 'main',       section: null,             items: ['dashboard'] },
-  { id: 'pos',        section: 'Point of Sale',  items: ['orders', 'customers', 'deliveries', 'tasks', 'messages', 'planning'] },
+  { id: 'pos',        section: 'Point of Sale',  items: ['orders', 'invoices', 'customers', 'deliveries', 'tasks', 'messages', 'planning'] },
   { id: 'inventory',  section: 'Inventory',      items: ['inventory', 'categories', 'purchase-orders', 'supplier-catalog'] },
   { id: 'accounting', section: 'Accounting',     items: ['profit-loss', 'costs', 'vendors', 'statistics'] },
 ]
