@@ -1,0 +1,3 @@
+# Private back-office app — keep it out of all search engines
+User-agent: *
+Disallow: /
