@@ -221,6 +221,9 @@ export default function App() {
           .modal-head { padding: 15px 16px !important; }
           .modal-body { padding: 16px !important; }
           .modal-card { border-radius: 16px !important; max-height: 94vh !important; }
+          /* Nothing inside a modal may force the card wider than the screen */
+          .modal-body img, .modal-body video, .modal-body canvas { max-width: 100% !important; height: auto; }
+          .modal-body input, .modal-body select, .modal-body textarea { max-width: 100%; }
           .data-table { font-size: 12px !important; min-width: max-content; }
           .data-table th, .data-table td { padding: 8px 9px !important; }
           /* Toasts span the width so they never run off-screen */
@@ -230,6 +233,9 @@ export default function App() {
         @media (max-width: 480px) {
           /* On phones everything stacks to a single column */
           .grid-collapse { grid-template-columns: 1fr !important; }
+          .modal-body { padding: 14px !important; }
+          .modal-head { padding: 13px 14px !important; }
+          .modal-head h2 { font-size: 16px !important; }
         }
         /* Utilities for narrow screens */
         .x-scroll-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }

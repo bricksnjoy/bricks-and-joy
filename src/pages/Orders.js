@@ -815,11 +815,11 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
               }
             </div>
           )}
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: 10, color: '#cfcfcf' }}>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 10, color: '#cfcfcf', flexShrink: 1, minWidth: 0 }}>
               {viewModal.created_by_email ? `Created by ${creatorName(viewModal.created_by_email)}` : ''}
             </span>
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginLeft: 'auto' }}>
               <Button variant="ghost" onClick={() => printReceipt(viewModal)}><Printer size={13} /> Print</Button>
               <Button variant="ghost" onClick={() => { openEdit(viewModal); setViewModal(null) }}><Edit2 size={13} /> Edit</Button>
               <Button variant="ghost" onClick={() => setViewModal(null)}>Close</Button>
@@ -964,9 +964,9 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
 
           {/* Discount + Channel */}
           <div style={{ marginBottom: 14, display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-            <div>
+            <div style={{ flex: '1 1 240px', minWidth: 0 }}>
               <label style={{ fontSize: 12, color: '#666', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.4px', display: 'block', marginBottom: 6 }}>Discount</label>
-              <div style={{ display: 'flex', border: '1px solid #ddd', borderRadius: 8, overflow: 'hidden', width: 260 }}>
+              <div style={{ display: 'flex', border: '1px solid #ddd', borderRadius: 8, overflow: 'hidden', width: '100%', maxWidth: 260 }}>
                 <button onClick={() => setForm(p => ({ ...p, discount_type: 'amount' }))}
                   style={{ padding: '9px 16px', border: 'none', borderRight: '1px solid #ddd', cursor: 'pointer', fontWeight: 700, fontSize: 13, fontFamily: 'inherit', background: form.discount_type === 'amount' ? '#FFA500' : '#f8f8f8', color: form.discount_type === 'amount' ? '#fff' : '#666' }}>MVR</button>
                 <button onClick={() => setForm(p => ({ ...p, discount_type: 'percent' }))}
