@@ -493,6 +493,18 @@ export default function Inventory() {
   const costHistory = costHistoryByProduct(purchaseOrders)
   const restockNeeded = restock.filter(r => r.urgency === 'out' || r.urgency === 'critical' || r.urgency === 'soon')
 
+  // Total value of stock on hand — "how much you'd get if you sold everything"
+  const invValue = products.reduce((acc, p) => {
+    if (p.discontinued) return acc
+    const q = parseInt(p.stock_qty) || 0
+    acc.retail += q * (parseFloat(p.sell_price) || 0)
+    acc.cost += q * (parseFloat(p.cost_price) || 0)
+    acc.units += q
+    return acc
+  }, { retail: 0, cost: 0, units: 0 })
+  const invProfit = invValue.retail - invValue.cost
+  const money0 = n => `MVR ${Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
+
   const filtered = products.filter(p => {
     const ms = p.name.toLowerCase().includes(search.toLowerCase()) || (p.brand || '').toLowerCase().includes(search.toLowerCase()) || (p.sku || '').toLowerCase().includes(search.toLowerCase()) || (p.barcode || '').includes(search)
     const mc = filterCat === 'all' || p.category === filterCat
@@ -573,6 +585,25 @@ export default function Inventory() {
             <Button onClick={openAdd}><Plus size={15} /> Add product</Button>
           </div>
         } />
+
+      {/* Inventory value band — what you'd receive if you sold all current stock */}
+      <div className="inv-value-band" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12, marginBottom: 18 }}>
+        {[
+          { label: "Sell-through value", hint: "if you sell everything", value: money0(invValue.retail), color: '#1D9E75', bg: '#E9F7F1', Icon: ShoppingBag },
+          { label: 'Cost of stock', hint: 'what it cost you', value: money0(invValue.cost), color: '#2f6fc0', bg: '#EAF2FD', Icon: Package },
+          { label: 'Potential profit', hint: 'sell-through − cost', value: money0(invProfit), color: invProfit >= 0 ? '#b8740a' : '#E24B4A', bg: '#FFF6E2', Icon: Percent },
+          { label: 'Units in stock', hint: `${products.filter(p => !p.discontinued).length} active products`, value: invValue.units.toLocaleString(), color: '#0d1b2a', bg: '#f5f5f7', Icon: Package },
+        ].map((c, i) => (
+          <div key={i} style={{ background: c.bg, borderRadius: 14, padding: '15px 17px' }}>
+            <div style={{ width: 34, height: 34, borderRadius: 10, background: c.color + '22', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 9 }}>
+              <c.Icon size={17} color={c.color} />
+            </div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: c.color, letterSpacing: '-0.5px' }}>{c.value}</div>
+            <div style={{ fontSize: 12, color: '#888', fontWeight: 600, marginTop: 2 }}>{c.label}</div>
+            <div style={{ fontSize: 11, color: '#aaa', marginTop: 1 }}>{c.hint}</div>
+          </div>
+        ))}
+      </div>
 
       <Card>
         {/* Filter tabs */}
