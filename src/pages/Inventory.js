@@ -1089,10 +1089,10 @@ function ProductGrid({ products, onView, onEdit, onBarcode, onDelete, onToggle, 
     <>
       <style>{`
         @keyframes cardIn { from { opacity:0; transform: translateY(14px); } to { opacity:1; transform: translateY(0); } }
-        .inv-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(372px, 1fr)); gap: 34px 28px; }
+        .inv-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 372px), 1fr)); gap: 34px 28px; }
         .prod-card { animation: cardIn 0.35s ease both; position:relative; }
         .prod-tile {
-          position: relative; width: 100%; aspect-ratio: 372 / 443; min-height: 443px; border-radius: 22px; overflow: hidden;
+          position: relative; width: 100%; aspect-ratio: 372 / 443; border-radius: 22px; overflow: hidden;
           background: #fff;
           box-shadow: inset 0 1.5px 0 rgba(255,255,255,0.95), inset 0 -3px 8px rgba(0,0,0,0.07),
                       inset 0 0 0 1px rgba(0,0,0,0.04), 0 2px 6px rgba(0,0,0,0.05);
@@ -1121,6 +1121,11 @@ function ProductGrid({ products, onView, onEdit, onBarcode, onDelete, onToggle, 
         /* select checkbox */
         .sel-chk { position:absolute; top:14px; left:14px; z-index:2; width:26px; height:26px; border-radius:8px; border:2px solid rgba(255,255,255,0.9); background:rgba(255,255,255,0.85); backdrop-filter:blur(4px); cursor:pointer; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 6px rgba(0,0,0,0.12); }
         .sel-chk.checked { background:#FFA500; border-color:#FFA500; }
+        @media (max-width: 600px) {
+          .inv-grid { gap: 16px; }
+          .prod-tile img { padding: 16px; }
+          .prod-tile { border-radius: 18px; }
+        }
       `}</style>
       <div className="inv-grid">
         {products.map(p => (
