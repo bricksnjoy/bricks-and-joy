@@ -1484,7 +1484,7 @@ function CatalogGrid({ items, activeSupplier, suppliers, selectMode, selectedIds
       <style>{`
         @keyframes catIn { from { opacity:0; transform: translateY(14px);} to { opacity:1; transform: translateY(0);} }
         .cat-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 372px), 1fr)); gap: 34px 28px; }
-        .cat-card { animation: catIn 0.32s ease both; position:relative; }
+        .cat-card { animation: catIn 0.32s ease both; position:relative; display:flex; flex-direction:column; height:100%; }
         .cat-tile { position:relative; width:100%; aspect-ratio:372/443; border-radius:22px; overflow:hidden; cursor:pointer;
           background: #fff;
           box-shadow: inset 0 1.5px 0 rgba(255,255,255,0.95), inset 0 -3px 8px rgba(0,0,0,0.07), inset 0 0 0 1px rgba(0,0,0,0.04), 0 2px 6px rgba(0,0,0,0.05);
@@ -1554,19 +1554,19 @@ function CatalogGrid({ items, activeSupplier, suppliers, selectMode, selectedIds
                 )}
               </div>
 
-              <div style={{ textAlign:'center', padding:'15px 8px 0' }}>
+              <div style={{ textAlign:'center', padding:'15px 8px 0', display:'flex', flexDirection:'column', flex:1 }}>
                 <div className="cat-name" style={{ fontSize:18, fontWeight:700, color:'#0d1b2a', letterSpacing:'-0.3px', lineHeight:1.2, minHeight:'2.4em', display:'flex', alignItems:'center', justifyContent:'center' }}>{item.product_name}</div>
                 <div style={{ fontSize:12, color:'#aaa', marginTop:4, fontWeight:600 }}>
                   {!activeSupplier && <span>{supplierNames(item).main} · </span>}{item.category || item.unit}
                 </div>
-                <div style={{ marginTop:8 }}>
+                <div style={{ marginTop:8, minHeight:'2.9em', display:'flex', flexDirection:'column', justifyContent:'flex-end' }}>
                   {item.cost_price ? <div style={{ fontSize:12, color:'#999', fontWeight:600 }}>Cost MVR {Number(item.cost_price).toFixed(2)}</div> : null}
                   <div style={{ fontSize:20, fontWeight:800, color:'#0d1b2a', letterSpacing:'-0.4px' }}>
                     {item.sell_price ? `MVR ${Number(item.sell_price).toFixed(2)}` : (item.cost_price ? '—' : 'No price')}
                   </div>
                 </div>
                 {!selectMode && (
-                  <div style={{ marginTop:13 }}>
+                  <div style={{ marginTop:'auto', paddingTop:13, paddingBottom:4 }}>
                     <button className="cat-po" onClick={() => onPO(item)}><Truck size={15} /> Order</button>
                   </div>
                 )}

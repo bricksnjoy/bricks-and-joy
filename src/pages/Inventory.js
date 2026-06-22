@@ -1090,7 +1090,7 @@ function ProductGrid({ products, onView, onEdit, onBarcode, onDelete, onToggle, 
       <style>{`
         @keyframes cardIn { from { opacity:0; transform: translateY(14px); } to { opacity:1; transform: translateY(0); } }
         .inv-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 372px), 1fr)); gap: 34px 28px; }
-        .prod-card { animation: cardIn 0.35s ease both; position:relative; }
+        .prod-card { animation: cardIn 0.35s ease both; position:relative; display:flex; flex-direction:column; height:100%; }
         .prod-tile {
           position: relative; width: 100%; aspect-ratio: 372 / 443; border-radius: 22px; overflow: hidden;
           background: #fff;
@@ -1191,14 +1191,14 @@ function ProductCard({ p, onView, onEdit, onBarcode, onDelete, onOrder, selectMo
       </div>
 
       {/* info under picture */}
-      <div style={{ textAlign: 'center', padding: '16px 8px 0' }}>
+      <div style={{ textAlign: 'center', padding: '16px 8px 0', display: 'flex', flexDirection: 'column', flex: 1 }}>
         {isNew && <div style={{ fontSize: 12, fontWeight: 700, color: '#FFA500', marginBottom: 2 }}>New</div>}
-        <div style={{ fontSize: 19, fontWeight: 700, color: '#0d1b2a', letterSpacing: '-0.3px', lineHeight: 1.2 }}>{p.name}</div>
+        <div style={{ fontSize: 19, fontWeight: 700, color: '#0d1b2a', letterSpacing: '-0.3px', lineHeight: 1.2, minHeight: '2.4em', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{p.name}</div>
         <div style={{ fontSize: 12, color: '#aaa', marginTop: 4, fontWeight: 600 }}>{p.category}</div>
         <div style={{ fontSize: 15, color: out ? '#E24B4A' : low ? '#f57f17' : '#1D9E75', marginTop: 9, fontWeight: 800 }}>
           {out ? 'Cleared out' : low ? `⚠ ${p.stock_qty} left` : `${p.stock_qty} in stock`}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 11, marginTop: 5 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 11, marginTop: 'auto', paddingTop: 9, paddingBottom: 4 }}>
           <div style={{ fontSize: 18, fontWeight: 700, color: '#0d1b2a', letterSpacing: '-0.3px' }}>
             MVR {Number(p.sell_price).toFixed(2)}
           </div>
