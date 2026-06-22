@@ -55,6 +55,8 @@ function diffFields(row, existing) {
   const changed = new Set()
   for (const k of COMPARE_KEYS) {
     const a = normVal(row[k]), b = normVal(existing[k])
+    // A blank image cell means "keep the existing image" — never treat as a change.
+    if (k === 'image_url' && a === '') continue
     if (NUMERIC_KEYS.has(k)) {
       const na = parseFloat(a) || 0, nb = parseFloat(b) || 0
       if (na !== nb) changed.add(k)
@@ -467,6 +469,46 @@ export default function SupplierCatalog() {
     w.document.close()
   }
 
+  // ── Excel export ──────────────────────────────────────────────────────────────
+  // Downloads the current products in the same column format the importer reads,
+  // so the sheet can be edited and re-uploaded — only changed/new rows are applied.
+  function exportExcel() {
+    const rows = activeSupplier ? catalog.filter(c => c.supplier_id === activeSupplier.id) : catalog
+    if (!rows.length) { toast.error('No products to export'); return }
+    // Expand any custom fields into their own columns so they round-trip too.
+    const customKeys = [...new Set(rows.flatMap(r => (r.custom_fields ? Object.keys(r.custom_fields) : [])))]
+    const data = rows.map(r => {
+      const row = {
+        'Product Name': r.product_name || '',
+        'SKU': r.sku || '',
+        'Category': r.category || '',
+        'Brand': r.brand || '',
+        'Age Range': r.age_range || '',
+        'Pieces': r.pieces ?? '',
+        'Sizes': r.sizes || '',
+        'Weight': r.weight || '',
+        'Dimensions': r.dimensions || '',
+        'Cost Price (MVR)': r.cost_price ?? '',
+        'Sell Price (MVR)': r.sell_price ?? '',
+        'Unit': r.unit || '',
+        'Description': r.description || '',
+        'Tags': r.tags || '',
+        'Notes': r.notes || '',
+        // Only export real web links; embedded/base64 images would blow past Excel's
+        // cell limit. A blank cell is read as "keep the existing image" on re-upload.
+        'Image URL': /^https?:\/\//i.test(r.image_url || '') ? r.image_url : '',
+      }
+      customKeys.forEach(k => { row[k] = r.custom_fields?.[k] ?? '' })
+      return row
+    })
+    const ws = XLSX.utils.json_to_sheet(data)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Catalog')
+    const who = activeSupplier ? activeSupplier.name.replace(/[^\w]+/g, '_') : 'all-suppliers'
+    XLSX.writeFile(wb, `supplier-catalog-${who}-${new Date().toISOString().split('T')[0]}.xlsx`)
+    toast.success(`Exported ${rows.length} product${rows.length === 1 ? '' : 's'}`)
+  }
+
   // ── Excel import ──────────────────────────────────────────────────────────────
   async function handleFileImport(e) {
     const file = e.target.files[0]
@@ -673,6 +715,8 @@ export default function SupplierCatalog() {
     if (!error) {
       for (const r of changedRows) {
         const payload = { ...fields(r), ...(r.sku ? { sku: r.sku } : {}) }
+        // Blank image cell → keep the product's existing image instead of clearing it.
+        if (!r.image_url) delete payload.image_url
         let res = await supabase.from('supplier_products').update(payload).eq('id', r._existingId)
         let e = res.error
         while (e && /column .* does not exist|could not find/i.test(e.message || '')) {
@@ -803,6 +847,9 @@ export default function SupplierCatalog() {
             </Button>
             <Button variant="ghost" onClick={downloadTemplate}>
               <Download size={14} /> Template
+            </Button>
+            <Button variant="ghost" onClick={exportExcel}>
+              <FileSpreadsheet size={14} /> Export Excel
             </Button>
             <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv,image/*" style={{ display:'none' }} onChange={handleFileImport} />
             <Button variant="ghost" onClick={() => fileRef.current.click()}>
