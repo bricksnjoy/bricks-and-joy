@@ -1557,6 +1557,17 @@ function CatalogGrid({ items, activeSupplier, suppliers, selectMode, selectedIds
           .cat-tile { min-height: 0 !important; }
           .cat-tile img { padding: 14px !important; }
           .cat-chip { font-size: 10.5px !important; padding: 4px 8px !important; }
+          /* No hover on phones — keep the 3-dots button visible and compact */
+          .cat-kebab { opacity: 1 !important; top: 8px !important; right: 8px !important; }
+          .cat-act { width: 30px !important; height: 30px !important; border-radius: 9px !important; }
+          /* Open the actions as a downward dropdown so they never slide over the badge */
+          .cat-tray { position: absolute; top: 38px; right: 0; flex-direction: column; align-items: stretch;
+            max-width: none !important; max-height: 0; overflow: hidden; opacity: 0;
+            background: #fff; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+            transition: max-height .28s ease, opacity .2s; }
+          .cat-tray.open { max-height: 160px; opacity: 1; padding: 5px; gap: 5px; }
+          /* Shrink the "not in inventory" flag so it can't reach the 3-dots */
+          .cat-flag { font-size: 8px !important; padding: 2px 6px !important; top: 8px !important; left: 8px !important; letter-spacing: 0 !important; max-width: 60%; }
         }
       `}</style>
       <div className="cat-grid">
@@ -1578,7 +1589,7 @@ function CatalogGrid({ items, activeSupplier, suppliers, selectMode, selectedIds
                 )}
 
                 {!inInventory(item) && (
-                  <span style={{ position:'absolute', top:12, left:12, zIndex:2, fontSize:10, fontWeight:700, color:'#fff', background:'#E24B4A', padding:'3px 9px', borderRadius:99, boxShadow:'0 2px 8px rgba(226,75,74,0.4)', textTransform:'uppercase', letterSpacing:'0.3px' }}>Not in inventory</span>
+                  <span className="cat-flag" style={{ position:'absolute', top:12, left:12, zIndex:2, fontSize:10, fontWeight:700, color:'#fff', background:'#E24B4A', padding:'3px 9px', borderRadius:99, boxShadow:'0 2px 8px rgba(226,75,74,0.4)', textTransform:'uppercase', letterSpacing:'0.3px' }}>Not in inventory</span>
                 )}
 
                 <div className="cat-meta">

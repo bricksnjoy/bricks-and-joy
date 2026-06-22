@@ -20,7 +20,7 @@ function Avatar({ name, size = 30 }) {
   )
 }
 
-const COST_TYPES = ['Alibaba transaction charge', 'China local delivery', 'Shipping / Freight', 'Customs / Duty', 'Other']
+const COST_TYPES = ['Transaction charge', 'Local delivery', 'Shipping / Freight', 'Customs / Duty', 'Other']
 
 const STATUSES = [
   { value: 'pending', label: 'Pending' },
@@ -197,7 +197,7 @@ export default function PurchaseOrders() {
   }
 
   function addCost() {
-    setBatchForm(prev => ({ ...prev, extraCosts: [...(prev.extraCosts || []), { type: 'Alibaba transaction charge', label: '', amount: '' }] }))
+    setBatchForm(prev => ({ ...prev, extraCosts: [...(prev.extraCosts || []), { type: 'Transaction charge', label: '', amount: '' }] }))
   }
 
   function updateCost(idx, key, value) {
@@ -1465,7 +1465,7 @@ export default function PurchaseOrders() {
           <div style={{ marginBottom: 16 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
               <span style={{ fontSize: 11, fontWeight: 700, color: '#888', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Add costs to this order ({(editPayForm.newCosts || []).length})</span>
-              <Button variant="ghost" size="sm" onClick={() => setEditPayForm(p => ({ ...p, newCosts: [...(p.newCosts || []), { type: 'Alibaba transaction charge', label: '', amount: '' }] }))}><Plus size={13} /> Add cost</Button>
+              <Button variant="ghost" size="sm" onClick={() => setEditPayForm(p => ({ ...p, newCosts: [...(p.newCosts || []), { type: 'Transaction charge', label: '', amount: '' }] }))}><Plus size={13} /> Add cost</Button>
             </div>
             {(editPayForm.newCosts || []).length > 0 && (
               <div style={{ border: '1px solid #eee', borderRadius: 10, overflow: 'hidden' }}>
@@ -1846,7 +1846,7 @@ export default function PurchaseOrders() {
           <div style={{ marginBottom: 16 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
               <span style={{ fontSize: 12, fontWeight: 600, color: '#666', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Additional costs ({(editGroupModal.extraCosts || []).length})</span>
-              <Button variant="ghost" size="sm" onClick={() => setEditGroupModal(p => ({ ...p, extraCosts: [...(p.extraCosts || []), { type: 'Alibaba transaction charge', label: '', amount: '' }] }))}><Plus size={13} /> Add cost</Button>
+              <Button variant="ghost" size="sm" onClick={() => setEditGroupModal(p => ({ ...p, extraCosts: [...(p.extraCosts || []), { type: 'Transaction charge', label: '', amount: '' }] }))}><Plus size={13} /> Add cost</Button>
             </div>
             {(editGroupModal.extraCosts || []).length > 0 && (
               <div style={{ border: '1px solid #eee', borderRadius: 10, overflow: 'hidden' }}>
