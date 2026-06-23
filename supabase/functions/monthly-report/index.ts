@@ -100,7 +100,8 @@ Deno.serve(async (req) => {
       let urgency = 'ok'
       if (perDay > 0) { if (stock <= 0) urgency = 'out'; else if (daysLeft <= 7) urgency = 'critical'; else if (daysLeft <= 21) urgency = 'soon' }
       else if (stock <= 0) urgency = 'out'
-      return { name: p.name, stock, perMonth: perDay * 30, daysLeft, suggestedReorder, urgency }
+      const unitCost = Number(p.cost_price || 0)
+      return { name: p.name, stock, perMonth: perDay * 30, daysLeft, suggestedReorder, urgency, reorderCost: suggestedReorder * unitCost }
     }).filter((r: any) => ['out', 'critical', 'soon'].includes(r.urgency))
       .sort((a: any, b: any) => a.daysLeft - b.daysLeft)
 
@@ -153,11 +154,11 @@ Deno.serve(async (req) => {
             const tag = r.urgency === 'out' ? 'OUT' : r.urgency === 'critical' ? 'CRITICAL' : 'SOON'
             return `<tr>
               <td style="padding:6px 0;font-size:13px;color:${C.navy}">${r.name}<br><span style="font-size:11px;color:${C.grey}">${r.stock} in stock · ~${r.perMonth.toFixed(0)}/mo · ${r.daysLeft === Infinity ? '—' : r.daysLeft + 'd left'}</span></td>
-              <td style="padding:6px 0;text-align:right"><span style="font-size:10px;font-weight:700;color:#fff;background:${col};padding:2px 8px;border-radius:99px">${tag}</span><br><span style="font-size:13px;font-weight:700;color:${C.navy}">+${r.suggestedReorder}</span></td>
+              <td style="padding:6px 0;text-align:right"><span style="font-size:10px;font-weight:700;color:#fff;background:${col};padding:2px 8px;border-radius:99px">${tag}</span><br><span style="font-size:13px;font-weight:700;color:${C.navy}">+${r.suggestedReorder}</span> <span style="font-size:11px;color:${C.grey}">${r.reorderCost > 0 ? money(r.reorderCost) : ''}</span></td>
             </tr>`
-          }).join('')
+          }).join('') + (() => { const t = restock.reduce((s: number, r: any) => s + r.reorderCost, 0); return t > 0 ? `<tr><td style="padding-top:10px;border-top:1px solid #eee;font-weight:700;color:${C.navy};font-size:13px">Total to reorder</td><td style="padding-top:10px;border-top:1px solid #eee;text-align:right;font-weight:800;color:${C.navy};font-size:14px">${money(t)}</td></tr>` : '' })()
         : `<tr><td style="color:${C.green};font-size:13px">✅ Everything is well stocked.</td></tr>`
-      sections += card('📦 Restock alerts', `<table style="width:100%;border-collapse:collapse">${rows}</table>`)
+      sections += card('📦 Reorder list', `<table style="width:100%;border-collapse:collapse">${rows}</table>`)
     }
 
     const html = `<div style="font-family:'Helvetica Neue',Arial,sans-serif;background:#f6f5f2;padding:24px;max-width:600px;margin:0 auto">

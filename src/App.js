@@ -42,7 +42,7 @@ const ITEMS = {
   planning:           { label: 'Planning',          icon: Sparkles,        render: <Planning /> },
   inventory:          { label: 'Inventory',         icon: Package,         render: <Inventory /> },
   categories:         { label: 'Categories',        icon: Tag,             render: <Categories /> },
-  'purchase-orders':  { label: 'Purchase Orders',   icon: Truck,           render: <PurchaseOrders /> },
+  'purchase-orders':  { label: 'Batch Orders',      icon: Truck,           render: <PurchaseOrders /> },
   'supplier-catalog': { label: 'Supplier Catalog',  icon: BookOpen,        render: <SupplierCatalog /> },
   'stock-report':     { label: 'Stock Report',      icon: ClipboardList,   render: <StockReport /> },
   'future-plans':     { label: 'Future Plans',      icon: TrendingUp,      render: <FuturePlans /> },

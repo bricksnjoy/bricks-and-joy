@@ -956,7 +956,7 @@ export default function PurchaseOrders() {
         }
       `}</style>
       <PageHeader
-        title="Purchase Orders"
+        title="Batch Orders"
         subtitle={`MVR ${totalSpend.toFixed(2)} received · MVR ${pendingValue.toFixed(2)} pending`}
         action={
           <div style={{ display: 'flex', gap: 8 }}>
