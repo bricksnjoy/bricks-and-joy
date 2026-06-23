@@ -18,13 +18,14 @@ import Deliveries from './pages/Deliveries'
 import Invoices from './pages/Invoices'
 import Planning from './pages/Planning'
 import FuturePlans from './pages/FuturePlans'
+import Reconciliation from './pages/Reconciliation'
 import HelpGuide from './pages/HelpGuide'
 import Settings from './pages/Settings'
 import {
   LayoutDashboard, ShoppingCart, Package, Users,
   DollarSign, BarChart2, Truck, ChevronDown, ChevronRight,
   LogOut, Building2, FileText, Menu, CalendarDays, Tag, BookOpen,
-  GripVertical, Check, Settings2, MoreVertical, Sparkles, MessageSquare, LifeBuoy, TrendingUp, Settings as SettingsIcon
+  GripVertical, Check, Settings2, MoreVertical, Sparkles, MessageSquare, LifeBuoy, TrendingUp, Scale, Settings as SettingsIcon
 } from 'lucide-react'
 
 // Catalog of every page. The sidebar layout (sections + order) is built from
@@ -44,6 +45,7 @@ const ITEMS = {
   'supplier-catalog': { label: 'Supplier Catalog',  icon: BookOpen,        render: <SupplierCatalog /> },
   'future-plans':     { label: 'Future Plans',      icon: TrendingUp,      render: <FuturePlans /> },
   'profit-loss':      { label: 'Financial Reports', icon: FileText,        render: <ProfitLoss /> },
+  reconciliation:     { label: 'Reconciliation',    icon: Scale,           render: <Reconciliation /> },
   costs:              { label: 'Cost Management',    icon: DollarSign,      render: <CostManagement /> },
   vendors:            { label: 'Vendors',           icon: Building2,       render: <Vendors /> },
   statistics:         { label: 'Analytics',         icon: BarChart2,       render: <Statistics /> },
@@ -53,7 +55,7 @@ const DEFAULT_NAV = [
   { id: 'main',       section: null,             items: ['dashboard'] },
   { id: 'pos',        section: 'Point of Sale',  items: ['orders', 'invoices', 'customers', 'deliveries', 'tasks', 'messages', 'planning'] },
   { id: 'inventory',  section: 'Inventory',      items: ['inventory', 'categories', 'purchase-orders', 'supplier-catalog'] },
-  { id: 'accounting', section: 'Accounting',     items: ['future-plans', 'profit-loss', 'costs', 'vendors', 'statistics'] },
+  { id: 'accounting', section: 'Accounting',     items: ['future-plans', 'profit-loss', 'reconciliation', 'costs', 'vendors', 'statistics'] },
 ]
 
 const NAV_KEY = 'bnj_nav_layout_v1'
