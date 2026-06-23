@@ -14,6 +14,11 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const CURRENCY = 'MVR'
+const cors = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+}
 const money = (n: number) =>
   `${CURRENCY} ${Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 const DAY = 86400000
@@ -38,6 +43,7 @@ function monthRange(monthStr?: string, test?: boolean) {
 }
 
 Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!
     const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -165,8 +171,8 @@ Deno.serve(async (req) => {
 
     const subject = `Brick's & Joy — ${label} report`
 
-    if (!recipients.length) return new Response(JSON.stringify({ ok: false, error: 'No recipients configured in report_settings' }), { status: 200, headers: { 'Content-Type': 'application/json' } })
-    if (!resendKey) return new Response(JSON.stringify({ ok: false, error: 'RESEND_API_KEY not set' }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    if (!recipients.length) return new Response(JSON.stringify({ ok: false, error: 'No recipients configured in report_settings' }), { status: 200, headers: { ...cors, 'Content-Type': 'application/json' } })
+    if (!resendKey) return new Response(JSON.stringify({ ok: false, error: 'RESEND_API_KEY not set' }), { status: 200, headers: { ...cors, 'Content-Type': 'application/json' } })
 
     // ── Send via Resend ──
     const send = await fetch('https://api.resend.com/emails', {
@@ -175,10 +181,10 @@ Deno.serve(async (req) => {
       body: JSON.stringify({ from, to: recipients, subject, html }),
     })
     const result = await send.json()
-    if (!send.ok) return new Response(JSON.stringify({ ok: false, error: result }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    if (!send.ok) return new Response(JSON.stringify({ ok: false, error: result }), { status: 200, headers: { ...cors, 'Content-Type': 'application/json' } })
 
-    return new Response(JSON.stringify({ ok: true, sent_to: recipients, month: label, id: result.id }), { headers: { 'Content-Type': 'application/json' } })
+    return new Response(JSON.stringify({ ok: true, sent_to: recipients, month: label, id: result.id }), { headers: { ...cors, 'Content-Type': 'application/json' } })
   } catch (e) {
-    return new Response(JSON.stringify({ ok: false, error: String(e) }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    return new Response(JSON.stringify({ ok: false, error: String(e) }), { status: 200, headers: { ...cors, 'Content-Type': 'application/json' } })
   }
 })
