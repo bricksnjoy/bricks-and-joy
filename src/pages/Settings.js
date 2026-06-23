@@ -1,7 +1,8 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
-import { Building2, DollarSign, Package, Save, RotateCcw, X, Monitor, ShoppingCart, MessageSquare, ChevronDown } from 'lucide-react'
+import { Building2, DollarSign, Package, Save, RotateCcw, X, Monitor, ShoppingCart, MessageSquare, ChevronDown, Mail, Send } from 'lucide-react'
 import { getSettings, saveSettings, DEFAULT_SETTINGS } from '../lib/settings'
+import { supabase } from '../lib/supabase'
 import { useToast, Toasts } from '../components/UI'
 
 const CHANNELS = ['Retail store', 'Online', 'Wholesale', 'Pop-up / Market', 'Instagram', 'Phone']
@@ -83,6 +84,82 @@ function PillGroup({ value, onChange, options }) {
           transition: 'all 0.15s', whiteSpace: 'nowrap',
         }}>{o.label}</button>
       ))}
+    </div>
+  )
+}
+
+// ── Monthly email report (server-side; config stored in Supabase so the
+// scheduled Edge Function can read it) ───────────────────────────────────────
+function MonthlyReportSettings({ toast }) {
+  const [cfg, setCfg] = useState(null)
+  const [missing, setMissing] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [sending, setSending] = useState(false)
+
+  useEffect(() => {
+    supabase.from('report_settings').select('*').eq('id', 1).maybeSingle().then(({ data, error }) => {
+      if (error) setMissing(true)
+      setCfg(data || { id: 1, recipients: '', include_financial: true, include_restock: true, include_sales: true })
+    })
+  }, [])
+
+  const upd = (k, v) => setCfg(c => ({ ...c, [k]: v }))
+
+  async function save() {
+    setSaving(true)
+    const { error } = await supabase.from('report_settings').upsert({ id: 1, ...cfg, updated_at: new Date().toISOString() })
+    setSaving(false)
+    if (error) { setMissing(true); toast.error('Could not save — create the report_settings table first.') }
+    else { setMissing(false); toast.success('Report settings saved') }
+  }
+
+  async function sendNow() {
+    setSending(true)
+    try {
+      const { data, error } = await supabase.functions.invoke('monthly-report', { body: { test: true } })
+      if (error) throw error
+      if (data?.ok) toast.success('Test report sent to ' + (data.sent_to || []).join(', '))
+      else toast.error('Send failed: ' + (data?.error?.message || JSON.stringify(data?.error) || 'check function setup'))
+    } catch (e) {
+      toast.error('Function not reachable yet — deploy monthly-report & set RESEND_API_KEY.')
+    }
+    setSending(false)
+  }
+
+  if (!cfg) return null
+  return (
+    <div style={{ background: '#fafafa', borderRadius: 14, padding: 18, border: '1px solid #f0f0f0' }}>
+      <SectionHead icon={Mail} title="Monthly Email Report" />
+      {missing && (
+        <div style={{ background: '#FFF8E1', border: '1px solid #FAEEDA', borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 12, color: '#a16d0a', lineHeight: 1.6 }}>
+          Setup needed: create the <strong>report_settings</strong> table, deploy the <strong>monthly-report</strong> Edge Function, and set <strong>RESEND_API_KEY</strong>. (Ask for the exact commands.)
+        </div>
+      )}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 14 }}>
+        <Field label="Send report to" hint="Comma-separate multiple email addresses">
+          <TInput value={cfg.recipients || ''} onChange={e => upd('recipients', e.target.value)} placeholder="you@gmail.com, partner@gmail.com" />
+        </Field>
+        <Field label="Include in the email">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <Toggle checked={cfg.include_financial !== false} onChange={e => upd('include_financial', e.target.checked)} label="Financial summary (revenue, profit, expenses)" />
+            <Toggle checked={cfg.include_restock !== false} onChange={e => upd('include_restock', e.target.checked)} label="Restock smart alerts" />
+            <Toggle checked={cfg.include_sales !== false} onChange={e => upd('include_sales', e.target.checked)} label="Sales highlights (orders, top products & customers)" />
+          </div>
+        </Field>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button onClick={save} disabled={saving}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#FFA500', color: '#fff', border: 'none', borderRadius: 9, padding: '9px 16px', cursor: 'pointer', fontWeight: 700, fontSize: 13, fontFamily: 'inherit' }}>
+            <Save size={13} /> {saving ? 'Saving…' : 'Save recipients'}
+          </button>
+          <button onClick={sendNow} disabled={sending}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#fff', color: '#0d1b2a', border: '1px solid #ddd', borderRadius: 9, padding: '9px 16px', cursor: 'pointer', fontWeight: 700, fontSize: 13, fontFamily: 'inherit' }}>
+            <Send size={13} /> {sending ? 'Sending…' : 'Send test now'}
+          </button>
+        </div>
+        <div style={{ fontSize: 11.5, color: '#aaa', lineHeight: 1.6 }}>
+          The report is sent automatically each month by a scheduled server function. "Send test now" emails the current month-to-date so you can preview it.
+        </div>
+      </div>
     </div>
   )
 }
@@ -269,6 +346,9 @@ export default function Settings({ onClose }) {
               </Field>
             </div>
           </div>
+
+          {/* ── Monthly Email Report ── */}
+          <MonthlyReportSettings toast={toast} />
 
         </div>
 
