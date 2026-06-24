@@ -70,8 +70,9 @@ export default function Dashboard() {
       try { budgetMap = JSON.parse(localStorage.getItem('bnj_budgets_v1') || '{}') } catch { budgetMap = {} }
     }
     if (!budgetsRes.error) (budgetsRes.data || []).forEach(b => { budgetMap[b.category] = Number(b.amount) })
+    const catAlias = { 'Marketing Ads': 'Meta Ads', 'Instagram Ads': 'Meta Ads', 'Facebook Ads': 'Meta Ads' }
     const expByCat = {}
-    ;(expenses.data || []).forEach(e => { if ((e.expense_date || '').startsWith(thisMonthStr)) expByCat[e.category || 'Other'] = (expByCat[e.category || 'Other'] || 0) + Number(e.amount || 0) })
+    ;(expenses.data || []).forEach(e => { if ((e.expense_date || '').startsWith(thisMonthStr)) { const c = catAlias[e.category] || e.category || 'Other'; expByCat[c] = (expByCat[c] || 0) + Number(e.amount || 0) } })
     const over = Object.entries(budgetMap)
       .filter(([c, amt]) => Number(amt) > 0 && (expByCat[c] || 0) > Number(amt))
       .map(([c, amt]) => ({ cat: c, budget: Number(amt), actual: expByCat[c] || 0, over: (expByCat[c] || 0) - Number(amt) }))

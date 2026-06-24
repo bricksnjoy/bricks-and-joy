@@ -27,6 +27,15 @@ const readLocal = () => { try { return JSON.parse(localStorage.getItem(LS_KEY)) 
 const writeLocal = obj => localStorage.setItem(LS_KEY, JSON.stringify(obj))
 const thisMonth = () => new Date().toISOString().slice(0, 7)
 
+// Old category names rolled into the current ones, so historical expenses logged
+// under a renamed category still count toward the right budget line.
+const CATEGORY_ALIASES = {
+  'Marketing Ads': 'Meta Ads',
+  'Instagram Ads': 'Meta Ads',
+  'Facebook Ads': 'Meta Ads',
+}
+const canonCat = c => CATEGORY_ALIASES[c] || c || 'Other'
+
 export default function Budget() {
   const [expenses, setExpenses] = useState([])
   const [orders, setOrders] = useState([])
@@ -65,7 +74,8 @@ export default function Budget() {
   const actualByCat = useMemo(() => {
     const m = {}
     expenses.filter(e => (e.expense_date || '').startsWith(month)).forEach(e => {
-      m[e.category || 'Other'] = (m[e.category || 'Other'] || 0) + Number(e.amount || 0)
+      const cat = canonCat(e.category)
+      m[cat] = (m[cat] || 0) + Number(e.amount || 0)
     })
     return m
   }, [expenses, month])

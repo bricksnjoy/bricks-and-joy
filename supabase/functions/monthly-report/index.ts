@@ -89,8 +89,9 @@ Deno.serve(async (req) => {
     const { data: budgetRows } = await sb.from('budgets').select('category, amount')
     const budgetMap: Record<string, number> = {}
     ;(budgetRows || []).forEach((b: any) => { budgetMap[b.category] = Number(b.amount || 0) })
+    const catAlias: Record<string, string> = { 'Marketing Ads': 'Meta Ads', 'Instagram Ads': 'Meta Ads', 'Facebook Ads': 'Meta Ads' }
     const expByCat: Record<string, number> = {}
-    E.filter((e: any) => inMonth(e.expense_date)).forEach((e: any) => { expByCat[e.category || 'Other'] = (expByCat[e.category || 'Other'] || 0) + Number(e.amount || 0) })
+    E.filter((e: any) => inMonth(e.expense_date)).forEach((e: any) => { const c = catAlias[e.category] || e.category || 'Other'; expByCat[c] = (expByCat[c] || 0) + Number(e.amount || 0) })
     const budgetCats = Object.entries(budgetMap).filter(([, a]) => Number(a) > 0)
       .map(([cat, a]) => ({ cat, budget: Number(a), actual: expByCat[cat] || 0, over: (expByCat[cat] || 0) - Number(a) }))
       .sort((x, y) => y.over - x.over)
