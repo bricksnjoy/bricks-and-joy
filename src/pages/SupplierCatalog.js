@@ -494,8 +494,6 @@ export default function SupplierCatalog() {
         'Dimensions': r.dimensions || '',
         'Cost Price (MVR)': r.cost_price ?? '',
         'Sell Price (MVR)': r.sell_price ?? '',
-        // Current inventory stock of the matching product (by name); blank if not in inventory
-        'Quantity': inventoryByName.get((r.product_name || '').toLowerCase().trim())?.stock_qty ?? '',
         'Unit': r.unit || '',
         'Description': r.description || '',
         'Tags': r.tags || '',
@@ -792,7 +790,6 @@ export default function SupplierCatalog() {
       'Product Name',
       'Cost Price (MVR)',
       'Sell Price (MVR)',
-      'Quantity',
       'Category',
       'Brand',
       'Age Range',
@@ -807,13 +804,13 @@ export default function SupplierCatalog() {
       'Image URL',
     ]
     const examples = [
-      ['LEGO Classic Bricks', '120.00', '350.00', '25', 'Building & Blocks', 'LEGO', 'All ages', '300', 'Medium', '500g', '30×20×10cm', 'set', 'Creative building set', 'popular, new', 'Best seller', 'https://example.com/image.jpg'],
-      ['Hot Wheels Car', '45.00', '150.00', '60', 'Vehicles & RC', 'Hot Wheels', '3–5', '', '', '120g', '', 'piece', 'Die-cast toy car', 'sale', '', ''],
-      ['Barbie Doll', '80.00', '220.00', '12', 'Dolls & Plush', 'Mattel', '6–8', '', 'One size', '', '', 'piece', '', 'popular', 'Popular item', ''],
+      ['LEGO Classic Bricks', '120.00', '350.00', 'Building & Blocks', 'LEGO', 'All ages', '300', 'Medium', '500g', '30×20×10cm', 'set', 'Creative building set', 'popular, new', 'Best seller', 'https://example.com/image.jpg'],
+      ['Hot Wheels Car', '45.00', '150.00', 'Vehicles & RC', 'Hot Wheels', '3–5', '', '', '120g', '', 'piece', 'Die-cast toy car', 'sale', '', ''],
+      ['Barbie Doll', '80.00', '220.00', 'Dolls & Plush', 'Mattel', '6–8', '', 'One size', '', '', 'piece', '', 'popular', 'Popular item', ''],
     ]
     const ws = XLSX.utils.aoa_to_sheet([headers, ...examples])
     // Column widths
-    ws['!cols'] = [{ wch: 30 }, { wch: 16 }, { wch: 16 }, { wch: 10 }, { wch: 18 }, { wch: 14 }, { wch: 11 }, { wch: 9 }, { wch: 14 }, { wch: 10 }, { wch: 14 }, { wch: 9 }, { wch: 28 }, { wch: 16 }, { wch: 22 }, { wch: 40 }]
+    ws['!cols'] = [{ wch: 30 }, { wch: 16 }, { wch: 16 }, { wch: 18 }, { wch: 14 }, { wch: 11 }, { wch: 9 }, { wch: 14 }, { wch: 10 }, { wch: 14 }, { wch: 9 }, { wch: 28 }, { wch: 16 }, { wch: 22 }, { wch: 40 }]
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Products')
 
@@ -825,7 +822,6 @@ export default function SupplierCatalog() {
       ['Product Name', 'Required. Full product name.'],
       ['Cost Price (MVR)', 'What you PAY the supplier.'],
       ['Sell Price (MVR)', 'What you CHARGE customers (the "Delivery price" in your sheet).'],
-      ['Quantity', 'Stock on hand. On import, this UPDATES the inventory stock of the matching product. Leave blank to keep the current stock unchanged.'],
       ['Category', 'e.g. Vehicles & RC, Dolls & Plush, Building & Blocks'],
       ['Brand', 'e.g. LEGO, Mattel, Hot Wheels'],
       ['Age Range', '0–2 / 3–5 / 6–8 / 9–12 / 12+ / All ages'],
