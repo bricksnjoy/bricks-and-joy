@@ -25,7 +25,9 @@ export function ImageTile({ src, className, style, onClick, title, children }) {
         if (!cancelled && p[3] > 10) setBg(`rgb(${p[0]}, ${p[1]}, ${p[2]})`)
       } catch { /* tainted / CORS — keep the CSS default */ }
     }
-    probe.src = src
+    // Cache-buster so this fetch carries CORS headers instead of reusing the
+    // display <img>'s already-cached (non-CORS) copy, which would taint the canvas.
+    probe.src = src + (src.includes('?') ? '&' : '?') + '_cors=1'
     return () => { cancelled = true }
   }, [src])
   return <div className={className} style={bg ? { ...style, background: bg } : style} onClick={onClick} title={title}>{children}</div>
