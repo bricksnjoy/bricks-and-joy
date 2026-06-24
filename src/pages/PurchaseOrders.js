@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Button, Input, Select, Table, Modal, Spinner, FormRow, useToast, Toasts, Badge } from '../components/UI'
 import { Plus, Trash2, Package, Truck, X, Info, AlertTriangle, CreditCard, Wallet, CheckCircle, Paperclip, Eye, Pencil, LayoutGrid, List, ChevronDown } from 'lucide-react'
+import { restockPredictions } from '../lib/insights'
 
 const AVATAR_COLORS = ['#7F77DD', '#1D9E75', '#FFA500', '#378ADD', '#E24B4A', '#0F6E56']
 function avatarColor(name = '') {
@@ -33,6 +34,7 @@ export default function PurchaseOrders() {
   const [pos, setPOs] = useState([])
   const [suppliers, setSuppliers] = useState([])
   const [products, setProducts] = useState([])
+  const [orders, setOrders] = useState([])  // for sales-velocity restock suggestions
   const [payments, setPayments] = useState([]) // supplier_payments
   const [loading, setLoading] = useState(true)
   const [batchModal, setBatchModal] = useState(false)
@@ -78,18 +80,20 @@ export default function PurchaseOrders() {
 
   async function load() {
     setLoading(true)
-    const [p, s, pr, pay, sp] = await Promise.all([
+    const [p, s, pr, pay, sp, ord] = await Promise.all([
       supabase.from('purchase_orders').select('*').order('created_at', { ascending: false }),
       supabase.from('suppliers').select('*').order('name'),
       supabase.from('products').select('*').order('name'),
       supabase.from('supplier_payments').select('*').order('payment_date', { ascending: false }),
       supabase.from('supplier_products').select('*').order('product_name'),
+      supabase.from('orders').select('product_id, qty, status, order_date'),
     ])
     setPOs(p.data || [])
     setSuppliers(s.data || [])
     setProducts(pr.data || [])
     setPayments(pay.data || [])
     setSupplierCatalog(sp.data || [])
+    setOrders(ord.data || [])
     setLoading(false)
   }
 
@@ -161,15 +165,34 @@ export default function PurchaseOrders() {
   }, [loading, pos, payments])
 
   function openBatchAdd() {
-    // Auto-suggest low stock items
-    const lowStock = products.filter(p => p.stock_qty <= (p.low_stock_threshold || 10))
-    const suggestedItems = lowStock.map(p => ({
-      product_id: p.id,
-      product_name: p.name,
-      qty: Math.max(20, (p.low_stock_threshold || 10) * 2 - p.stock_qty),
-      unit_cost: Number(p.cost_price) || 0,
-      current_stock: p.stock_qty
-    }))
+    // Pre-fill every product that needs restocking, with smart quantities.
+    // Reorder qty comes from sales velocity (cover ~30 days); if a product has
+    // no recent sales but is low/out of stock, fall back to a sensible top-up.
+    const reorderById = {}
+    restockPredictions(products, orders, { windowDays: 60, coverDays: 30 })
+      .forEach(r => { reorderById[r.id] = r.suggestedReorder })
+
+    const suggestedItems = products
+      .filter(p => !p.discontinued)
+      .map(p => {
+        const threshold = p.low_stock_threshold || 10
+        const stock = Number(p.stock_qty || 0)
+        const velocityQty = reorderById[p.id] || 0
+        const lowStock = stock <= threshold
+        let qty = velocityQty
+        if (qty <= 0 && lowStock) qty = Math.max(threshold * 2 - stock, threshold) // top-up to ~2× threshold
+        return { product: p, qty, needs: velocityQty > 0 || lowStock || stock <= 0 }
+      })
+      .filter(x => x.needs && x.qty > 0)
+      .sort((a, b) => a.product.stock_qty - b.product.stock_qty)
+      .map(x => ({
+        product_id: x.product.id,
+        product_name: x.product.name,
+        qty: x.qty,
+        unit_cost: Number(x.product.cost_price) || 0,
+        current_stock: x.product.stock_qty,
+      }))
+
     setBatchForm({
       supplier_id: '', supplier_name: '',
       order_date: new Date().toISOString().split('T')[0],
