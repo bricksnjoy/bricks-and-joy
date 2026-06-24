@@ -85,6 +85,16 @@ Deno.serve(async (req) => {
     const ar = O.filter((o: any) => o.payment_status === 'unpaid' || o.payment_status === 'partial')
       .reduce((s, o: any) => s + Number(o.total_price || 0), 0)
 
+    // ── Budget vs actual (budgets table; skipped if none set) ──
+    const { data: budgetRows } = await sb.from('budgets').select('category, amount')
+    const budgetMap: Record<string, number> = {}
+    ;(budgetRows || []).forEach((b: any) => { budgetMap[b.category] = Number(b.amount || 0) })
+    const expByCat: Record<string, number> = {}
+    E.filter((e: any) => inMonth(e.expense_date)).forEach((e: any) => { expByCat[e.category || 'Other'] = (expByCat[e.category || 'Other'] || 0) + Number(e.amount || 0) })
+    const budgetCats = Object.entries(budgetMap).filter(([, a]) => Number(a) > 0)
+      .map(([cat, a]) => ({ cat, budget: Number(a), actual: expByCat[cat] || 0, over: (expByCat[cat] || 0) - Number(a) }))
+      .sort((x, y) => y.over - x.over)
+
     // ── Restock predictions (mirrors src/lib/insights.js) ──
     const since = ymd(new Date(Date.now() - 60 * DAY))
     const soldByProduct: Record<string, number> = {}
@@ -133,6 +143,16 @@ Deno.serve(async (req) => {
       ${stat('Net profit', money(net), net >= 0 ? C.green : C.red)}
       ${stat('Outstanding (unpaid orders)', money(ar), C.orange)}
     </table>`)
+
+    if (budgetCats.length) {
+      const totB = budgetCats.reduce((s, r) => s + r.budget, 0)
+      const totA = budgetCats.reduce((s, r) => s + r.actual, 0)
+      const rs = budgetCats.map(r => {
+        const col = r.over > 0 ? C.red : C.green
+        return `<tr><td style="padding:5px 0;font-size:13px;color:${C.navy}">${r.cat}</td><td style="padding:5px 0;text-align:right;font-size:12px;color:${C.grey}">${money(r.actual)} / ${money(r.budget)}</td><td style="padding:5px 0;text-align:right;font-weight:700;color:${col};font-size:13px">${r.over > 0 ? '+' : ''}${money(r.over)}</td></tr>`
+      }).join('')
+      sections += card('📊 Budget vs actual', `<table style="width:100%;border-collapse:collapse">${rs}<tr><td style="padding-top:8px;border-top:1px solid #eee;font-weight:700;color:${C.navy};font-size:13px">Total</td><td style="padding-top:8px;border-top:1px solid #eee;text-align:right;font-size:12px;color:${C.grey}">${money(totA)} / ${money(totB)}</td><td style="padding-top:8px;border-top:1px solid #eee;text-align:right;font-weight:800;color:${totA > totB ? C.red : C.green};font-size:13px">${totA - totB > 0 ? '+' : ''}${money(totA - totB)}</td></tr></table>`)
+    }
 
     if (incSales) {
       const list = (rows: [string, number][]) => rows.length

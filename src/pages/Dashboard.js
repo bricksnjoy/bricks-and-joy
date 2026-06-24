@@ -29,17 +29,19 @@ export default function Dashboard() {
   const [newCustomers30, setNewCustomers30] = useState([])
   const [actions, setActions] = useState([])
   const [insights, setInsights] = useState([])
+  const [overBudget, setOverBudget] = useState([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => { loadDashboard() }, [])
 
   async function loadDashboard() {
     setLoading(true)
-    const [products, orders, customers, expenses] = await Promise.all([
+    const [products, orders, customers, expenses, budgetsRes] = await Promise.all([
       supabase.from('products').select('*'),
       supabase.from('orders').select('*').order('created_at', { ascending: false }),
       supabase.from('customers').select('*').order('created_at', { ascending: false }),
-      supabase.from('expenses').select('amount'),
+      supabase.from('expenses').select('amount, category, expense_date'),
+      supabase.from('budgets').select('category, amount'),
     ])
     const prods = products.data || []
     const ords = orders.data || []
@@ -61,6 +63,20 @@ export default function Dashboard() {
     const thisMonthSales = delivered.filter(o => o.order_date?.startsWith(thisMonthStr)).reduce((s, o) => s + Number(o.total_price || 0), 0)
     const lastMonthSales = delivered.filter(o => o.order_date?.startsWith(lastMonthStr)).reduce((s, o) => s + Number(o.total_price || 0), 0)
     const monthChange = lastMonthSales > 0 ? ((thisMonthSales - lastMonthSales) / lastMonthSales * 100).toFixed(0) : null
+
+    // Over-budget categories this month (budgets from Supabase table, else localStorage)
+    let budgetMap = {}
+    if (budgetsRes.error || !(budgetsRes.data || []).length) {
+      try { budgetMap = JSON.parse(localStorage.getItem('bnj_budgets_v1') || '{}') } catch { budgetMap = {} }
+    }
+    if (!budgetsRes.error) (budgetsRes.data || []).forEach(b => { budgetMap[b.category] = Number(b.amount) })
+    const expByCat = {}
+    ;(expenses.data || []).forEach(e => { if ((e.expense_date || '').startsWith(thisMonthStr)) expByCat[e.category || 'Other'] = (expByCat[e.category || 'Other'] || 0) + Number(e.amount || 0) })
+    const over = Object.entries(budgetMap)
+      .filter(([c, amt]) => Number(amt) > 0 && (expByCat[c] || 0) > Number(amt))
+      .map(([c, amt]) => ({ cat: c, budget: Number(amt), actual: expByCat[c] || 0, over: (expByCat[c] || 0) - Number(amt) }))
+      .sort((a, b) => b.over - a.over)
+    setOverBudget(over)
 
     // Best sellers — last 30 days delivered orders
     const since30 = new Date(); since30.setDate(since30.getDate() - 30)
@@ -161,6 +177,25 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* Over-budget alert */}
+      {overBudget.length > 0 && (
+        <button onClick={() => navTo('budget')}
+          style={{ width: '100%', textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 12, background: '#FDECEA', border: '1px solid #f5c6c2', borderRadius: 14, padding: '13px 16px', marginBottom: 16, animation: 'fadeSlideUp 0.3s ease both' }}>
+          <div style={{ width: 34, height: 34, borderRadius: 10, background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <AlertTriangle size={16} color="#E24B4A" />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13.5, fontWeight: 700, color: '#0d1b2a' }}>
+              {overBudget.length} categor{overBudget.length === 1 ? 'y is' : 'ies are'} over budget this month
+            </div>
+            <div style={{ fontSize: 12, color: '#a13f3a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {overBudget.slice(0, 3).map(b => `${b.cat} +MVR ${b.over.toLocaleString(undefined, { maximumFractionDigits: 0 })}`).join('  ·  ')}
+            </div>
+          </div>
+          <ChevronRight size={16} color="#E24B4A" style={{ flexShrink: 0 }} />
+        </button>
+      )}
 
       {/* Action center + AI insights */}
       {(actions.length > 0 || insights.length > 0) && (
