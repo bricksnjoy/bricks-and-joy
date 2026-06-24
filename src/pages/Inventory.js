@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
-import { PageHeader, Card, Button, Input, Select, Table, Modal, Badge, StockBadge, Spinner, FormRow, useToast, Toasts } from '../components/UI'
+import { PageHeader, Card, Button, Input, Select, Table, Modal, Badge, StockBadge, Spinner, FormRow, useToast, Toasts, ImageTile } from '../components/UI'
 import { Plus, Trash2, Edit2, Upload, X, Package, Eye, Barcode, Download, Printer, Camera, LayoutGrid, List, MoreVertical, ShoppingBag, Percent, Minus, RotateCcw } from 'lucide-react'
 
 // Custom line-art icons matching the toy/store brand
@@ -1146,7 +1146,7 @@ function ProductCard({ p, onView, onEdit, onBarcode, onDelete, onOrder, selectMo
   const isNew = (p.tags || '').toLowerCase().split(',').map(t => t.trim()).includes('new')
   return (
     <div className="prod-card" onMouseEnter={onHover}>
-      <div className={`prod-tile ${isSelected ? 'prod-tile-sel' : ''}`}
+      <ImageTile src={p.photo_url} className={`prod-tile ${isSelected ? 'prod-tile-sel' : ''}`}
         onClick={() => selectMode ? onToggleSelect(p.id) : onView(p)}>
         {p.photo_url
           ? <img src={p.photo_url} alt={p.name} />
@@ -1188,7 +1188,7 @@ function ProductCard({ p, onView, onEdit, onBarcode, onDelete, onOrder, selectMo
             </button>
           </div>
         )}
-      </div>
+      </ImageTile>
 
       {/* info under picture */}
       <div style={{ textAlign: 'center', padding: '16px 8px 0', display: 'flex', flexDirection: 'column', flex: 1 }}>

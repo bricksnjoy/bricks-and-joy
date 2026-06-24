@@ -2,6 +2,36 @@ import React, { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { X, AlertTriangle, CheckCircle, Info, Inbox } from 'lucide-react'
 
+// ─── Image tile that auto-matches its background to the photo's edge color ──────
+// Renders a container whose background blends with the product image's own
+// background (sampled from a top corner pixel). Safely falls back to the CSS
+// default if the image can't be read (e.g. cross-origin without CORS).
+export function ImageTile({ src, className, style, onClick, title, children }) {
+  const [bg, setBg] = useState(null)
+  useEffect(() => {
+    setBg(null)
+    if (!src) return
+    let cancelled = false
+    const probe = new Image()
+    probe.crossOrigin = 'anonymous'
+    probe.onload = () => {
+      try {
+        const c = document.createElement('canvas')
+        c.width = probe.naturalWidth || 1
+        c.height = probe.naturalHeight || 1
+        const ctx = c.getContext('2d')
+        ctx.drawImage(probe, 0, 0)
+        const p = ctx.getImageData(3, 3, 1, 1).data
+        if (!cancelled && p[3] > 10) setBg(`rgb(${p[0]}, ${p[1]}, ${p[2]})`)
+      } catch { /* tainted / CORS — keep the CSS default */ }
+    }
+    probe.src = src
+    return () => { cancelled = true }
+  }, [src])
+  return <div className={className} style={bg ? { ...style, background: bg } : style} onClick={onClick} title={title}>{children}</div>
+}
+
+
 // ─── Page header ──────────────────────────────────────────────────────────────
 export function PageHeader({ title, subtitle, action }) {
   return (

@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
-import { PageHeader, Card, Button, Input, Select, Modal, Spinner, FormRow, useToast, Toasts, Badge } from '../components/UI'
+import { PageHeader, Card, Button, Input, Select, Modal, Spinner, FormRow, useToast, Toasts, Badge, ImageTile } from '../components/UI'
 import {
   Plus, Trash2, Edit2, Eye, Search, Building2, Package, Truck,
   Barcode, QrCode, Upload, Download, FileSpreadsheet, Camera,
@@ -1600,7 +1600,7 @@ function CatalogGrid({ items, activeSupplier, suppliers, selectMode, selectedIds
           const menuOpen = openMenuId === item.id
           return (
             <div key={item.id} className="cat-card" onMouseEnter={() => { if (openMenuId && openMenuId !== item.id) setOpenMenuId(null) }}>
-              <div className={`cat-tile ${sel ? 'sel' : ''}`} onClick={() => selectMode ? onToggleSelect(item.id) : onView(item)}>
+              <ImageTile src={item.image_url} className={`cat-tile ${sel ? 'sel' : ''}`} onClick={() => selectMode ? onToggleSelect(item.id) : onView(item)}>
                 {item.image_url
                   ? <img src={item.image_url} alt={item.product_name} onError={e=>{e.target.style.display='none'}} />
                   : <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center' }}><Package size={52} color="#cfcfd6" /></div>}
@@ -1633,7 +1633,7 @@ function CatalogGrid({ items, activeSupplier, suppliers, selectMode, selectedIds
                     </button>
                   </div>
                 )}
-              </div>
+              </ImageTile>
 
               <div style={{ textAlign:'center', padding:'15px 8px 0', display:'flex', flexDirection:'column', flex:1 }}>
                 <div className="cat-name" style={{ fontSize:18, fontWeight:700, color:'#0d1b2a', letterSpacing:'-0.3px', lineHeight:1.2, minHeight:'2.4em', display:'flex', alignItems:'center', justifyContent:'center' }}>{item.product_name}</div>
