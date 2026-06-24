@@ -61,6 +61,21 @@ export default function PurchaseOrders() {
 
   useEffect(() => { load() }, [])
 
+  // If the Stock Report sent over a reorder list, open the create-batch modal
+  // pre-filled with it so it can be reviewed/edited before saving.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('bnj_batch_prefill')
+      if (!raw) return
+      localStorage.removeItem('bnj_batch_prefill')
+      const items = JSON.parse(raw)
+      if (Array.isArray(items) && items.length) {
+        setBatchForm({ supplier_id: '', supplier_name: '', order_date: new Date().toISOString().split('T')[0], expected_date: '', items, extraCosts: [] })
+        setBatchModal(true)
+      }
+    } catch { /* ignore */ }
+  }, [])
+
   async function load() {
     setLoading(true)
     const [p, s, pr, pay, sp] = await Promise.all([

@@ -10,9 +10,7 @@ const COVERS = [{ d: 30, label: '1 month' }, { d: 45, label: '6 weeks' }, { d: 6
 export default function StockReport() {
   const [orders, setOrders] = useState([])
   const [products, setProducts] = useState([])
-  const [suppliers, setSuppliers] = useState([])
   const [loading, setLoading] = useState(true)
-  const [creating, setCreating] = useState(false)
   const [periodDays, setPeriodDays] = useState(30)
   const [coverDays, setCoverDays] = useState(30)
   const [budgetInput, setBudgetInput] = useState('')
@@ -24,20 +22,14 @@ export default function StockReport() {
   useEffect(() => { load() }, [])
   async function load() {
     setLoading(true)
-    const [o, p, s] = await Promise.all([
+    const [o, p] = await Promise.all([
       supabase.from('orders').select('product_id, product_name, qty, unit_price, total_price, status, order_date'),
-      supabase.from('products').select('id, name, cost_price, sell_price, stock_qty, discontinued, low_stock_threshold, category, supplier_id'),
-      supabase.from('suppliers').select('id, name'),
+      supabase.from('products').select('id, name, cost_price, sell_price, stock_qty, discontinued, low_stock_threshold, category'),
     ])
     setOrders(o.data || [])
     setProducts(p.data || [])
-    setSuppliers(s.data || [])
     setLoading(false)
   }
-
-  const supplierName = useMemo(() => {
-    const m = {}; suppliers.forEach(s => { m[s.id] = s.name }); return m
-  }, [suppliers])
 
   const prodById = useMemo(() => {
     const m = {}; products.forEach(p => { m[p.id] = p }); return m
@@ -102,46 +94,18 @@ export default function StockReport() {
     return { budget, fundedTotal, funded, newBudget, estNew: avgCost > 0 ? Math.floor(newBudget / avgCost) : 0, reorderTotal: summary.reorderTotal, fundedCount: funded.length, reorderCount: cands.length }
   }, [rows, budgetInput, summary, avgCost])
 
-  // One-click: draft batch purchase orders from the reorder list (one batch per supplier)
-  async function createBatchOrder() {
+  // One-click: pre-fill the Batch Orders "Create batch order" modal with the
+  // reorder list, so it can be reviewed/edited before anything is saved.
+  function createBatchOrder() {
     const items = rows.filter(r => r.reorderQty > 0)
     if (!items.length) { toast.error('Nothing needs reordering right now'); return }
-    setCreating(true)
-    // Next batch number (matches Batch Orders page: PO-#### starting above 1000)
-    const { data: existing } = await supabase.from('purchase_orders').select('batch_no')
-    let max = 1000
-    ;(existing || []).forEach(p => { const m = /(\d+)/.exec(p.batch_no || ''); if (m) max = Math.max(max, parseInt(m[1], 10)) })
-    // Group by supplier → one batch each
-    const groups = {}
-    items.forEach(r => { const k = r.supplierId || 'none'; (groups[k] || (groups[k] = [])).push(r) })
-    const today = new Date().toISOString().split('T')[0]
-    let batchCount = 0
-    let payload = []
-    Object.entries(groups).forEach(([sid, gItems]) => {
-      batchCount++
-      const batchNo = `PO-${max + batchCount}`
-      const batchId = (window.crypto?.randomUUID?.() || `b${Date.now()}${Math.random().toString(36).slice(2, 8)}`)
-      gItems.forEach(r => payload.push({
-        supplier_id: sid === 'none' ? null : sid,
-        supplier_name: sid === 'none' ? '' : (supplierName[sid] || ''),
-        product_id: r.id, product_name: r.name,
-        qty: r.reorderQty, unit_cost: r.unitCost,
-        status: 'pending', order_date: today,
-        batch_id: batchId, batch_no: batchNo,
-      }))
-    })
-    // Insert, gracefully dropping any column the table doesn't have yet
-    let { error } = await supabase.from('purchase_orders').insert(payload)
-    while (error && /column .* does not exist|could not find/i.test(error.message || '')) {
-      const m = (error.message || '').match(/'([a-z_]+)' column/i) || (error.message || '').match(/column "?([a-z_]+)"?/i)
-      const col = m && m[1]; if (!col) break
-      payload = payload.map(r => { const c = { ...r }; delete c[col]; return c })
-      error = (await supabase.from('purchase_orders').insert(payload)).error
-    }
-    setCreating(false)
-    if (error) { toast.error('Could not create batch order: ' + error.message); return }
-    toast.success(`Drafted ${batchCount} batch order${batchCount > 1 ? 's' : ''} · ${items.length} item${items.length > 1 ? 's' : ''} — opening Batch Orders…`)
-    setTimeout(() => window.dispatchEvent(new CustomEvent('bnj-navigate', { detail: 'purchase-orders' })), 700)
+    const prefill = items.map(r => ({
+      product_id: r.id, product_name: r.name,
+      qty: r.reorderQty, unit_cost: r.unitCost, current_stock: r.stock,
+    }))
+    localStorage.setItem('bnj_batch_prefill', JSON.stringify(prefill))
+    toast.success('Opening Batch Orders to review…')
+    setTimeout(() => window.dispatchEvent(new CustomEvent('bnj-navigate', { detail: 'purchase-orders' })), 400)
   }
 
   const reorderCount = rows.filter(r => r.reorderQty > 0).length
@@ -227,8 +191,8 @@ export default function StockReport() {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: '#0d1b2a' }}>Products sold · last {periodDays} days</div>
               {reorderCount > 0 && (
-                <Button onClick={createBatchOrder} disabled={creating}>
-                  <Truck size={14} /> {creating ? 'Creating…' : `Create batch order (${reorderCount})`}
+                <Button onClick={createBatchOrder}>
+                  <Truck size={14} /> Create batch order ({reorderCount})
                 </Button>
               )}
             </div>
