@@ -1,10 +1,28 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Button, Spinner, useToast, Toasts } from '../components/UI'
-import { Save, AlertTriangle, TrendingDown, Target } from 'lucide-react'
+import { Save, AlertTriangle, Sparkles } from 'lucide-react'
 import { getSettings } from '../lib/settings'
 
-const CATEGORIES = ['Giveaway', 'Sample Testing', 'Marketing Ads', 'Instagram Ads', 'Facebook Ads', 'Packaging', 'Shipping', 'Staff / Salary', 'Rent / Warehouse', 'Utilities', 'Returns / Refunds', 'Other']
+const CATEGORIES = ['Meta Ads', 'Promotions', 'Sponsorship', 'Giveaway', 'Sample Testing', 'Packaging', 'Shipping', 'Delivery', 'Rent / Warehouse', 'Returns / Refunds', 'Other']
+
+// Rule-based budget estimate as a % of average monthly revenue.
+// Tuned for a small online/retail toy business: marketing-led growth, lean ops,
+// no salaries (owner-run) — acquisition gets the biggest slice, with buffers for
+// fulfilment (packaging/shipping/delivery), storage and returns.
+const BUDGET_RULES = [
+  { cat: 'Meta Ads',          pct: 10, why: 'Main customer-acquisition channel' },
+  { cat: 'Promotions',        pct: 4,  why: 'Sale discounts & promo campaigns' },
+  { cat: 'Sponsorship',       pct: 2,  why: 'Influencer / event sponsorships' },
+  { cat: 'Giveaway',          pct: 2,  why: 'Engagement & reach giveaways' },
+  { cat: 'Sample Testing',    pct: 1.5, why: 'Trialing new products' },
+  { cat: 'Packaging',         pct: 3,  why: 'Boxes, wrap, inserts' },
+  { cat: 'Shipping',          pct: 3,  why: 'Courier / freight to customers' },
+  { cat: 'Delivery',          pct: 4,  why: 'Delivery people / local riders' },
+  { cat: 'Rent / Warehouse',  pct: 6,  why: 'Storage space' },
+  { cat: 'Returns / Refunds', pct: 2,  why: 'Buffer for returns' },
+  { cat: 'Other',             pct: 2,  why: 'Miscellaneous' },
+]
 const LS_KEY = 'bnj_budgets_v1'
 const readLocal = () => { try { return JSON.parse(localStorage.getItem(LS_KEY)) || {} } catch { return {} } }
 const writeLocal = obj => localStorage.setItem(LS_KEY, JSON.stringify(obj))
@@ -12,6 +30,7 @@ const thisMonth = () => new Date().toISOString().slice(0, 7)
 
 export default function Budget() {
   const [expenses, setExpenses] = useState([])
+  const [orders, setOrders] = useState([])
   const [budgets, setBudgets] = useState({})   // { category: monthlyAmount }
   const [month, setMonth] = useState(thisMonth())
   const [loading, setLoading] = useState(true)
@@ -26,8 +45,12 @@ export default function Budget() {
   useEffect(() => { load() }, [])
   async function load() {
     setLoading(true)
-    const { data: exp } = await supabase.from('expenses').select('category, amount, expense_date')
+    const [{ data: exp }, { data: ord }] = await Promise.all([
+      supabase.from('expenses').select('category, amount, expense_date'),
+      supabase.from('orders').select('total_price, status, order_date'),
+    ])
     setExpenses(exp || [])
+    setOrders(ord || [])
     const { data: b, error } = await supabase.from('budgets').select('category, amount')
     if (error) { setUsingLocal(true); setBudgets(readLocal()) }
     else {
@@ -47,6 +70,22 @@ export default function Budget() {
     })
     return m
   }, [expenses, month])
+
+  // Average monthly revenue over the last 90 days (basis for the estimate)
+  const avgMonthlyRevenue = useMemo(() => {
+    const since = new Date(Date.now() - 90 * 86400000).toISOString().split('T')[0]
+    const rev = orders.filter(o => o.status === 'delivered' && (o.order_date || '') >= since)
+      .reduce((s, o) => s + Number(o.total_price || 0), 0)
+    return rev / 3
+  }, [orders])
+
+  function estimateBudget() {
+    if (avgMonthlyRevenue <= 0) { toast.error('Not enough recent sales to estimate — add some delivered orders first.'); return }
+    const next = {}
+    BUDGET_RULES.forEach(r => { next[r.cat] = Math.round(avgMonthlyRevenue * r.pct / 100) })
+    setBudgets(next); setDirty(true)
+    toast.success(`Estimated from ~${money(avgMonthlyRevenue)}/mo revenue`)
+  }
 
   // Rows: all preset categories + any extra that has a budget or spend this month
   const categories = useMemo(() => {
@@ -112,7 +151,12 @@ export default function Budget() {
       `}</style>
 
       <PageHeader title="Budget vs Actual" subtitle="Set a monthly budget per category and track your spending against it."
-        action={<Button onClick={save} disabled={!dirty || saving}><Save size={14} /> {saving ? 'Saving…' : dirty ? 'Save budgets' : 'Saved'}</Button>} />
+        action={
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Button variant="ghost" onClick={estimateBudget}><Sparkles size={14} /> Estimate budget</Button>
+            <Button onClick={save} disabled={!dirty || saving}><Save size={14} /> {saving ? 'Saving…' : dirty ? 'Save budgets' : 'Saved'}</Button>
+          </div>
+        } />
 
       {loading ? <Spinner /> : (
         <>
@@ -130,6 +174,10 @@ export default function Budget() {
               <input type="month" value={month} onChange={e => setMonth(e.target.value)}
                 style={{ border: '1px solid #ddd', borderRadius: 8, padding: '8px 12px', fontSize: 13, fontFamily: 'inherit', outline: 'none' }} />
               {overCount > 0 && <span style={{ marginLeft: 'auto', fontSize: 12.5, fontWeight: 700, color: '#E24B4A', display: 'inline-flex', alignItems: 'center', gap: 6 }}><AlertTriangle size={14} /> {overCount} categor{overCount === 1 ? 'y' : 'ies'} over budget</span>}
+            </div>
+            <div style={{ marginTop: 12, background: '#EEF0FF', border: '1px solid #cdd0fb', borderRadius: 10, padding: '10px 14px', fontSize: 12.5, color: '#5b5bd6', display: 'flex', gap: 9, alignItems: 'flex-start' }}>
+              <Sparkles size={15} style={{ flexShrink: 0, marginTop: 1 }} />
+              <span><strong>Estimate budget</strong> sets each category from your average monthly revenue (~<strong>{money(avgMonthlyRevenue)}</strong>/mo, last 90 days) using smart percentage rules — e.g. Meta Ads 10%, Delivery 4%, Rent 6%. Click it, review, then Save.</span>
             </div>
           </Card>
 

@@ -6,16 +6,15 @@ import { Plus, Trash2, Edit2, Gift, FlaskConical, Megaphone, Instagram, Users, P
 const MVR_RATE = 15.42
 
 const COST_CATEGORIES = [
+  { value: 'Meta Ads', label: 'Meta Ads', icon: Megaphone },
+  { value: 'Promotions', label: 'Promotions', icon: Tag },
+  { value: 'Sponsorship', label: 'Sponsorship', icon: Users },
   { value: 'Giveaway', label: 'Giveaway', icon: Gift },
   { value: 'Sample Testing', label: 'Sample Testing', icon: FlaskConical },
-  { value: 'Marketing Ads', label: 'Marketing Ads', icon: Megaphone },
-  { value: 'Instagram Ads', label: 'Instagram Ads', icon: Instagram },
-  { value: 'Facebook Ads', label: 'Facebook Ads', icon: Users },
   { value: 'Packaging', label: 'Packaging', icon: Package },
   { value: 'Shipping', label: 'Shipping', icon: Truck },
-  { value: 'Staff / Salary', label: 'Staff / Salary', icon: User },
+  { value: 'Delivery', label: 'Delivery', icon: User },
   { value: 'Rent / Warehouse', label: 'Rent / Warehouse', icon: Store },
-  { value: 'Utilities', label: 'Utilities', icon: Lightbulb },
   { value: 'Returns / Refunds', label: 'Returns / Refunds', icon: Undo2 },
   { value: 'Other', label: 'Other', icon: FileText },
 ]
@@ -33,13 +32,13 @@ function CatLabel({ value, size = 13, color = 'currentColor' }) {
 }
 
 const CAT_COLORS = {
-  'Giveaway': 'purple', 'Sample Testing': 'blue', 'Marketing Ads': 'amber',
-  'Instagram Ads': 'red', 'Facebook Ads': 'blue', 'Packaging': 'green',
-  'Shipping': 'blue', 'Staff / Salary': 'gray', 'Rent / Warehouse': 'gray',
-  'Utilities': 'amber', 'Returns / Refunds': 'red', 'Other': 'gray',
+  'Meta Ads': 'amber', 'Promotions': 'purple', 'Sponsorship': 'blue',
+  'Giveaway': 'purple', 'Sample Testing': 'blue', 'Packaging': 'green',
+  'Shipping': 'blue', 'Delivery': 'amber', 'Rent / Warehouse': 'gray',
+  'Returns / Refunds': 'red', 'Other': 'gray',
 }
 
-const EMPTY = { description: '', category: 'Marketing Ads', amount: '', currency: 'MVR', expense_date: new Date().toISOString().split('T')[0] }
+const EMPTY = { description: '', category: 'Meta Ads', amount: '', currency: 'MVR', expense_date: new Date().toISOString().split('T')[0] }
 
 export default function CostManagement() {
   const [costs, setCosts] = useState([])
@@ -232,7 +231,7 @@ export default function CostManagement() {
           <div style={{ marginBottom: 16 }}>
             <div style={{ fontSize: 12, color: '#666', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: 8 }}>Quick select</div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {['Giveaway', 'Sample Testing', 'Marketing Ads', 'Instagram Ads', 'Packaging', 'Shipping'].map(cat => (
+              {['Meta Ads', 'Promotions', 'Sponsorship', 'Delivery', 'Packaging', 'Shipping'].map(cat => (
                 <button key={cat} onClick={() => setForm(p => ({ ...p, category: cat }))}
                   style={{ padding: '5px 12px', borderRadius: 99, border: '1px solid #ddd', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', background: form.category === cat ? '#FFA500' : '#fff', color: form.category === cat ? '#fff' : '#555', fontWeight: form.category === cat ? 600 : 500, transition: 'all 0.15s' }}>
                   <CatLabel value={cat} size={12} />
