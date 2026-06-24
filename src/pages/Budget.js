@@ -4,7 +4,7 @@ import { PageHeader, Card, Button, Spinner, useToast, Toasts } from '../componen
 import { Save, AlertTriangle, Sparkles } from 'lucide-react'
 import { getSettings } from '../lib/settings'
 
-const CATEGORIES = ['Meta Ads', 'Promotions', 'Sponsorship', 'Giveaway', 'Sample Testing', 'Packaging', 'Shipping', 'Delivery', 'Rent / Warehouse', 'Returns / Refunds', 'Other']
+const CATEGORIES = ['Meta Ads', 'Promotions', 'Sponsorship', 'Giveaway', 'Sample Testing', 'Packaging', 'Shipping', 'Delivery', 'Returns / Refunds', 'Other']
 
 // Rule-based budget estimate as a % of average monthly revenue.
 // Tuned for a small online/retail toy business: marketing-led growth, lean ops,
@@ -19,7 +19,6 @@ const BUDGET_RULES = [
   { cat: 'Packaging',         pct: 3,  why: 'Boxes, wrap, inserts' },
   { cat: 'Shipping',          pct: 3,  why: 'Courier / freight to customers' },
   { cat: 'Delivery',          pct: 4,  why: 'Delivery people / local riders' },
-  { cat: 'Rent / Warehouse',  pct: 6,  why: 'Storage space' },
   { cat: 'Returns / Refunds', pct: 2,  why: 'Buffer for returns' },
   { cat: 'Other',             pct: 2,  why: 'Miscellaneous' },
 ]
@@ -177,7 +176,7 @@ export default function Budget() {
             </div>
             <div style={{ marginTop: 12, background: '#EEF0FF', border: '1px solid #cdd0fb', borderRadius: 10, padding: '10px 14px', fontSize: 12.5, color: '#5b5bd6', display: 'flex', gap: 9, alignItems: 'flex-start' }}>
               <Sparkles size={15} style={{ flexShrink: 0, marginTop: 1 }} />
-              <span><strong>Estimate budget</strong> sets each category from your average monthly revenue (~<strong>{money(avgMonthlyRevenue)}</strong>/mo, last 90 days) using smart percentage rules — e.g. Meta Ads 10%, Delivery 4%, Rent 6%. Click it, review, then Save.</span>
+              <span><strong>Estimate budget</strong> sets each category from your average monthly revenue (~<strong>{money(avgMonthlyRevenue)}</strong>/mo, last 90 days) using smart percentage rules — e.g. Meta Ads 10%, Delivery 4%, Promotions 4%. Click it, review, then Save.</span>
             </div>
           </Card>
 

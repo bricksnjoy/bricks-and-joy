@@ -14,7 +14,6 @@ const COST_CATEGORIES = [
   { value: 'Packaging', label: 'Packaging', icon: Package },
   { value: 'Shipping', label: 'Shipping', icon: Truck },
   { value: 'Delivery', label: 'Delivery', icon: User },
-  { value: 'Rent / Warehouse', label: 'Rent / Warehouse', icon: Store },
   { value: 'Returns / Refunds', label: 'Returns / Refunds', icon: Undo2 },
   { value: 'Other', label: 'Other', icon: FileText },
 ]
@@ -34,7 +33,7 @@ function CatLabel({ value, size = 13, color = 'currentColor' }) {
 const CAT_COLORS = {
   'Meta Ads': 'amber', 'Promotions': 'purple', 'Sponsorship': 'blue',
   'Giveaway': 'purple', 'Sample Testing': 'blue', 'Packaging': 'green',
-  'Shipping': 'blue', 'Delivery': 'amber', 'Rent / Warehouse': 'gray',
+  'Shipping': 'blue', 'Delivery': 'amber',
   'Returns / Refunds': 'red', 'Other': 'gray',
 }
 

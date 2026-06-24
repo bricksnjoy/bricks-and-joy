@@ -21,8 +21,8 @@ const DEFAULT_MKT_RATE = 15
 
 // Maps each growth plan bucket → the Cost Management categories that count toward it
 const ALLOC_CATS = {
-  ig:       ['Instagram Ads'],
-  ads:      ['Marketing Ads', 'Facebook Ads'],
+  ig:       [],
+  ads:      ['Meta Ads'],
   research: ['Sample Testing'],
   promo:    ['Giveaway'],
   content:  [],

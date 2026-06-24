@@ -37,6 +37,7 @@ const KNOWN_IMPORT_HEADERS = new Set([
   'description','desc','details','about',
   'tags','tag','labels',
   'notes','note','remarks','remark','comment',
+  'quantity','qty','stock','stock qty','stock quantity','in stock','quantity in stock','units',
 ])
 
 // Ensure a select can display a value imported from Excel even when it isn't one
@@ -112,6 +113,7 @@ export default function SupplierCatalog() {
   const [search, setSearch] = useState('')
   const [compareMode, setCompareMode] = useState(false)
   const [inventoryNames, setInventoryNames] = useState(() => new Set()) // normalized inventory product names
+  const [inventoryByName, setInventoryByName] = useState(() => new Map()) // normalized name -> { id, stock_qty }
   const [invFilter, setInvFilter] = useState('all') // 'all' | 'missing' | 'present'
   const [addModal, setAddModal] = useState(false)
   const [editItem, setEditItem] = useState(null)
@@ -144,12 +146,14 @@ export default function SupplierCatalog() {
     const [s, c, pr] = await Promise.all([
       supabase.from('suppliers').select('*').order('name'),
       supabase.from('supplier_products').select('*').order('product_name'),
-      supabase.from('products').select('name'),
+      supabase.from('products').select('id, name, stock_qty'),
     ])
     const sup = s.data || []
     setSuppliers(sup)
     setCatalog(c.data || [])
-    setInventoryNames(new Set((pr.data || []).map(p => (p.name || '').toLowerCase().trim()).filter(Boolean)))
+    const prods = pr.data || []
+    setInventoryNames(new Set(prods.map(p => (p.name || '').toLowerCase().trim()).filter(Boolean)))
+    setInventoryByName(new Map(prods.filter(p => p.name).map(p => [p.name.toLowerCase().trim(), { id: p.id, stock_qty: p.stock_qty }])))
     // Default to the top supplier on first load
     setActiveSupplier(prev => prev || sup[0] || null)
     setLoading(false)
@@ -490,6 +494,8 @@ export default function SupplierCatalog() {
         'Dimensions': r.dimensions || '',
         'Cost Price (MVR)': r.cost_price ?? '',
         'Sell Price (MVR)': r.sell_price ?? '',
+        // Current inventory stock of the matching product (by name); blank if not in inventory
+        'Quantity': inventoryByName.get((r.product_name || '').toLowerCase().trim())?.stock_qty ?? '',
         'Unit': r.unit || '',
         'Description': r.description || '',
         'Tags': r.tags || '',
@@ -639,6 +645,8 @@ export default function SupplierCatalog() {
         tags: get('tags','tag','labels'),
         notes: get('notes','note','remarks','remark','comment') || '',
         image_url: imageUrl,
+        // Inventory stock quantity (blank = leave stock unchanged on import)
+        stock_qty: get('quantity', 'qty', 'stock', 'stock qty', 'stock quantity', 'in stock', 'quantity in stock', 'units'),
         custom_fields: Object.keys(custom).length ? custom : null,
         _selected: true,
       }
@@ -730,12 +738,29 @@ export default function SupplierCatalog() {
       }
     }
 
+    // Update inventory stock for any row that has a Quantity and matches an
+    // existing inventory product by name (blank quantity = leave stock alone).
+    let stockUpdated = 0
+    if (!error) {
+      for (const r of rows) {
+        if (r.stock_qty === '' || r.stock_qty == null) continue
+        const qty = parseInt(r.stock_qty)
+        if (isNaN(qty)) continue
+        const inv = inventoryByName.get((r.product_name || '').toLowerCase().trim())
+        if (inv && qty !== Number(inv.stock_qty)) {
+          const { error: se } = await supabase.from('products').update({ stock_qty: qty }).eq('id', inv.id)
+          if (!se) stockUpdated++
+        }
+      }
+    }
+
     setSaving(false)
     if (error) { toast.error('Import failed: ' + error.message); return }
     const added = newRows.length
     const parts = []
     if (added) parts.push(`${added} added`)
     if (updated) parts.push(`${updated} updated`)
+    if (stockUpdated) parts.push(`${stockUpdated} stock updated`)
     toast.success(parts.length ? `Import done — ${parts.join(' · ')}` : 'Nothing to import')
     setImportModal(false)
     setImportRows([])
@@ -767,6 +792,7 @@ export default function SupplierCatalog() {
       'Product Name',
       'Cost Price (MVR)',
       'Sell Price (MVR)',
+      'Quantity',
       'Category',
       'Brand',
       'Age Range',
@@ -781,13 +807,13 @@ export default function SupplierCatalog() {
       'Image URL',
     ]
     const examples = [
-      ['LEGO Classic Bricks', '120.00', '350.00', 'Building & Blocks', 'LEGO', 'All ages', '300', 'Medium', '500g', '30×20×10cm', 'set', 'Creative building set', 'popular, new', 'Best seller', 'https://example.com/image.jpg'],
-      ['Hot Wheels Car', '45.00', '150.00', 'Vehicles & RC', 'Hot Wheels', '3–5', '', '', '120g', '', 'piece', 'Die-cast toy car', 'sale', '', ''],
-      ['Barbie Doll', '80.00', '220.00', 'Dolls & Plush', 'Mattel', '6–8', '', 'One size', '', '', 'piece', '', 'popular', 'Popular item', ''],
+      ['LEGO Classic Bricks', '120.00', '350.00', '25', 'Building & Blocks', 'LEGO', 'All ages', '300', 'Medium', '500g', '30×20×10cm', 'set', 'Creative building set', 'popular, new', 'Best seller', 'https://example.com/image.jpg'],
+      ['Hot Wheels Car', '45.00', '150.00', '60', 'Vehicles & RC', 'Hot Wheels', '3–5', '', '', '120g', '', 'piece', 'Die-cast toy car', 'sale', '', ''],
+      ['Barbie Doll', '80.00', '220.00', '12', 'Dolls & Plush', 'Mattel', '6–8', '', 'One size', '', '', 'piece', '', 'popular', 'Popular item', ''],
     ]
     const ws = XLSX.utils.aoa_to_sheet([headers, ...examples])
     // Column widths
-    ws['!cols'] = [{ wch: 30 }, { wch: 16 }, { wch: 16 }, { wch: 18 }, { wch: 14 }, { wch: 11 }, { wch: 9 }, { wch: 14 }, { wch: 10 }, { wch: 14 }, { wch: 9 }, { wch: 28 }, { wch: 16 }, { wch: 22 }, { wch: 40 }]
+    ws['!cols'] = [{ wch: 30 }, { wch: 16 }, { wch: 16 }, { wch: 10 }, { wch: 18 }, { wch: 14 }, { wch: 11 }, { wch: 9 }, { wch: 14 }, { wch: 10 }, { wch: 14 }, { wch: 9 }, { wch: 28 }, { wch: 16 }, { wch: 22 }, { wch: 40 }]
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Products')
 
@@ -799,6 +825,7 @@ export default function SupplierCatalog() {
       ['Product Name', 'Required. Full product name.'],
       ['Cost Price (MVR)', 'What you PAY the supplier.'],
       ['Sell Price (MVR)', 'What you CHARGE customers (the "Delivery price" in your sheet).'],
+      ['Quantity', 'Stock on hand. On import, this UPDATES the inventory stock of the matching product. Leave blank to keep the current stock unchanged.'],
       ['Category', 'e.g. Vehicles & RC, Dolls & Plush, Building & Blocks'],
       ['Brand', 'e.g. LEGO, Mattel, Hot Wheels'],
       ['Age Range', '0–2 / 3–5 / 6–8 / 9–12 / 12+ / All ages'],
@@ -1249,7 +1276,7 @@ export default function SupplierCatalog() {
                       </th>
                       <th style={{ padding:'8px 10px', width:44 }}></th>
                       <th style={{ padding:'8px 10px', textAlign:'left', fontWeight:600, color:'#999', fontSize:11, textTransform:'uppercase', whiteSpace:'nowrap' }}>Status</th>
-                      {['Product Name','Category','Brand','Age','Pieces','Cost','Sell','Unit','Sizes','Weight','Dimensions','Tags','Notes'].map(h=>(
+                      {['Product Name','Category','Brand','Age','Pieces','Cost','Sell','Qty','Unit','Sizes','Weight','Dimensions','Tags','Notes'].map(h=>(
                         <th key={h} style={{ padding:'8px 10px', textAlign:'left', fontWeight:600, color:'#999', fontSize:11, textTransform:'uppercase', whiteSpace:'nowrap' }}>{h}</th>
                       ))}
                     </tr>
@@ -1274,7 +1301,7 @@ export default function SupplierCatalog() {
                             ? <img src={row.image_url} alt="" style={{ width:32, height:32, objectFit:'cover', borderRadius:6, display:'block' }} onError={e=>e.target.style.display='none'} />
                             : <div style={{ width:32, height:32, borderRadius:6, background:'#f0f0f0' }} />}
                         </td>
-                        {['product_name','category','brand','age_range','pieces','cost_price','sell_price','unit','sizes','weight','dimensions','tags','notes'].map(k=>{
+                        {['product_name','category','brand','age_range','pieces','cost_price','sell_price','stock_qty','unit','sizes','weight','dimensions','tags','notes'].map(k=>{
                           const isChanged = changed.has(k)
                           return (
                           <td key={k} style={{ padding:'7px 10px', background: isChanged ? '#fff3df' : 'transparent', borderRadius: isChanged ? 6 : 0 }} title={isChanged ? 'Changed in this import' : undefined}>
