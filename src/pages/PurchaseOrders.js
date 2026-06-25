@@ -655,6 +655,8 @@ export default function PurchaseOrders() {
     if (!editGroupModal) return
     setSaving(true)
     const { batchId, batchNo, supplier_id, supplier_name, order_date, expected_date, newItems, existingItems, removedIds } = editGroupModal
+    // If the batch is received, its stock is in inventory — qty edits must flow back to stock.
+    const received = (editGroupModal.group.anchor.status || '') === 'received'
 
     // Insert new product rows
     const newRecords = newItems.filter(i => i.product_id && i.qty > 0).map(item => ({
@@ -688,16 +690,17 @@ export default function PurchaseOrders() {
         // total_cost may not exist as a column — retry without it
         await supabase.from('purchase_orders').update({ qty }).eq('id', it.id)
       }
-      // If this line was already added to inventory, push the qty correction to stock
-      if (it._stockAdded) {
+      // If this line's stock is in inventory (batch received or already synced),
+      // push the qty correction to stock.
+      if (received || it._stockAdded) {
         const delta = qty - (parseInt(it._origQty) || 0)
         if (delta !== 0) await applyStockDelta(it.product_id, it.product_name, delta)
       }
     }
 
-    // Remove deleted line items (pull their stock back out if it had been added)
+    // Remove deleted line items (pull their stock back out if it was in inventory)
     if (removedIds.length > 0) {
-      const removedRows = editGroupModal.group.rows.filter(r => removedIds.includes(r.id) && r.cost_type !== 'extra' && r.stock_added)
+      const removedRows = editGroupModal.group.rows.filter(r => removedIds.includes(r.id) && r.cost_type !== 'extra' && (received || r.stock_added))
       for (const r of removedRows) await applyStockDelta(r.product_id, r.product_name, -(parseInt(r.qty) || 0))
       await supabase.from('purchase_orders').delete().in('id', removedIds)
     }
