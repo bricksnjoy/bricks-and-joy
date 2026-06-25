@@ -644,11 +644,13 @@ export default function PurchaseOrders() {
   // Adjust an inventory product's stock by delta (used when editing an
   // already-received batch order so corrections flow back into inventory).
   async function applyStockDelta(productId, productName, delta) {
-    if (!delta) return
+    if (!delta) return false
     let prod = null
     if (productId) { const { data } = await supabase.from('products').select('id, stock_qty').eq('id', productId).maybeSingle(); prod = data }
-    if (!prod && productName) { const { data } = await supabase.from('products').select('id, stock_qty').ilike('name', productName).maybeSingle(); prod = data }
-    if (prod) await supabase.from('products').update({ stock_qty: (Number(prod.stock_qty) || 0) + delta }).eq('id', prod.id)
+    if (!prod && productName) { const { data } = await supabase.from('products').select('id, stock_qty').ilike('name', productName.trim()).limit(1); prod = (data && data[0]) || null }
+    if (!prod) return false
+    await supabase.from('products').update({ stock_qty: (Number(prod.stock_qty) || 0) + delta }).eq('id', prod.id)
+    return true
   }
 
   async function saveEditGroup() {
@@ -657,6 +659,7 @@ export default function PurchaseOrders() {
     const { batchId, batchNo, supplier_id, supplier_name, order_date, expected_date, newItems, existingItems, removedIds } = editGroupModal
     // If the batch is received, its stock is in inventory — qty edits must flow back to stock.
     const received = (editGroupModal.group.anchor.status || '') === 'received'
+    let stockApplied = 0, stockNet = 0, stockMissed = 0
 
     // Insert new product rows
     const newRecords = newItems.filter(i => i.product_id && i.qty > 0).map(item => ({
@@ -694,14 +697,14 @@ export default function PurchaseOrders() {
       // push the qty correction to stock.
       if (received || it._stockAdded) {
         const delta = qty - (parseInt(it._origQty) || 0)
-        if (delta !== 0) await applyStockDelta(it.product_id, it.product_name, delta)
+        if (delta !== 0) { const ok = await applyStockDelta(it.product_id, it.product_name, delta); if (ok) { stockApplied++; stockNet += delta } else { stockMissed++ } }
       }
     }
 
     // Remove deleted line items (pull their stock back out if it was in inventory)
     if (removedIds.length > 0) {
       const removedRows = editGroupModal.group.rows.filter(r => removedIds.includes(r.id) && r.cost_type !== 'extra' && (received || r.stock_added))
-      for (const r of removedRows) await applyStockDelta(r.product_id, r.product_name, -(parseInt(r.qty) || 0))
+      for (const r of removedRows) { const d = -(parseInt(r.qty) || 0); const ok = await applyStockDelta(r.product_id, r.product_name, d); if (ok) { stockApplied++; stockNet += d } else { stockMissed++ } }
       await supabase.from('purchase_orders').delete().in('id', removedIds)
     }
 
@@ -744,7 +747,10 @@ export default function PurchaseOrders() {
     }
 
     setSaving(false)
-    toast.success('Order updated')
+    let msg = 'Order updated'
+    if (stockApplied) msg += ` · inventory ${stockNet >= 0 ? '+' : ''}${stockNet}`
+    if (stockMissed) msg += ` · ${stockMissed} item(s) not matched to inventory`
+    if (stockMissed) toast.error(msg); else toast.success(msg)
     setEditGroupModal(null)
     load()
   }
