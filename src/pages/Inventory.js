@@ -91,7 +91,7 @@ export default function Inventory() {
     setLoading(true)
     const [p, s, c, o, po] = await Promise.all([
       supabase.from('products').select('*, suppliers(name)').order('created_at', { ascending: false }),
-      supabase.from('suppliers').select('id, name'),
+      supabase.from('suppliers').select('id, name, contact_name'),
       supabase.from('customers').select('id, name').order('name'),
       supabase.from('orders').select('product_id, qty, status, order_date'),
       supabase.from('purchase_orders').select('product_id, unit_cost, total_cost, qty, order_date, created_at'),
@@ -999,7 +999,7 @@ export default function Inventory() {
             </div>
           )}
           <Select label="Supplier" value={form.supplier_id || ''} onChange={f('supplier_id')}
-            options={[{ value: '', label: '— None —' }, ...suppliers.map(s => ({ value: s.id, label: s.name }))]}
+            options={[{ value: '', label: '— None —' }, ...suppliers.map(s => ({ value: s.id, label: s.contact_name || s.name }))]}
             style={{ marginBottom: 12 }} />
           <div style={{ marginBottom: 12 }}>
             <label style={{ fontSize: 12, color: '#666', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.4px', display: 'block', marginBottom: 5 }}>Description</label>
