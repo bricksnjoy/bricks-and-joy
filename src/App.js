@@ -283,18 +283,14 @@ export default function App() {
                   onDragStart={editMode ? (e => { setDrag({ type: 'section', id: group.id }); e.dataTransfer.effectAllowed = 'move' }) : undefined}
                   onDragOver={editMode && drag?.type === 'section' ? (e => { e.preventDefault() }) : undefined}
                   onDrop={editMode && drag?.type === 'section' ? (e => { e.preventDefault(); e.stopPropagation(); moveSection(drag.id, group.id); setDrag(null) }) : undefined}
-                  onClick={() => toggleSection(group.section)}
-                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '6px 8px', background: 'none', border: 'none', cursor: editMode ? 'grab' : 'pointer', fontFamily: 'inherit', marginBottom: 2, borderRadius: 8 }}>
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '6px 8px', background: 'none', border: 'none', cursor: editMode ? 'grab' : 'default', fontFamily: 'inherit', marginBottom: 2, borderRadius: 8 }}>
                   <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 700, color: editMode ? '#FFA500' : '#ccc', textTransform: 'uppercase', letterSpacing: '1px' }}>
                     {editMode && <GripVertical size={11} color="#FFA500" />}
                     {group.section}
                   </span>
-                  {!editMode && (collapsed[group.section]
-                    ? <ChevronRight size={11} color="#ccc" />
-                    : <ChevronDown size={11} color="#ccc" />)}
                 </button>
               )}
-              {(editMode || !collapsed[group.section]) && group.items.map(id => {
+              {group.items.map(id => {
                 const item = ITEMS[id]
                 if (!item) return null
                 return (

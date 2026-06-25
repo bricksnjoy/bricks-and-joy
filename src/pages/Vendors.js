@@ -57,18 +57,26 @@ export default function Vendors() {
   async function save() {
     if (!form.name) { toast.error('Vendor name is required'); return }
     setSaving(true)
-    // Only include columns that exist in the suppliers table
-    const payload = {
+    let payload = {
       name: form.name,
       contact_name: form.contact_name || null,
       email: form.email || null,
       phone: form.phone || null,
       address: form.address || null,
+      payment_terms: form.payment_terms || null,
       notes: form.notes || null,
     }
-    const { error } = modal === 'add'
-      ? await supabase.from('suppliers').insert(payload)
-      : await supabase.from('suppliers').update(payload).eq('id', form.id)
+    const run = () => modal === 'add'
+      ? supabase.from('suppliers').insert(payload)
+      : supabase.from('suppliers').update(payload).eq('id', form.id)
+    let { error } = await run()
+    // Drop any column the table doesn't have yet, then retry
+    while (error && /column .* does not exist|could not find/i.test(error.message || '')) {
+      const col = (error.message.match(/'([a-z_]+)' column/i) || error.message.match(/column "?([a-z_]+)"?/i) || [])[1]
+      if (!col || !(col in payload)) break
+      delete payload[col]
+      ;({ error } = await run())
+    }
     setSaving(false)
     if (error) { toast.error('Failed to save: ' + error.message); return }
     toast.success(modal === 'add' ? 'Vendor added!' : 'Updated!')

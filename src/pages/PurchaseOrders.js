@@ -630,7 +630,7 @@ export default function PurchaseOrders() {
       order_date: anchor.order_date || new Date().toISOString().split('T')[0],
       expected_date: anchor.expected_date || '',
       // Editable copies of existing product rows
-      existingItems: productRows.map(r => ({ id: r.id, product_name: r.product_name, qty: r.qty, unit_cost: r.unit_cost, image_url: r.image_url, _origQty: r.qty })),
+      existingItems: productRows.map(r => ({ id: r.id, product_id: r.product_id, product_name: r.product_name, qty: r.qty, unit_cost: r.unit_cost, image_url: r.image_url, _origQty: r.qty, _stockAdded: r.stock_added })),
       removedIds: [],
       newItems: [], // new products to add
       extraCosts: feeRows.map(r => {
@@ -639,6 +639,16 @@ export default function PurchaseOrders() {
       }),
       removedCostIds: [],
     })
+  }
+
+  // Adjust an inventory product's stock by delta (used when editing an
+  // already-received batch order so corrections flow back into inventory).
+  async function applyStockDelta(productId, productName, delta) {
+    if (!delta) return
+    let prod = null
+    if (productId) { const { data } = await supabase.from('products').select('id, stock_qty').eq('id', productId).maybeSingle(); prod = data }
+    if (!prod && productName) { const { data } = await supabase.from('products').select('id, stock_qty').ilike('name', productName).maybeSingle(); prod = data }
+    if (prod) await supabase.from('products').update({ stock_qty: (Number(prod.stock_qty) || 0) + delta }).eq('id', prod.id)
   }
 
   async function saveEditGroup() {
@@ -678,10 +688,17 @@ export default function PurchaseOrders() {
         // total_cost may not exist as a column — retry without it
         await supabase.from('purchase_orders').update({ qty }).eq('id', it.id)
       }
+      // If this line was already added to inventory, push the qty correction to stock
+      if (it._stockAdded) {
+        const delta = qty - (parseInt(it._origQty) || 0)
+        if (delta !== 0) await applyStockDelta(it.product_id, it.product_name, delta)
+      }
     }
 
-    // Remove deleted line items
+    // Remove deleted line items (pull their stock back out if it had been added)
     if (removedIds.length > 0) {
+      const removedRows = editGroupModal.group.rows.filter(r => removedIds.includes(r.id) && r.cost_type !== 'extra' && r.stock_added)
+      for (const r of removedRows) await applyStockDelta(r.product_id, r.product_name, -(parseInt(r.qty) || 0))
       await supabase.from('purchase_orders').delete().in('id', removedIds)
     }
 
