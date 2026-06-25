@@ -12,8 +12,9 @@ export function ImageTile({ src, className, style, onClick, title, children }) {
     setBg(null)
     if (!src) return
     let cancelled = false
+    const isData = src.startsWith('data:')
     const probe = new Image()
-    probe.crossOrigin = 'anonymous'
+    if (!isData) probe.crossOrigin = 'anonymous'   // data URLs don't taint and can't take a query suffix
     probe.onload = () => {
       try {
         const c = document.createElement('canvas')
@@ -25,9 +26,9 @@ export function ImageTile({ src, className, style, onClick, title, children }) {
         if (!cancelled && p[3] > 10) setBg(`rgb(${p[0]}, ${p[1]}, ${p[2]})`)
       } catch { /* tainted / CORS — keep the CSS default */ }
     }
-    // Cache-buster so this fetch carries CORS headers instead of reusing the
-    // display <img>'s already-cached (non-CORS) copy, which would taint the canvas.
-    probe.src = src + (src.includes('?') ? '&' : '?') + '_cors=1'
+    // For http(s), add a cache-buster so the probe fetch carries CORS headers
+    // instead of reusing the display <img>'s cached (non-CORS) copy. Never alter a data: URL.
+    probe.src = isData ? src : src + (src.includes('?') ? '&' : '?') + '_cors=1'
     return () => { cancelled = true }
   }, [src])
   return <div className={className} style={bg ? { ...style, background: bg } : style} onClick={onClick} title={title}>{children}</div>

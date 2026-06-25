@@ -115,7 +115,7 @@ export default function Inventory() {
     setForm({ ...EMPTY, barcode: bc })
     setModal('add') 
   }
-  function openEdit(p) { setForm({ ...EMPTY, ...p, sizes: p.sizes || '', tags: p.tags || '' }); setModal('edit') }
+  function openEdit(p) { setForm({ ...EMPTY, ...p, sizes: p.sizes || '', tags: p.tags || '', _origStock: p.stock_qty }); setModal('edit') }
   function openView(p) { setViewModal(p) }
   function startScanner() { setScanModal(true); setScanResult(null) }
   function openBarcode(p) {
@@ -155,9 +155,12 @@ export default function Inventory() {
     setSaving(true)
     // Auto-generate barcode if empty
     const barcode = form.barcode || genBarcode(form.name, form.id || Date.now())
-    // Strip nested relation data that Supabase rejects on update
-    const { suppliers: _s, supplier_name: _sn, ...cleanForm } = form
+    // Strip nested relation data + edit-only helper that Supabase rejects on update
+    const { suppliers: _s, supplier_name: _sn, _origStock, ...cleanForm } = form
     const payload = { ...cleanForm, barcode, pieces: form.pieces === '' || form.pieces == null ? null : parseInt(form.pieces) || null, stock_qty: parseInt(form.stock_qty) || 0, cost_price: parseFloat(form.cost_price) || 0, sell_price: parseFloat(form.sell_price) || 0, low_stock_threshold: (form.low_stock_threshold === '' || form.low_stock_threshold == null || isNaN(parseInt(form.low_stock_threshold))) ? 10 : parseInt(form.low_stock_threshold) }
+    // On edit, don't overwrite stock if the user didn't change it — avoids clobbering
+    // stock changes made by orders while the edit modal was open.
+    if (modal === 'edit' && _origStock != null && (parseInt(form.stock_qty) || 0) === (Number(_origStock) || 0)) delete payload.stock_qty
     const doSave = pl => modal === 'add'
       ? supabase.from('products').insert(pl)
       : supabase.from('products').update(pl).eq('id', form.id)
@@ -511,7 +514,7 @@ export default function Inventory() {
     let ms2 = true
     if (stockFilter === 'active') ms2 = !p.discontinued
     else if (stockFilter === 'retired') ms2 = p.discontinued
-    else if (stockFilter === 'lowstock') ms2 = !p.discontinued && p.stock_qty > 0 && p.stock_qty <= (p.low_stock_threshold || 10)
+    else if (stockFilter === 'lowstock') ms2 = !p.discontinued && p.stock_qty > 0 && p.stock_qty <= (p.low_stock_threshold ?? 10)
     else if (stockFilter === 'cleared') ms2 = !p.discontinued && p.stock_qty <= 0
     return ms && mc && ms2
   })
@@ -611,7 +614,7 @@ export default function Inventory() {
           {[
             { key: 'active', label: 'Active', count: products.filter(p => !p.discontinued).length, color: '#1D9E75' },
             { key: 'retired', label: 'Retired', count: products.filter(p => p.discontinued).length, color: '#888' },
-            { key: 'lowstock', label: 'Low Stock', count: products.filter(p => !p.discontinued && p.stock_qty > 0 && p.stock_qty <= (p.low_stock_threshold || 10)).length, color: '#FFA500' },
+            { key: 'lowstock', label: 'Low Stock', count: products.filter(p => !p.discontinued && p.stock_qty > 0 && p.stock_qty <= (p.low_stock_threshold ?? 10)).length, color: '#FFA500' },
             { key: 'cleared', label: 'Cleared Out', count: products.filter(p => !p.discontinued && p.stock_qty <= 0).length, color: '#E24B4A' },
             { key: 'restock', label: '📦 Restock', count: restockNeeded.length, color: '#7F77DD' },
           ].map(tab => (
@@ -1141,7 +1144,7 @@ function ProductGrid({ products, onView, onEdit, onBarcode, onDelete, onToggle, 
 
 function ProductCard({ p, onView, onEdit, onBarcode, onDelete, onOrder, selectMode, isSelected, onToggleSelect, menuOpen, onMenuToggle, onHover, onRestore }) {
   const margin = p.sell_price > 0 ? Math.round((p.sell_price - p.cost_price) / p.sell_price * 100) : 0
-  const low = p.stock_qty > 0 && p.stock_qty <= (p.low_stock_threshold || 10)
+  const low = p.stock_qty > 0 && p.stock_qty <= (p.low_stock_threshold ?? 10)
   const out = p.stock_qty <= 0
   const isNew = (p.tags || '').toLowerCase().split(',').map(t => t.trim()).includes('new')
   return (

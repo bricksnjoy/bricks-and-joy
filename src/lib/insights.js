@@ -41,7 +41,7 @@ export function restockPredictions(products, orders, { windowDays = 60, coverDay
       return {
         id: p.id, name: p.name, photo_url: p.photo_url, category: p.category,
         stock, sold, perDay, perMonth, daysLeft, suggestedReorder, urgency,
-        threshold: p.low_stock_threshold || 10,
+        threshold: p.low_stock_threshold ?? 10,
       }
     })
     .filter(r => r.perDay > 0 || r.stock <= 0)
@@ -105,7 +105,7 @@ export function actionItems({ orders, products, customers, loyaltyProfiles = [] 
     title: `${outOfStock.length} product${outOfStock.length > 1 ? 's' : ''} out of stock`,
     detail: outOfStock.slice(0, 3).map(p => p.name).join(', ') + (outOfStock.length > 3 ? '…' : ''), page: 'inventory' })
 
-  const lowStock = products.filter(p => !p.discontinued && p.stock_qty > 0 && p.stock_qty <= (p.low_stock_threshold || 10))
+  const lowStock = products.filter(p => !p.discontinued && p.stock_qty > 0 && p.stock_qty <= (p.low_stock_threshold ?? 10))
   if (lowStock.length) items.push({ key: 'low', severity: 'med', icon: 'package', count: lowStock.length,
     title: `${lowStock.length} low on stock`,
     detail: lowStock.slice(0, 3).map(p => p.name).join(', ') + (lowStock.length > 3 ? '…' : ''), page: 'inventory' })

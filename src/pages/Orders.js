@@ -155,10 +155,10 @@ export default function Orders() {
       delivery_person: form.delivery_person || '',
       product_id: item.product_id,
       product_name: item.product_name,
-      qty: parseInt(item.qty),
-      unit_price: parseFloat(item.unit_price),
-      total_price: Math.max(0, parseFloat(item.unit_price) * parseInt(item.qty) - itemDiscount),
-      discount: itemDiscount,
+      qty: parseInt(item.qty) || 0,
+      unit_price: parseFloat(item.unit_price) || 0,
+      total_price: Math.max(0, (parseFloat(item.unit_price) || 0) * (parseInt(item.qty) || 0) - (itemDiscount || 0)),
+      discount: itemDiscount || 0,
       created_by_email: editOrder ? (editOrder.created_by_email || userEmail) : userEmail,
     }
   }
@@ -288,7 +288,7 @@ export default function Orders() {
     if (order.product_id) {
       const { data: prod } = await supabase.from('products').select('stock_qty, name').eq('id', order.product_id).single()
       if (prod) {
-        await supabase.from('products').update({ stock_qty: prod.stock_qty + order.qty }).eq('id', order.product_id)
+        await supabase.from('products').update({ stock_qty: (Number(prod.stock_qty) || 0) + (Number(order.qty) || 0) }).eq('id', order.product_id)
         toast.info(`Stock restored: ${prod.name} +${order.qty}`)
       }
     }
@@ -312,7 +312,7 @@ export default function Orders() {
     await supabase.from('orders').update({ status: newStatus }).eq('id', id)
     if (newStatus === 'cancelled' && order?.status !== 'cancelled' && order?.product_id) {
       const { data: prod } = await supabase.from('products').select('stock_qty, name').eq('id', order.product_id).single()
-      if (prod) { await supabase.from('products').update({ stock_qty: prod.stock_qty + order.qty }).eq('id', order.product_id); toast.info(`Stock restored: ${prod.name} +${order.qty}`) }
+      if (prod) { await supabase.from('products').update({ stock_qty: (Number(prod.stock_qty) || 0) + (Number(order.qty) || 0) }).eq('id', order.product_id); toast.info(`Stock restored: ${prod.name} +${order.qty}`) }
     }
     load()
   }
@@ -322,7 +322,7 @@ export default function Orders() {
     const order = orders.find(o => o.id === id)
     if (order?.status !== 'cancelled' && order?.product_id) {
       const { data: prod } = await supabase.from('products').select('stock_qty').eq('id', order.product_id).single()
-      if (prod) await supabase.from('products').update({ stock_qty: prod.stock_qty + order.qty }).eq('id', order.product_id)
+      if (prod) await supabase.from('products').update({ stock_qty: (Number(prod.stock_qty) || 0) + (Number(order.qty) || 0) }).eq('id', order.product_id)
     }
     await supabase.from('orders').delete().eq('id', id)
     toast.success('Deleted'); load()
@@ -472,7 +472,7 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
   const filteredOrders = filter === 'all' ? orders : orders.filter(o => o.status === filter)
   const totalRevenue = orders.filter(o => o.status === 'delivered').reduce((s, o) => s + Number(o.total_price || 0), 0)
   const unpaidTotal = orders.filter(o => (o.payment_status || 'unpaid') === 'unpaid' && o.status !== 'cancelled').reduce((s, o) => s + Number(o.total_price || 0), 0)
-  const lowStockCount = products.filter(p => p.stock_qty > 0 && p.stock_qty <= (p.low_stock_threshold || 10)).length
+  const lowStockCount = products.filter(p => p.stock_qty > 0 && p.stock_qty <= (p.low_stock_threshold ?? 10)).length
   const outOfStockCount = products.filter(p => p.stock_qty <= 0).length
 
   const AVATAR_COLORS = ['#7F77DD','#1D9E75','#FFA500','#378ADD','#E24B4A','#0F6E56']
@@ -611,7 +611,7 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
               <div>
                 <div style={{ fontSize: 11, color: '#f57f17', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 5 }}>Low stock</div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {products.filter(p => p.stock_qty > 0 && p.stock_qty <= (p.low_stock_threshold || 10)).map(p => (
+                  {products.filter(p => p.stock_qty > 0 && p.stock_qty <= (p.low_stock_threshold ?? 10)).map(p => (
                     <span key={p.id} style={{ fontSize: 12, background: '#FFF3E0', color: '#e65100', padding: '3px 10px', borderRadius: 99, fontWeight: 600 }}>{p.name} <span style={{ opacity: 0.7 }}>({p.stock_qty} left)</span></span>
                   ))}
                 </div>

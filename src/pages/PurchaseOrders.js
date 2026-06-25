@@ -175,7 +175,7 @@ export default function PurchaseOrders() {
     const suggestedItems = products
       .filter(p => !p.discontinued)
       .map(p => {
-        const threshold = p.low_stock_threshold || 10
+        const threshold = p.low_stock_threshold ?? 10
         const stock = Number(p.stock_qty || 0)
         const velocityQty = reorderById[p.id] || 0
         const lowStock = stock <= threshold
@@ -796,7 +796,7 @@ export default function PurchaseOrders() {
   const batchItemsTotal = batchForm.items.reduce((s, i) => s + (parseFloat(i.qty || 0) * parseFloat(i.unit_cost || 0)), 0)
   const batchCostsTotal = (batchForm.extraCosts || []).reduce((s, c) => s + parseFloat(c.amount || 0), 0)
   const batchTotal = batchItemsTotal + batchCostsTotal
-  const lowStockProducts = products.filter(p => p.stock_qty <= (p.low_stock_threshold || 10))
+  const lowStockProducts = products.filter(p => p.stock_qty <= (p.low_stock_threshold ?? 10))
 
   // Group line items that belong to the same batch order
   const poGroups = (() => {

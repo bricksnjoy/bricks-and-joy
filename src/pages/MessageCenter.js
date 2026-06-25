@@ -88,7 +88,7 @@ export default function MessageCenter() {
     setLoading(false)
   }
 
-  const lowStock = products.filter(p => p.stock_qty <= (p.low_stock_threshold || 10) && p.stock_qty > 0)
+  const lowStock = products.filter(p => p.stock_qty <= (p.low_stock_threshold ?? 10) && p.stock_qty > 0)
   const outOfStock = products.filter(p => p.stock_qty <= 0)
 
   // Eligible recipients for a channel (email needs email, sms needs phone)
@@ -237,7 +237,7 @@ Please confirm once delivered.
   }
   function openStockAlert() {
     const out = outOfStock.map(p => `  - ${p.name} — OUT OF STOCK`).join('\n')
-    const low = lowStock.map(p => `  - ${p.name} — ${p.stock_qty} left (min ${p.low_stock_threshold || 10})`).join('\n')
+    const low = lowStock.map(p => `  - ${p.name} — ${p.stock_qty} left (min ${p.low_stock_threshold ?? 10})`).join('\n')
     const body = `Stock Alert — ${BNJ_NAME}\n${new Date().toLocaleDateString('en', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}\n\nOUT OF STOCK (${outOfStock.length})\n${out || '  None'}\n\nLOW STOCK (${lowStock.length})\n${low || '  None'}\n\nPlease reorder as needed.`
     openCompose({ title: 'Stock alert', channel: 'email', subject: `Low Stock Alert — ${BNJ_NAME}`, body, source: 'contacts' })
   }

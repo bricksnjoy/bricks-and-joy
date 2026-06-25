@@ -52,7 +52,7 @@ export default function Dashboard() {
       const p = prods.find(p => p.id === o.product_id)
       return s + (p ? (Number(o.qty) || 0) * Number(p.cost_price || 0) : 0)
     }, 0)
-    const totalExp = (expenses.data || []).reduce((s, e) => s + Number(e.amount), 0)
+    const totalExp = (expenses.data || []).reduce((s, e) => s + Number(e.amount || 0), 0)
     const netProfit = revenue - cogs - totalExp
 
     const todayStr = new Date().toISOString().split('T')[0]
@@ -108,7 +108,7 @@ export default function Dashboard() {
     setInsights(generateInsights({ orders: ords, products: prods, customers: custs, restock, loyaltyProfiles }))
 
     setStats({ products: prods.length, totalStock: prods.reduce((s, p) => s + (p.stock_qty || 0), 0), customers: custs.length, activeOrders: ords.filter(o => o.status === 'pending' || o.status === 'transit').length, deliveredOrders: delivered.length, revenue, netProfit, pendingOrders: ords.filter(o => o.status === 'pending').length, todaySales, thisMonthSales, lastMonthSales, monthChange })
-    setLowStock(prods.filter(p => p.stock_qty <= (p.low_stock_threshold || 10)).slice(0, 5))
+    setLowStock(prods.filter(p => p.stock_qty <= (p.low_stock_threshold ?? 10)).slice(0, 5))
     setRecentOrders(ords.slice(0, 6))
     setRecentCustomers(custs.slice(0, 4))
     setLoading(false)
