@@ -157,7 +157,7 @@ export default function Inventory() {
     const barcode = form.barcode || genBarcode(form.name, form.id || Date.now())
     // Strip nested relation data that Supabase rejects on update
     const { suppliers: _s, supplier_name: _sn, ...cleanForm } = form
-    const payload = { ...cleanForm, barcode, pieces: form.pieces === '' || form.pieces == null ? null : parseInt(form.pieces) || null, stock_qty: parseInt(form.stock_qty) || 0, cost_price: parseFloat(form.cost_price) || 0, sell_price: parseFloat(form.sell_price) || 0, low_stock_threshold: parseInt(form.low_stock_threshold) || 10 }
+    const payload = { ...cleanForm, barcode, pieces: form.pieces === '' || form.pieces == null ? null : parseInt(form.pieces) || null, stock_qty: parseInt(form.stock_qty) || 0, cost_price: parseFloat(form.cost_price) || 0, sell_price: parseFloat(form.sell_price) || 0, low_stock_threshold: (form.low_stock_threshold === '' || form.low_stock_threshold == null || isNaN(parseInt(form.low_stock_threshold))) ? 10 : parseInt(form.low_stock_threshold) }
     const doSave = pl => modal === 'add'
       ? supabase.from('products').insert(pl)
       : supabase.from('products').update(pl).eq('id', form.id)
