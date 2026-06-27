@@ -1679,16 +1679,16 @@ function CatalogGrid({ items, activeSupplier, suppliers, selectMode, selectedIds
                   {m > 0 && <span className="cat-chip"><Percent size={12} color="#1D9E75" /><span style={{ color:'#1D9E75' }}>{m}%</span></span>}
                 </div>
 
-                {/* Persistent star button — always visible */}
+                {/* Star button — top-left, drops below the "Not in inventory" badge when present */}
                 {!selectMode && (
                   <button onClick={e => { e.stopPropagation(); onToggleFav && onToggleFav(item.id) }}
                     title={favs.has(item.id) ? 'Remove from favourites' : 'Add to favourites'}
-                    style={{ position:'absolute', top:12, left:12, zIndex:3,
+                    style={{ position:'absolute', top: inInventory(item) ? 12 : 50, left:12, zIndex:3,
                       width:34, height:34, borderRadius:11, border:'none', cursor:'pointer',
                       display:'flex', alignItems:'center', justifyContent:'center',
                       background: favs.has(item.id) ? 'rgba(255,165,0,0.92)' : 'rgba(255,255,255,0.85)',
                       backdropFilter:'blur(6px)', boxShadow:'0 2px 8px rgba(0,0,0,0.12)',
-                      transition:'transform .15s, background .15s' }}>
+                      transition:'top .15s, background .15s' }}>
                     <Star size={16} fill={favs.has(item.id) ? '#fff' : 'none'} stroke={favs.has(item.id) ? '#fff' : '#aaa'} />
                   </button>
                 )}
