@@ -47,7 +47,9 @@ export default function Dashboard() {
     const ords = orders.data || []
     const custs = customers.data || []
     const delivered = ords.filter(o => o.status === 'delivered')
-    const revenue = delivered.reduce((s, o) => s + Number(o.total_price || 0), 0)
+    // Count revenue for all paid orders (even if not yet delivered) + all delivered orders
+    const revenueOrders = ords.filter(o => o.status !== 'cancelled' && (o.status === 'delivered' || o.payment_status === 'paid'))
+    const revenue = revenueOrders.reduce((s, o) => s + Number(o.total_price || 0), 0)
     const cogs = delivered.reduce((s, o) => {
       const p = prods.find(p => p.id === o.product_id)
       return s + (p ? (Number(o.qty) || 0) * Number(p.cost_price || 0) : 0)
@@ -59,9 +61,9 @@ export default function Dashboard() {
     const thisMonthStr = new Date().toISOString().slice(0, 7)
     const lastMonthDate = new Date(); lastMonthDate.setMonth(lastMonthDate.getMonth() - 1)
     const lastMonthStr = lastMonthDate.toISOString().slice(0, 7)
-    const todaySales = delivered.filter(o => o.order_date === todayStr).reduce((s, o) => s + Number(o.total_price || 0), 0)
-    const thisMonthSales = delivered.filter(o => o.order_date?.startsWith(thisMonthStr)).reduce((s, o) => s + Number(o.total_price || 0), 0)
-    const lastMonthSales = delivered.filter(o => o.order_date?.startsWith(lastMonthStr)).reduce((s, o) => s + Number(o.total_price || 0), 0)
+    const todaySales = revenueOrders.filter(o => o.order_date === todayStr).reduce((s, o) => s + Number(o.total_price || 0), 0)
+    const thisMonthSales = revenueOrders.filter(o => o.order_date?.startsWith(thisMonthStr)).reduce((s, o) => s + Number(o.total_price || 0), 0)
+    const lastMonthSales = revenueOrders.filter(o => o.order_date?.startsWith(lastMonthStr)).reduce((s, o) => s + Number(o.total_price || 0), 0)
     const monthChange = lastMonthSales > 0 ? ((thisMonthSales - lastMonthSales) / lastMonthSales * 100).toFixed(0) : null
 
     // Over-budget categories this month (budgets from Supabase table, else localStorage)

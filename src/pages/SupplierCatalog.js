@@ -431,46 +431,68 @@ export default function SupplierCatalog() {
     setBarcodePreview({ item, svgUrl, qrUrl, code })
   }
 
-  function printLabel(preview) {
-    const logoUrl = window.location.origin + '/logo-full.png'
-    const w = window.open('','_blank','width=360,height=500')
-    w.document.write(`<html><head><title>Label</title>
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
-    <style>
-      *{margin:0;padding:0;box-sizing:border-box}body{font-family:'Poppins',sans-serif;background:#f0f0f0;display:flex;align-items:center;justify-content:center;min-height:100vh}
-      .label{background:#fff;border-radius:16px;width:300px;box-shadow:0 6px 24px rgba(0,0,0,0.12);overflow:hidden}
-      .top{display:flex;justify-content:space-between;align-items:center;padding:10px 14px 8px;border-bottom:1px solid #f5f5f5}
-      .logo{display:flex;align-items:center;gap:8px}.logo img{height:40px;width:auto;max-width:150px;object-fit:contain}
-      .brand{font-size:12px;font-weight:600;color:#0d1b2a}.sub{font-size:8px;color:#bbb;text-transform:uppercase;letter-spacing:0.8px}
-      .tag{font-size:8px;color:#FFA500;font-weight:600;text-transform:uppercase;letter-spacing:1px}
-      .bc{padding:14px 16px 8px;text-align:center}.bc img{max-width:100%;display:block;margin:0 auto}
-      .info{padding:10px 16px 14px}
-      .name{font-size:14px;font-weight:600;color:#0d1b2a;margin-bottom:2px}
-      .supplier{font-size:11px;color:#aaa;margin-bottom:8px}
-      .footer{display:flex;justify-content:space-between;align-items:center}
-      .price{background:#0d1b2a;color:#FFA500;font-size:14px;font-weight:700;padding:5px 14px;border-radius:8px}
-      .code{font-size:9px;color:#ccc;font-family:monospace}
-      @media print{body{background:none;min-height:auto}.label{box-shadow:none;border:1px solid #ddd;border-radius:0}}
-    </style></head><body>
-    <div class="label">
-      <div class="top">
-        <div class="logo">
-          <img src="${logoUrl}" alt="Brick's & Joy" onerror="this.style.display='none'" />
-        </div>
-        <div class="tag">Supplier Label</div>
-      </div>
-      <div class="bc"><img src="${preview.svgUrl}" /></div>
-      <div class="info">
-        <div class="name">${preview.item.product_name}</div>
-        <div class="supplier">${preview.item.supplier_name || ''}</div>
-        <div class="footer">
-          <div class="price">${preview.item.sell_price ? 'MVR ' + Number(preview.item.sell_price).toFixed(2) : 'No price'}</div>
-          <div class="code">${preview.code}</div>
-        </div>
-      </div>
-    </div>
-    <script>window.onload=()=>window.print()</script></body></html>`)
-    w.document.close()
+  async function downloadPdf(preview) {
+    // Convert SVG barcode data URL → PNG via canvas (jsPDF can't embed SVG directly)
+    const barcodePng = await new Promise((resolve) => {
+      const img = new Image()
+      img.onload = () => {
+        const c = document.createElement('canvas')
+        c.width = img.naturalWidth || 400; c.height = img.naturalHeight || 100
+        const ctx = c.getContext('2d')
+        ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height)
+        ctx.drawImage(img, 0, 0)
+        resolve(c.toDataURL('image/png'))
+      }
+      img.onerror = () => resolve(null)
+      img.src = preview.svgUrl
+    })
+
+    const { jsPDF } = await import('jspdf')
+    // Label: 85mm wide × 110mm tall
+    const doc = new jsPDF({ unit: 'mm', format: [85, 110] })
+
+    // Header bar
+    doc.setFillColor(13, 27, 42)
+    doc.rect(0, 0, 85, 14, 'F')
+    doc.setTextColor(255, 165, 0)
+    doc.setFontSize(8); doc.setFont('helvetica', 'bold')
+    doc.text("BRICK'S & JOY", 4, 9)
+    doc.setTextColor(180, 180, 180)
+    doc.setFontSize(6); doc.setFont('helvetica', 'normal')
+    doc.text('SUPPLIER LABEL', 60, 9)
+
+    // Barcode
+    if (barcodePng) doc.addImage(barcodePng, 'PNG', 6, 17, 73, 20)
+
+    // Code text
+    doc.setTextColor(160, 160, 160); doc.setFontSize(6)
+    doc.text(preview.code, 42.5, 40, { align: 'center' })
+
+    // Divider
+    doc.setDrawColor(240, 240, 240); doc.line(4, 43, 81, 43)
+
+    // Product name
+    doc.setTextColor(13, 27, 42); doc.setFontSize(10); doc.setFont('helvetica', 'bold')
+    const name = (preview.item.product_name || '').slice(0, 36)
+    doc.text(name, 4, 51)
+
+    // Supplier
+    if (preview.item.supplier_name) {
+      doc.setTextColor(150, 150, 150); doc.setFontSize(7); doc.setFont('helvetica', 'normal')
+      doc.text(preview.item.supplier_name, 4, 57)
+    }
+
+    // Price pill (left) + QR code (right)
+    if (preview.item.sell_price) {
+      doc.setFillColor(13, 27, 42)
+      doc.roundedRect(4, 64, 40, 11, 2, 2, 'F')
+      doc.setTextColor(255, 165, 0); doc.setFontSize(9); doc.setFont('helvetica', 'bold')
+      doc.text('MVR ' + Number(preview.item.sell_price).toFixed(2), 24, 71.5, { align: 'center' })
+    }
+    // QR code (top-right of label bottom section)
+    doc.addImage(preview.qrUrl, 'PNG', 58, 60, 23, 23)
+
+    doc.save(`label-${preview.code}.pdf`)
   }
 
   // ── Excel export ──────────────────────────────────────────────────────────────
@@ -1220,7 +1242,7 @@ export default function SupplierCatalog() {
               <Button variant="ghost" onClick={() => {
                 const a = document.createElement('a'); a.href = barcodePreview.qrUrl; a.download = `qr-${barcodePreview.code}.png`; a.click()
               }}><Download size={13} /> Download QR</Button>
-              <Button onClick={() => printLabel(barcodePreview)}><Barcode size={13} /> Print Label</Button>
+              <Button onClick={() => downloadPdf(barcodePreview)}><Download size={13} /> Download PDF</Button>
             </div>
           </div>
         </Modal>
