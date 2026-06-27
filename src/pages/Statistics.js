@@ -81,11 +81,13 @@ export default function Statistics() {
     const custs = customers.data || []
     const exps = expenses.data || []
     const delivered = ords.filter(o => o.status === 'delivered')
+    // Revenue includes paid orders even if not yet delivered
+    const revenueOrders = ords.filter(o => o.status !== 'cancelled' && (o.status === 'delivered' || o.payment_status === 'paid'))
 
     // Revenue by month
     const revByMonth = {}
     const ordByMonth = {}
-    delivered.forEach(o => {
+    revenueOrders.forEach(o => {
       const m = o.order_date?.slice(0, 7) || 'Unknown'
       revByMonth[m] = (revByMonth[m] || 0) + Number(o.total_price || 0)
       ordByMonth[m] = (ordByMonth[m] || 0) + 1
@@ -101,7 +103,7 @@ export default function Statistics() {
     const productPerf = {}
     ords.forEach(o => {
       if (!productPerf[o.product_name]) productPerf[o.product_name] = { name: o.product_name, revenue: 0, units: 0, orders: 0, cancelled: 0, cogs: 0 }
-      if (o.status === 'delivered') {
+      if (o.status !== 'cancelled' && (o.status === 'delivered' || o.payment_status === 'paid')) {
         productPerf[o.product_name].revenue += Number(o.total_price || 0)
         productPerf[o.product_name].units += o.qty
         const p = prodById[o.product_id]
@@ -118,7 +120,7 @@ export default function Statistics() {
 
     // Channel performance
     const chanPerf = {}
-    delivered.forEach(o => { chanPerf[o.channel] = (chanPerf[o.channel] || 0) + Number(o.total_price || 0) })
+    revenueOrders.forEach(o => { chanPerf[o.channel] = (chanPerf[o.channel] || 0) + Number(o.total_price || 0) })
     const channelChart = Object.entries(chanPerf).sort((a, b) => b[1] - a[1]).map(([name, value]) => ({ name, value: parseFloat(value.toFixed(2)) }))
 
     // Smarter forecasting — blends a linear trend with compounding growth
@@ -214,11 +216,11 @@ export default function Statistics() {
     ords.forEach(o => { statusCount[o.status] = (statusCount[o.status] || 0) + 1 })
 
     // KPIs
-    const revenue = delivered.reduce((s, o) => s + Number(o.total_price || 0), 0)
+    const revenue = revenueOrders.reduce((s, o) => s + Number(o.total_price || 0), 0)
     const cogs = delivered.reduce((s, o) => { const p = prods.find(p => p.id === o.product_id); return s + (p ? (Number(o.qty) || 0) * Number(p.cost_price || 0) : 0) }, 0)
     const totalExp = exps.reduce((s, e) => s + Number(e.amount), 0)
     const netProfit = revenue - cogs - totalExp
-    const avgOrderValue = delivered.length > 0 ? revenue / delivered.length : 0
+    const avgOrderValue = revenueOrders.length > 0 ? revenue / revenueOrders.length : 0
     const returnRate = ords.length > 0 ? (statusCount['cancelled'] || 0) / ords.length * 100 : 0
 
     const monthsCount = Object.keys(revByMonth).length || 1

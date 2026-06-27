@@ -127,17 +127,25 @@ export default function Deliveries() {
     ['all', 'All'],
   ]
 
-  const StaffInput = ({ o, width = 150 }) => {
+  const StaffInput = ({ o, width = 180 }) => {
     const current = draftStaff(o)
     const hasCustom = current && !contactNames.includes(current)
+    const dirty = { borderColor: isDirty(o) ? '#FFA500' : undefined }
     return (
-      <select className="dlv-input" value={current}
-        style={{ width, borderColor: isDirty(o) ? '#FFA500' : undefined }}
-        onChange={e => draftChange(o.id, { delivery_person: e.target.value })}>
-        <option value="">— Assign staff —</option>
-        {contactNames.map(n => <option key={n} value={n}>{n}</option>)}
-        {hasCustom && <option value={current}>{current}</option>}
-      </select>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 5, width }}>
+        {contactNames.length > 0 && (
+          <select className="dlv-input" value={contactNames.includes(current) ? current : ''}
+            style={{ width: '100%', ...dirty }}
+            onChange={e => { if (e.target.value) draftChange(o.id, { delivery_person: e.target.value }) }}>
+            <option value="">— Pick from contacts —</option>
+            {contactNames.map(n => <option key={n} value={n}>{n}</option>)}
+          </select>
+        )}
+        <input className="dlv-input" value={current}
+          placeholder={contactNames.length > 0 ? 'Or type a name…' : 'Type staff name…'}
+          style={{ width: '100%', ...dirty }}
+          onChange={e => draftChange(o.id, { delivery_person: e.target.value })} />
+      </div>
     )
   }
   const DateInput = ({ o, width = 150 }) => (

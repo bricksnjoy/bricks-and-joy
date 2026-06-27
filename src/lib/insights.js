@@ -126,8 +126,9 @@ export function generateInsights({ orders, products, customers, restock = [], lo
   const lastMonthD = new Date(); lastMonthD.setMonth(lastMonthD.getMonth() - 1)
   const lastMonth = lastMonthD.toISOString().slice(0, 7)
   const delivered = orders.filter(o => o.status === 'delivered')
+  const revenueOrders = orders.filter(o => o.status !== 'cancelled' && (o.status === 'delivered' || o.payment_status === 'paid'))
 
-  const rev = m => delivered.filter(o => o.order_date?.startsWith(m)).reduce((s, o) => s + Number(o.total_price || 0), 0)
+  const rev = m => revenueOrders.filter(o => o.order_date?.startsWith(m)).reduce((s, o) => s + Number(o.total_price || 0), 0)
   const thisRev = rev(thisMonth), lastRev = rev(lastMonth)
 
   // Revenue trend
