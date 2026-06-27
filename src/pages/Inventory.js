@@ -835,7 +835,7 @@ export default function Inventory() {
 
               {vm.tags && (
                 <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginBottom: 22 }}>
-                  {vm.tags.split(',').map(t => t.trim()).filter(Boolean).map(tag => (
+                  {vm.tags.split(',').map(t => t.trim()).filter(Boolean).sort((a, b) => a.localeCompare(b)).map(tag => (
                     <span key={tag} style={{ background: '#EEEDFE', color: '#6a1b9a', padding: '4px 13px', borderRadius: 99, fontSize: 12.5, fontWeight: 600 }}>{tag}</span>
                   ))}
                 </div>
