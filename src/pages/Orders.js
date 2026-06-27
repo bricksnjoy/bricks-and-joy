@@ -472,6 +472,8 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
   const filteredOrders = filter === 'all' ? orders : orders.filter(o => o.status === filter)
   const totalRevenue = orders.filter(o => o.status === 'delivered').reduce((s, o) => s + Number(o.total_price || 0), 0)
   const unpaidTotal = orders.filter(o => (o.payment_status || 'unpaid') === 'unpaid' && o.status !== 'cancelled').reduce((s, o) => s + Number(o.total_price || 0), 0)
+  const totalSold = orders.filter(o => o.status === 'delivered').reduce((s, o) => s + Number(o.qty || 0), 0)
+  const activeOrdersCount = orders.filter(o => o.status !== 'cancelled').length
   const lowStockCount = products.filter(p => p.stock_qty > 0 && p.stock_qty <= (p.low_stock_threshold ?? 10)).length
   const outOfStockCount = products.filter(p => p.stock_qty <= 0).length
 
@@ -583,8 +585,24 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
       `}</style>
 
       <PageHeader title="Orders"
-        subtitle={`MVR ${totalRevenue.toFixed(2)} delivered · MVR ${unpaidTotal.toFixed(2)} unpaid`}
         action={<Button onClick={openAdd}><Plus size={15} /> New order</Button>} />
+
+      {/* Stat cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 20 }}>
+        {[
+          { label: 'Revenue delivered', value: `MVR ${totalRevenue.toFixed(2)}`, sub: 'from delivered orders', color: '#1D9E75', bg: '#F0FAF6', icon: '💰' },
+          { label: 'Unpaid balance', value: `MVR ${unpaidTotal.toFixed(2)}`, sub: 'across active orders', color: '#E24B4A', bg: '#FFF0F0', icon: '⏳' },
+          { label: 'Active orders', value: activeOrdersCount, sub: 'excluding cancelled', color: '#378ADD', bg: '#EEF4FF', icon: '📦' },
+          { label: 'Units sold', value: totalSold, sub: 'delivered only', color: '#FFA500', bg: '#FFF8EC', icon: '🏷️' },
+        ].map(card => (
+          <div key={card.label} style={{ background: card.bg, borderRadius: 14, padding: '18px 20px', border: `1px solid ${card.color}18` }}>
+            <div style={{ fontSize: 20, marginBottom: 6 }}>{card.icon}</div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: card.color, letterSpacing: '-0.5px', marginBottom: 2 }}>{card.value}</div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: '#0d1b2a', marginBottom: 2 }}>{card.label}</div>
+            <div style={{ fontSize: 11, color: '#aaa' }}>{card.sub}</div>
+          </div>
+        ))}
+      </div>
 
       {(lowStockCount > 0 || outOfStockCount > 0) && (
         <div style={{ marginBottom: 16 }}>
