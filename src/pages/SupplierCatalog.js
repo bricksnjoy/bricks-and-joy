@@ -138,6 +138,8 @@ export default function SupplierCatalog() {
   const [batchPoExtras, setBatchPoExtras] = useState([])
   const [favs, setFavs] = useState(() => new Set(JSON.parse(localStorage.getItem('bnj_cat_favs') || '[]')))
   const [favFilter, setFavFilter] = useState(false)
+  const [sortMode, setSortMode] = useState(() => localStorage.getItem('bnj_cat_sort') || 'name') // 'name' | 'tag'
+  const changeSort = v => { setSortMode(v); localStorage.setItem('bnj_cat_sort', v) }
   const fileRef = useRef()
   const toast = useToast()
 
@@ -178,10 +180,19 @@ export default function SupplierCatalog() {
     return matchSupplier && matchSearch
   })
   const missingCount = scopedCatalog.filter(i => !inInventory(i)).length
+  // Sort key: when sorting by tag, use the first tag's letter; if a product has no
+  // tag, fall back to its product name so it still slots in alphabetically.
+  const sortKey = item => {
+    if (sortMode === 'tag') {
+      const firstTag = (item.tags || '').split(',')[0].trim()
+      if (firstTag) return firstTag.toLowerCase()
+    }
+    return (item.product_name || '').toLowerCase()
+  }
   const visibleCatalog = scopedCatalog.filter(item =>
     (invFilter === 'all' ? true : invFilter === 'missing' ? !inInventory(item) : inInventory(item))
     && (!favFilter || favs.has(item.id))
-  )
+  ).sort((a, b) => sortKey(a).localeCompare(sortKey(b)))
   const favCountForSupplier = s => catalog.filter(i => i.supplier_id === s.id && favs.has(i.id)).length
 
   // Dropdown options grow from data: base presets + any value already used by a
@@ -998,6 +1009,20 @@ export default function SupplierCatalog() {
                     <Star size={13} fill={favFilter ? '#FFA500' : 'none'} stroke={favFilter ? '#FFA500' : '#aaa'} />
                     Favourites{favFilter && visibleCatalog.length > 0 ? ` (${visibleCatalog.length})` : ''}
                   </button>
+                </div>
+              )}
+              {!compareMode && (
+                <div style={{ display: 'flex', border: '1px solid #e0e0e0', borderRadius: 9, overflow: 'hidden' }}>
+                  {[
+                    { k: 'name', label: 'Name A–Z' },
+                    { k: 'tag', label: 'Tag A–Z' },
+                  ].map((f, i) => (
+                    <button key={f.k} onClick={() => changeSort(f.k)} title="Sort products"
+                      style={{ padding: '8px 12px', border: 'none', borderLeft: i ? '1px solid #e0e0e0' : 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 600,
+                        background: sortMode === f.k ? '#0d1b2a' : '#fff', color: sortMode === f.k ? '#fff' : '#888', whiteSpace: 'nowrap' }}>
+                      {f.label}
+                    </button>
+                  ))}
                 </div>
               )}
               {!compareMode && (
