@@ -34,14 +34,22 @@ function loadSuppliers_() {
     const c = (s.contact_name || s.name || '').toLowerCase().trim()
     if (c && !byContact[c]) byContact[c] = s
     const n = (s.name || '').toLowerCase().trim()
-    if (n && !byName[n]) byName[n] = s
+    // Prefer the same-named vendor that HAS a contact (handles duplicate vendors)
+    if (n && (!byName[n] || (s.contact_name && !byName[n].contact_name))) byName[n] = s
   })
   return { byId, byContact, byName }
 }
-// Contact name to show as the tab for a product (resolve by id, then by company name)
+// Contact name to show as the tab for a product. Resolve by id; if that vendor has
+// no contact, borrow the contact from another vendor with the same company name.
 function contactFor_(rec, sup) {
-  const s = sup.byId[rec.supplier_id] || sup.byName[(rec.supplier_name || '').toLowerCase().trim()]
-  return (s && s.contact_name) || (s && s.name) || rec.supplier_name || 'No supplier'
+  const own = sup.byId[rec.supplier_id]
+  let contact = own && own.contact_name
+  if (!contact) {
+    const company = (own && own.name) || rec.supplier_name
+    const named = company ? sup.byName[company.toLowerCase().trim()] : null
+    contact = (named && named.contact_name) || company
+  }
+  return contact || rec.supplier_name || 'No supplier'
 }
 
 function isCatalogTab_(sh) {
