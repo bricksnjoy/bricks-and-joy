@@ -5,7 +5,7 @@ import {
   Plus, Trash2, Edit2, Eye, Search, Building2, Package, Truck,
   Barcode, QrCode, Upload, Download, FileSpreadsheet, Camera,
   ArrowUpDown, ChevronDown, CheckCircle, AlertTriangle, RefreshCw, X,
-  LayoutGrid, List, Percent, MoreVertical
+  LayoutGrid, List, Percent, MoreVertical, Star
 } from 'lucide-react'
 import JsBarcode from 'jsbarcode'
 import QRCode from 'qrcode'
@@ -136,6 +136,8 @@ export default function SupplierCatalog() {
   const [batchPoItems, setBatchPoItems] = useState([])
   const [batchPoDate, setBatchPoDate] = useState('')
   const [batchPoExtras, setBatchPoExtras] = useState([])
+  const [favs, setFavs] = useState(() => new Set(JSON.parse(localStorage.getItem('bnj_cat_favs') || '[]')))
+  const [favFilter, setFavFilter] = useState(false)
   const fileRef = useRef()
   const toast = useToast()
 
@@ -159,6 +161,15 @@ export default function SupplierCatalog() {
     setLoading(false)
   }
 
+  function toggleFav(id) {
+    setFavs(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      localStorage.setItem('bnj_cat_favs', JSON.stringify([...next]))
+      return next
+    })
+  }
+
   // ── Filter ──────────────────────────────────────────────────────────────────
   const inInventory = item => inventoryNames.has((item.product_name || '').toLowerCase().trim())
   const scopedCatalog = catalog.filter(item => {
@@ -168,7 +179,10 @@ export default function SupplierCatalog() {
   })
   const missingCount = scopedCatalog.filter(i => !inInventory(i)).length
   const visibleCatalog = scopedCatalog.filter(item =>
-    invFilter === 'all' ? true : invFilter === 'missing' ? !inInventory(item) : inInventory(item))
+    (invFilter === 'all' ? true : invFilter === 'missing' ? !inInventory(item) : inInventory(item))
+    && (!favFilter || favs.has(item.id))
+  )
+  const favCountForSupplier = s => catalog.filter(i => i.supplier_id === s.id && favs.has(i.id)).length
 
   // Dropdown options grow from data: base presets + any value already used by a
   // product (e.g. an age imported from Excel) so it's reusable on every product.
@@ -923,8 +937,9 @@ export default function SupplierCatalog() {
 
               {suppliers.map(s => {
                 const display = s.contact_name || s.name
+                const favCount = favCountForSupplier(s)
                 return (
-                <div key={s.id} onClick={() => { setActiveSupplier(s); setCompareMode(false) }}
+                <div key={s.id} onClick={() => { setActiveSupplier(s); setCompareMode(false); setFavFilter(false) }}
                   className={`sc-supplier-item${activeSupplier?.id === s.id ? ' active' : ''}`}>
                   <div style={{ width:38, height:38, borderRadius:10, background: avatarColor(display)+'22', color: avatarColor(display), display:'flex', alignItems:'center', justifyContent:'center', fontSize:15, fontWeight:700, flexShrink:0 }}>
                     {(display||'?').charAt(0).toUpperCase()}
@@ -932,7 +947,10 @@ export default function SupplierCatalog() {
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <div style={{ fontSize: 15, fontWeight: 700, color: '#0d1b2a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{display}</div>
                     {s.contact_name && <div style={{ fontSize: 11, color: '#999', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</div>}
-                    <div style={{ fontSize: 10.5, color: '#bbb' }}>{supplierCatalogCount(s.id)} products</div>
+                    <div style={{ fontSize: 10.5, color: '#bbb', display:'flex', alignItems:'center', gap:6 }}>
+                      {supplierCatalogCount(s.id)} products
+                      {favCount > 0 && <span style={{ display:'inline-flex', alignItems:'center', gap:2, color:'#FFA500', fontWeight:700 }}><Star size={10} fill="#FFA500" />{favCount}</span>}
+                    </div>
                   </div>
                 </div>
                 )
@@ -959,19 +977,27 @@ export default function SupplierCatalog() {
                 </div>
               )}
               {!compareMode && (
-                <div style={{ display: 'flex', border: '1px solid #e0e0e0', borderRadius: 9, overflow: 'hidden' }}>
-                  {[
-                    { k: 'all', label: 'All' },
-                    { k: 'missing', label: `Not in inventory${missingCount ? ` (${missingCount})` : ''}` },
-                    { k: 'present', label: 'In inventory' },
-                  ].map((f, i) => (
-                    <button key={f.k} onClick={() => setInvFilter(f.k)} title="Filter by inventory status"
-                      style={{ padding: '8px 12px', border: 'none', borderLeft: i ? '1px solid #e0e0e0' : 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 600,
-                        background: invFilter === f.k ? (f.k === 'missing' ? '#E24B4A' : '#0d1b2a') : '#fff',
-                        color: invFilter === f.k ? '#fff' : '#888', whiteSpace: 'nowrap' }}>
-                      {f.label}
-                    </button>
-                  ))}
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', border: '1px solid #e0e0e0', borderRadius: 9, overflow: 'hidden' }}>
+                    {[
+                      { k: 'all', label: 'All' },
+                      { k: 'missing', label: `Not in inventory${missingCount ? ` (${missingCount})` : ''}` },
+                      { k: 'present', label: 'In inventory' },
+                    ].map((f, i) => (
+                      <button key={f.k} onClick={() => setInvFilter(f.k)} title="Filter by inventory status"
+                        style={{ padding: '8px 12px', border: 'none', borderLeft: i ? '1px solid #e0e0e0' : 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 600,
+                          background: invFilter === f.k ? (f.k === 'missing' ? '#E24B4A' : '#0d1b2a') : '#fff',
+                          color: invFilter === f.k ? '#fff' : '#888', whiteSpace: 'nowrap' }}>
+                        {f.label}
+                      </button>
+                    ))}
+                  </div>
+                  <button onClick={() => setFavFilter(f => !f)} title="Show favorites only"
+                    style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'8px 12px', border:`1px solid ${favFilter ? '#FFA500' : '#e0e0e0'}`, borderRadius:9, cursor:'pointer', fontFamily:'inherit', fontSize:12, fontWeight:700,
+                      background: favFilter ? '#FFF8E1' : '#fff', color: favFilter ? '#FFA500' : '#aaa', whiteSpace:'nowrap', transition:'all 0.15s' }}>
+                    <Star size={13} fill={favFilter ? '#FFA500' : 'none'} stroke={favFilter ? '#FFA500' : '#aaa'} />
+                    Favourites{favFilter && visibleCatalog.length > 0 ? ` (${visibleCatalog.length})` : ''}
+                  </button>
                 </div>
               )}
               {!compareMode && (
@@ -1076,7 +1102,8 @@ export default function SupplierCatalog() {
                 {view === 'grid' ? (
                   <CatalogGrid items={visibleCatalog} activeSupplier={activeSupplier} suppliers={suppliers} selectMode={selectMode}
                     selectedIds={selectedIds} onToggleSelect={toggleSelect} inventoryNames={inventoryNames}
-                    onView={setViewItem} onPO={openPO} onEdit={openEdit} onBarcode={showBarcode} onDelete={del} />
+                    onView={setViewItem} onPO={openPO} onEdit={openEdit} onBarcode={showBarcode} onDelete={del}
+                    favs={favs} onToggleFav={toggleFav} />
                 ) : (
                   <Card>
                     <div style={{ display:'grid', gridTemplateColumns:`${selectMode?'32px ':''}1fr auto auto auto auto`, gap:12, padding:'8px 16px', borderBottom:'2px solid #f0f0f0', fontSize:10, color:'#bbb', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.5px' }}>
@@ -1120,6 +1147,10 @@ export default function SupplierCatalog() {
                         <div style={{ width:60, textAlign:'center', fontSize:11, color:'#aaa' }}>{item.sku || '—'}</div>
                         <button className="icon-btn" onClick={() => showBarcode(item)} title="Barcode / QR"><Barcode size={13}/></button>
                         <div style={{ display:'flex', gap:4 }}>
+                          <button className="icon-btn" onClick={e => { e.stopPropagation(); toggleFav(item.id) }} title={favs.has(item.id) ? 'Remove from favourites' : 'Add to favourites'}
+                            style={{ color: favs.has(item.id) ? '#FFA500' : '#ccc' }}>
+                            <Star size={13} fill={favs.has(item.id) ? '#FFA500' : 'none'} stroke={favs.has(item.id) ? '#FFA500' : '#ccc'} />
+                          </button>
                           <button className="icon-btn" onClick={() => openPO(item)} title="Create Purchase Order" style={{ color:'#378ADD' }}><Truck size={13}/></button>
                           <button className="icon-btn" onClick={() => openEdit(item)} title="Edit"><Edit2 size={13}/></button>
                           <button className="icon-btn danger" onClick={() => del(item)} title="Delete"><Trash2 size={13}/></button>
@@ -1549,6 +1580,11 @@ export default function SupplierCatalog() {
                 <Button onClick={() => { setViewItem(null); openPO(vm) }}><Truck size={14} /> Create purchase order</Button>
                 <Button variant="ghost" onClick={() => { setViewItem(null); openEdit(vm) }}><Edit2 size={14} /> Edit</Button>
                 <Button variant="ghost" onClick={() => showBarcode(vm)}><Barcode size={14} /> Barcode</Button>
+                <Button variant="ghost" onClick={() => toggleFav(vm.id)}
+                  style={{ color: favs.has(vm.id) ? '#FFA500' : undefined, borderColor: favs.has(vm.id) ? '#FFA500' : undefined }}>
+                  <Star size={14} fill={favs.has(vm.id) ? '#FFA500' : 'none'} stroke={favs.has(vm.id) ? '#FFA500' : 'currentColor'} />
+                  {favs.has(vm.id) ? 'Unfavourite' : 'Favourite'}
+                </Button>
               </div>
             </div>
           </div>
@@ -1562,7 +1598,7 @@ export default function SupplierCatalog() {
 }
 
 // ── Apple-style catalog grid ───────────────────────────────
-function CatalogGrid({ items, activeSupplier, suppliers, selectMode, selectedIds, onToggleSelect, inventoryNames, onView, onPO, onEdit, onBarcode, onDelete }) {
+function CatalogGrid({ items, activeSupplier, suppliers, selectMode, selectedIds, onToggleSelect, inventoryNames, onView, onPO, onEdit, onBarcode, onDelete, favs = new Set(), onToggleFav }) {
   const [openMenuId, setOpenMenuId] = useState(null)
   const inInventory = item => inventoryNames?.has((item.product_name || '').toLowerCase().trim())
   const supplierNames = item => {
@@ -1642,6 +1678,20 @@ function CatalogGrid({ items, activeSupplier, suppliers, selectMode, selectedIds
                   {item.age_range ? <span className="cat-chip"><CakeIcon size={14} color="#378ADD" /> {item.age_range}</span> : null}
                   {m > 0 && <span className="cat-chip"><Percent size={12} color="#1D9E75" /><span style={{ color:'#1D9E75' }}>{m}%</span></span>}
                 </div>
+
+                {/* Persistent star button — always visible */}
+                {!selectMode && (
+                  <button onClick={e => { e.stopPropagation(); onToggleFav && onToggleFav(item.id) }}
+                    title={favs.has(item.id) ? 'Remove from favourites' : 'Add to favourites'}
+                    style={{ position:'absolute', top:12, left:12, zIndex:3,
+                      width:34, height:34, borderRadius:11, border:'none', cursor:'pointer',
+                      display:'flex', alignItems:'center', justifyContent:'center',
+                      background: favs.has(item.id) ? 'rgba(255,165,0,0.92)' : 'rgba(255,255,255,0.85)',
+                      backdropFilter:'blur(6px)', boxShadow:'0 2px 8px rgba(0,0,0,0.12)',
+                      transition:'transform .15s, background .15s' }}>
+                    <Star size={16} fill={favs.has(item.id) ? '#fff' : 'none'} stroke={favs.has(item.id) ? '#fff' : '#aaa'} />
+                  </button>
+                )}
 
                 {!selectMode && (
                   <div className={`cat-kebab ${menuOpen ? 'pinned' : ''}`} onClick={e => e.stopPropagation()}>
