@@ -124,6 +124,17 @@ function syncFromSupabase() {
   })
 }
 
+// Run this to see exactly what contact name each supplier resolves to.
+// Check View → Logs after running.
+function debugSuppliers() {
+  const sup = loadSuppliers_()
+  const data = JSON.parse(sb_('supplier_products?select=supplier_id,supplier_name,product_name&limit=30', { method: 'get' }).getContentText())
+  Logger.log('=== SUPPLIERS IN DATABASE ===')
+  Object.values(sup.byId).forEach(s => Logger.log(s.name + ' | contact: ' + (s.contact_name || '(none)')))
+  Logger.log('=== PRODUCT → TAB MAPPING ===')
+  data.forEach(rec => Logger.log(rec.product_name + ' → ' + contactFor_(rec, sup)))
+}
+
 function setup() {
   ScriptApp.getProjectTriggers().forEach(t => {
     if (['onEditInstallable', 'syncFromSupabase'].indexOf(t.getHandlerFunction()) >= 0) ScriptApp.deleteTrigger(t)
