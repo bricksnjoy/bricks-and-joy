@@ -127,11 +127,19 @@ export default function Deliveries() {
     ['all', 'All'],
   ]
 
-  const StaffInput = ({ o, width = 150 }) => (
-    <input className="dlv-input" list="dlv-staff" value={draftStaff(o)}
-      placeholder="Assign staff…" style={{ width, borderColor: isDirty(o) ? '#FFA500' : undefined }}
-      onChange={e => draftChange(o.id, { delivery_person: e.target.value })} />
-  )
+  const StaffInput = ({ o, width = 150 }) => {
+    const current = draftStaff(o)
+    const hasCustom = current && !contactNames.includes(current)
+    return (
+      <select className="dlv-input" value={current}
+        style={{ width, borderColor: isDirty(o) ? '#FFA500' : undefined }}
+        onChange={e => draftChange(o.id, { delivery_person: e.target.value })}>
+        <option value="">— Assign staff —</option>
+        {contactNames.map(n => <option key={n} value={n}>{n}</option>)}
+        {hasCustom && <option value={current}>{current}</option>}
+      </select>
+    )
+  }
   const DateInput = ({ o, width = 150 }) => (
     <input className="dlv-input" type="date" value={effectiveDate(o)} style={{ width, borderColor: isDirty(o) ? '#FFA500' : undefined }}
       onChange={e => draftChange(o.id, { delivery_date: e.target.value || null })} />
@@ -280,7 +288,6 @@ export default function Deliveries() {
                 </div>
               )
             })}
-            <datalist id="dlv-staff">{contactNames.map(n => <option key={n} value={n} />)}</datalist>
           </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
@@ -316,7 +323,6 @@ export default function Deliveries() {
                 })}
               </tbody>
             </table>
-            <datalist id="dlv-staff">{contactNames.map(n => <option key={n} value={n} />)}</datalist>
           </div>
         )}
       </Card>
