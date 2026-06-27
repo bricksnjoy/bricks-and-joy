@@ -1476,11 +1476,11 @@ export default function SupplierCatalog() {
           vm.dimensions ? { label: 'Dimensions', value: vm.dimensions } : null,
         ].filter(Boolean)
         return (
-        <Modal title="" onClose={() => setViewItem(null)} width={960}>
-          <div style={{ display: 'grid', gridTemplateColumns: '420px 1fr', gap: 34, alignItems: 'start' }} className="cat-vm-grid">
+        <Modal title="" onClose={() => setViewItem(null)} width={1240}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 40, alignItems: 'stretch' }} className="cat-vm-grid">
             <style>{`@media (max-width: 820px){ .cat-vm-grid { grid-template-columns: 1fr !important; } }`}</style>
-            <div style={{ position: 'relative', width: '100%', aspectRatio: '372 / 443', borderRadius: 24, overflow: 'hidden',
-              background: '#fff', padding: 25, boxSizing: 'border-box',
+            <div style={{ position: 'relative', width: '100%', minHeight: '100%', aspectRatio: '1 / 1', borderRadius: 24, overflow: 'hidden',
+              background: '#fff', padding: 28, boxSizing: 'border-box',
               boxShadow: 'inset 0 2px 0 rgba(255,255,255,0.95), inset 0 -4px 10px rgba(0,0,0,0.08), 0 10px 30px rgba(13,27,42,0.12)' }}>
               {vm.image_url
                 ? <img src={vm.image_url} alt={vm.product_name} style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#fff', borderRadius: 12 }} onError={e=>e.target.style.display='none'} />
