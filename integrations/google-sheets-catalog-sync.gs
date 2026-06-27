@@ -24,22 +24,24 @@ function sb_(path, opts) {
   }, opts))
 }
 
-// Suppliers: id -> record, and contact-name(lower) -> record
+// Suppliers: id -> record, contact-name(lower) -> record, company-name(lower) -> record
 function loadSuppliers_() {
   let arr = []
   try { arr = JSON.parse(sb_('suppliers?select=id,name,contact_name', { method: 'get' }).getContentText()) } catch (x) {}
-  const byId = {}, byContact = {}
+  const byId = {}, byContact = {}, byName = {}
   arr.forEach(s => {
     byId[s.id] = s
     const c = (s.contact_name || s.name || '').toLowerCase().trim()
     if (c && !byContact[c]) byContact[c] = s
+    const n = (s.name || '').toLowerCase().trim()
+    if (n && !byName[n]) byName[n] = s
   })
-  return { byId, byContact }
+  return { byId, byContact, byName }
 }
-// Contact name to show as the tab for a product
+// Contact name to show as the tab for a product (resolve by id, then by company name)
 function contactFor_(rec, sup) {
-  const s = sup.byId[rec.supplier_id]
-  return (s && (s.contact_name || s.name)) || rec.supplier_name || 'No supplier'
+  const s = sup.byId[rec.supplier_id] || sup.byName[(rec.supplier_name || '').toLowerCase().trim()]
+  return (s && s.contact_name) || (s && s.name) || rec.supplier_name || 'No supplier'
 }
 
 function isCatalogTab_(sh) {
