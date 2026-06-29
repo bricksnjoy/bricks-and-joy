@@ -6,7 +6,8 @@ import { sendSMS } from '../lib/sms'
 import {
   Mail, MessageSquare, Send, Plus, Trash2, Edit2, Phone, AtSign, User, Bike,
   Truck, Users, Megaphone, Search, AlertTriangle, Lightbulb, Calendar,
-  CheckCircle, XCircle, ClipboardList
+  CheckCircle, XCircle, ClipboardList, MessageCircle, Instagram, Facebook,
+  ExternalLink, Save
 } from 'lucide-react'
 
 const BNJ_NAME = "Brick's & Joy"
@@ -68,6 +69,18 @@ export default function MessageCenter() {
   const [contactModal, setContactModal] = useState(false)
   const [contactForm, setContactForm] = useState({ name: '', email: '', role: '', phone: '' })
   const [editContact, setEditContact] = useState(null)
+
+  // Live chat (JivoChat) — agent inbox link saved on the device
+  const [jivoUrl, setJivoUrl] = useState(() => localStorage.getItem('bnj_jivo_url') || 'https://app.jivochat.com')
+  const [jivoDraft, setJivoDraft] = useState('')
+  const [jivoEditing, setJivoEditing] = useState(false)
+  const [jivoBlocked, setJivoBlocked] = useState(false)
+  function saveJivoUrl() {
+    const url = (jivoDraft || '').trim() || 'https://app.jivochat.com'
+    setJivoUrl(url); localStorage.setItem('bnj_jivo_url', url)
+    setJivoEditing(false); setJivoBlocked(false)
+    toast.success('Live chat link saved')
+  }
 
   const tasks = (() => { try { return JSON.parse(localStorage.getItem('bj_tasks') || '[]') } catch { return [] } })()
 
@@ -306,6 +319,7 @@ Please confirm once delivered.
       <div style={{ display: 'flex', gap: 8, marginBottom: 22, flexWrap: 'wrap' }}>
         {[
           ['broadcast', 'Broadcast', Megaphone],
+          ['livechat', 'Live Chat', MessageCircle],
           ['deliveries', 'Deliveries', Truck],
           ['stock', 'Stock', AlertTriangle],
           ['tasks', 'Tasks', ClipboardList],
@@ -391,6 +405,82 @@ Please confirm once delivered.
               </Card>
             </div>
           </>
+        )}
+
+        {/* ── LIVE CHAT (JivoChat) ── */}
+        {activeTab === 'livechat' && (
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: '#C13584', fontWeight: 600 }}><Instagram size={15} /> Instagram</span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: '#1877F2', fontWeight: 600 }}><Facebook size={15} /> Facebook</span>
+                <span style={{ fontSize: 12.5, color: '#999' }}>— reply to DMs from one inbox.</span>
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Button variant="ghost" onClick={() => { setJivoDraft(jivoUrl); setJivoEditing(true) }}><Edit2 size={13} /> Inbox link</Button>
+                <Button onClick={() => window.open(jivoUrl, '_blank', 'noopener')}><ExternalLink size={13} /> Open inbox</Button>
+              </div>
+            </div>
+
+            {jivoEditing && (
+              <Card style={{ marginBottom: 14 }}>
+                <label style={{ fontSize: 11, color: '#888', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: 6 }}>JivoChat inbox URL</label>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <input value={jivoDraft} onChange={e => setJivoDraft(e.target.value)} placeholder="https://app.jivochat.com" className="mc-in" style={{ flex: 1, minWidth: 220 }} />
+                  <Button onClick={saveJivoUrl}><Save size={13} /> Save</Button>
+                  <Button variant="ghost" onClick={() => setJivoEditing(false)}>Cancel</Button>
+                </div>
+                <div style={{ fontSize: 11.5, color: '#aaa', marginTop: 8 }}>Default is the JivoChat web app. You can paste a direct inbox link if you use a custom one.</div>
+              </Card>
+            )}
+
+            {/* Embedded inbox — Jivo may block embedding; fall back to a button */}
+            <Card style={{ padding: 0, overflow: 'hidden' }}>
+              {jivoBlocked ? (
+                <div style={{ textAlign: 'center', padding: '48px 24px' }}>
+                  <MessageCircle size={34} color="#FFA500" style={{ marginBottom: 12 }} />
+                  <div style={{ fontWeight: 700, fontSize: 15, color: '#0d1b2a', marginBottom: 6 }}>JivoChat can't be shown inside the app</div>
+                  <div style={{ fontSize: 13, color: '#888', maxWidth: 420, margin: '0 auto 16px', lineHeight: 1.6 }}>
+                    For security, JivoChat blocks being embedded in other websites. Open your inbox in a new tab to read and reply to Instagram &amp; Facebook DMs.
+                  </div>
+                  <Button onClick={() => window.open(jivoUrl, '_blank', 'noopener')}><ExternalLink size={14} /> Open JivoChat inbox</Button>
+                </div>
+              ) : (
+                <div>
+                  <iframe
+                    title="JivoChat inbox"
+                    src={jivoUrl}
+                    onError={() => setJivoBlocked(true)}
+                    style={{ width: '100%', height: '70vh', minHeight: 480, border: 'none', display: 'block' }}
+                  />
+                  <div style={{ padding: '10px 16px', borderTop: '1px solid #f0f0f0', fontSize: 12, color: '#999', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+                    <span>Inbox blank or showing a "can't be displayed" message? JivoChat may block embedding.</span>
+                    <button onClick={() => setJivoBlocked(true)} style={{ background: 'none', border: 'none', color: '#378ADD', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                      <ExternalLink size={12} /> Open in a new tab instead
+                    </button>
+                  </div>
+                </div>
+              )}
+            </Card>
+
+            {/* Setup instructions */}
+            <Card style={{ marginTop: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                <Lightbulb size={16} color="#FFA500" />
+                <span style={{ fontWeight: 700, fontSize: 14, color: '#0d1b2a' }}>How to connect Instagram &amp; Facebook DMs</span>
+              </div>
+              <ol style={{ margin: 0, paddingLeft: 20, fontSize: 13, color: '#555', lineHeight: 1.9 }}>
+                <li>Create a free JivoChat account at <a href="https://www.jivochat.com" target="_blank" rel="noopener noreferrer" style={{ color: '#378ADD', fontWeight: 600 }}>jivochat.com</a> (use the same email everywhere).</li>
+                <li>In JivoChat go to <strong>Manage → Channels</strong>.</li>
+                <li>Click <strong>Instagram</strong> → connect your Instagram Business account (it must be linked to a Facebook Page).</li>
+                <li>Click <strong>Facebook</strong> → connect your Facebook Page so Messenger DMs arrive too.</li>
+                <li>Come back here and press <strong>Open inbox</strong> — every Instagram &amp; Facebook DM lands in one place.</li>
+              </ol>
+              <div style={{ background: '#FFF8E1', border: '1px solid #FAEEDA', borderRadius: 10, padding: '10px 14px', marginTop: 14, fontSize: 12.5, color: '#8a6d1b' }}>
+                Tip: Instagram DMs require an <strong>Instagram Business or Creator</strong> account connected to a Facebook Page — this is an Instagram/Meta requirement, not a JivoChat one.
+              </div>
+            </Card>
+          </div>
         )}
 
         {/* ── DELIVERIES ── */}
