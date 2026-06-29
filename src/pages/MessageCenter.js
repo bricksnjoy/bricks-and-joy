@@ -6,8 +6,7 @@ import { sendSMS } from '../lib/sms'
 import {
   Mail, MessageSquare, Send, Plus, Trash2, Edit2, Phone, AtSign, User, Bike,
   Truck, Users, Megaphone, Search, AlertTriangle, Lightbulb, Calendar,
-  CheckCircle, XCircle, ClipboardList, MessageCircle, Instagram, Facebook,
-  ExternalLink, Save
+  CheckCircle, XCircle, ClipboardList, MessageCircle, Instagram, Facebook
 } from 'lucide-react'
 
 const BNJ_NAME = "Brick's & Joy"
@@ -70,21 +69,74 @@ export default function MessageCenter() {
   const [contactForm, setContactForm] = useState({ name: '', email: '', role: '', phone: '' })
   const [editContact, setEditContact] = useState(null)
 
-  // Live chat (JivoChat) — agent inbox link saved on the device
-  const [jivoUrl, setJivoUrl] = useState(() => localStorage.getItem('bnj_jivo_url') || 'https://app.jivochat.com')
-  const [jivoDraft, setJivoDraft] = useState('')
-  const [jivoEditing, setJivoEditing] = useState(false)
-  const [jivoBlocked, setJivoBlocked] = useState(false)
-  function saveJivoUrl() {
-    const url = (jivoDraft || '').trim() || 'https://app.jivochat.com'
-    setJivoUrl(url); localStorage.setItem('bnj_jivo_url', url)
-    setJivoEditing(false); setJivoBlocked(false)
-    toast.success('Live chat link saved')
+  // Live chat (JivoChat) in-app inbox
+  const [threads, setThreads] = useState([])
+  const [activeThread, setActiveThread] = useState(null)
+  const [chatMessages, setChatMessages] = useState([])
+  const [chatLoading, setChatLoading] = useState(false)
+  const [chatReady, setChatReady] = useState(true)   // false if tables not created yet
+  const [replyText, setReplyText] = useState('')
+  const [replySending, setReplySending] = useState(false)
+  const [showSetup, setShowSetup] = useState(false)
+
+  async function loadThreads() {
+    setChatLoading(true)
+    const { data, error } = await supabase.from('chat_threads').select('*').order('last_at', { ascending: false })
+    if (error) { setChatReady(false); setChatLoading(false); return }
+    setChatReady(true)
+    setThreads(data || [])
+    setChatLoading(false)
+  }
+
+  async function openThread(t) {
+    setActiveThread(t)
+    setReplyText('')
+    const { data } = await supabase.from('chat_messages').select('*').eq('thread_id', t.id).order('created_at', { ascending: true })
+    setChatMessages(data || [])
+    if (t.unread > 0) {
+      await supabase.from('chat_threads').update({ unread: 0 }).eq('id', t.id)
+      setThreads(prev => prev.map(x => x.id === t.id ? { ...x, unread: 0 } : x))
+    }
+  }
+
+  async function sendReply() {
+    const text = replyText.trim()
+    if (!text || !activeThread) return
+    setReplySending(true)
+    // Optimistically show our message
+    const optimistic = { id: 'tmp-' + Date.now(), thread_id: activeThread.id, direction: 'out', sender_name: 'You', body: text, created_at: new Date().toISOString() }
+    setChatMessages(prev => [...prev, optimistic])
+    setReplyText('')
+    const { data, error } = await supabase.functions.invoke('jivo-send', { body: { thread_id: activeThread.id, text } })
+    setReplySending(false)
+    if (error || (data && data.ok === false)) {
+      toast.error('Could not send: ' + (data?.jivo_response || error?.message || 'check JivoChat setup'))
+      setChatMessages(prev => prev.filter(m => m.id !== optimistic.id))
+      setReplyText(text)
+    }
   }
 
   const tasks = (() => { try { return JSON.parse(localStorage.getItem('bj_tasks') || '[]') } catch { return [] } })()
 
   useEffect(() => { load() }, [])
+
+  // Load threads + live-subscribe whenever the Live Chat tab is open.
+  useEffect(() => {
+    if (activeTab !== 'livechat') return
+    loadThreads()
+    const ch = supabase
+      .channel('chat-rt')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_threads' }, () => loadThreads())
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages' }, payload => {
+        const m = payload.new
+        setActiveThread(at => {
+          if (at && m.thread_id === at.id) setChatMessages(prev => prev.some(x => x.id === m.id) ? prev : [...prev, m])
+          return at
+        })
+      })
+      .subscribe()
+    return () => { supabase.removeChannel(ch) }
+  }, [activeTab])
 
   async function load() {
     setLoading(true)
@@ -310,6 +362,25 @@ Please confirm once delivered.
         .mc-chip:hover { border-color:#FFA500; color:#FFA500; transform:translateY(-1px); }
         .mc-ta { width:100%; padding:10px 12px; border:1px solid #ddd; border-radius:8px; font-size:13px; font-family:inherit; resize:vertical; box-sizing:border-box; outline:none; }
         .mc-in { width:100%; padding:9px 12px; border:1px solid #ddd; border-radius:8px; font-size:13px; font-family:inherit; outline:none; box-sizing:border-box; }
+        /* Live chat inbox */
+        .lc-wrap { display:grid; grid-template-columns: 300px 1fr; height:70vh; min-height:460px; }
+        .lc-list { border-right:1px solid #f0f0f0; overflow-y:auto; }
+        .lc-thread { width:100%; display:flex; align-items:center; gap:11px; padding:11px 14px; border:none; border-bottom:1px solid #f6f6f6; cursor:pointer; font-family:inherit; transition:background 0.12s; }
+        .lc-thread:hover { background:#faf9f6; }
+        .lc-convo { flex-direction:column; height:100%; min-width:0; }
+        .lc-head { display:flex; align-items:center; gap:8px; padding:13px 16px; border-bottom:1px solid #f0f0f0; }
+        .lc-back { display:none; background:none; border:none; font-size:26px; line-height:1; color:#FFA500; cursor:pointer; padding:0 4px 0 0; font-family:inherit; }
+        .lc-msgs { flex:1; overflow-y:auto; padding:16px; background:#fcfbf9; }
+        .lc-reply { display:flex; gap:8px; align-items:flex-end; padding:12px 14px; border-top:1px solid #f0f0f0; }
+        .lc-reply .mc-ta { flex:1; }
+        .lc-empty { display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:40px; }
+        @media (max-width: 760px) {
+          .lc-wrap { grid-template-columns: 1fr; height:auto; }
+          .lc-list { border-right:none; max-height:none; }
+          .lc-convo { height:72vh; min-height:440px; border-top:1px solid #f0f0f0; }
+          .lc-back { display:block; }
+          .lc-empty { display:none !important; }
+        }
       `}</style>
 
       <PageHeader title="Message Center" subtitle="Email & SMS in one place — broadcasts, delivery notes, alerts and staff"
@@ -407,79 +478,122 @@ Please confirm once delivered.
           </>
         )}
 
-        {/* ── LIVE CHAT (JivoChat) ── */}
+        {/* ── LIVE CHAT (JivoChat in-app inbox) ── */}
         {activeTab === 'livechat' && (
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: '#C13584', fontWeight: 600 }}><Instagram size={15} /> Instagram</span>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: '#1877F2', fontWeight: 600 }}><Facebook size={15} /> Facebook</span>
-                <span style={{ fontSize: 12.5, color: '#999' }}>— reply to DMs from one inbox.</span>
+                <span style={{ fontSize: 12.5, color: '#999' }}>— all DMs in one inbox.</span>
               </div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <Button variant="ghost" onClick={() => { setJivoDraft(jivoUrl); setJivoEditing(true) }}><Edit2 size={13} /> Inbox link</Button>
-                <Button onClick={() => window.open(jivoUrl, '_blank', 'noopener')}><ExternalLink size={13} /> Open inbox</Button>
-              </div>
+              <Button variant="ghost" onClick={() => setShowSetup(s => !s)}><Lightbulb size={13} /> {showSetup ? 'Hide setup' : 'Setup guide'}</Button>
             </div>
 
-            {jivoEditing && (
+            {showSetup && (
               <Card style={{ marginBottom: 14 }}>
-                <label style={{ fontSize: 11, color: '#888', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: 6 }}>JivoChat inbox URL</label>
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  <input value={jivoDraft} onChange={e => setJivoDraft(e.target.value)} placeholder="https://app.jivochat.com" className="mc-in" style={{ flex: 1, minWidth: 220 }} />
-                  <Button onClick={saveJivoUrl}><Save size={13} /> Save</Button>
-                  <Button variant="ghost" onClick={() => setJivoEditing(false)}>Cancel</Button>
+                <div style={{ fontWeight: 700, fontSize: 14, color: '#0d1b2a', marginBottom: 10 }}>One-time setup</div>
+                <ol style={{ margin: 0, paddingLeft: 20, fontSize: 13, color: '#555', lineHeight: 1.9 }}>
+                  <li>Create a free account at <a href="https://www.jivochat.com" target="_blank" rel="noopener noreferrer" style={{ color: '#378ADD', fontWeight: 600 }}>jivochat.com</a>.</li>
+                  <li>In JivoChat → <strong>Channels</strong>, connect <strong>Instagram</strong> (Business account linked to a Facebook Page) and <strong>Facebook</strong> Page.</li>
+                  <li>Add a <strong>Bot</strong> channel. Set its webhook URL to your <code>jivo-inbound</code> function and copy the <strong>provider id</strong> + <strong>token</strong>.</li>
+                  <li>In Supabase, run <code>integrations/jivochat-setup.sql</code> and set the secrets <code>JIVO_TOKEN</code> and <code>JIVO_PROVIDER_ID</code>, then deploy the <code>jivo-inbound</code> and <code>jivo-send</code> functions.</li>
+                  <li>Done — every Instagram &amp; Facebook DM appears below and you can reply right here.</li>
+                </ol>
+                <div style={{ background: '#FFF8E1', border: '1px solid #FAEEDA', borderRadius: 10, padding: '10px 14px', marginTop: 12, fontSize: 12.5, color: '#8a6d1b' }}>
+                  Instagram DMs require an <strong>Instagram Business/Creator</strong> account linked to a Facebook Page (a Meta requirement).
                 </div>
-                <div style={{ fontSize: 11.5, color: '#aaa', marginTop: 8 }}>Default is the JivoChat web app. You can paste a direct inbox link if you use a custom one.</div>
               </Card>
             )}
 
-            {/* Embedded inbox — Jivo may block embedding; fall back to a button */}
-            <Card style={{ padding: 0, overflow: 'hidden' }}>
-              {jivoBlocked ? (
-                <div style={{ textAlign: 'center', padding: '48px 24px' }}>
-                  <MessageCircle size={34} color="#FFA500" style={{ marginBottom: 12 }} />
-                  <div style={{ fontWeight: 700, fontSize: 15, color: '#0d1b2a', marginBottom: 6 }}>JivoChat can't be shown inside the app</div>
+            {!chatReady ? (
+              <Card>
+                <div style={{ textAlign: 'center', padding: '40px 24px' }}>
+                  <MessageCircle size={32} color="#FFA500" style={{ marginBottom: 12 }} />
+                  <div style={{ fontWeight: 700, fontSize: 15, color: '#0d1b2a', marginBottom: 6 }}>Inbox not set up yet</div>
                   <div style={{ fontSize: 13, color: '#888', maxWidth: 420, margin: '0 auto 16px', lineHeight: 1.6 }}>
-                    For security, JivoChat blocks being embedded in other websites. Open your inbox in a new tab to read and reply to Instagram &amp; Facebook DMs.
+                    Run <code>integrations/jivochat-setup.sql</code> in Supabase to create the chat tables, then connect JivoChat. See the setup guide above.
                   </div>
-                  <Button onClick={() => window.open(jivoUrl, '_blank', 'noopener')}><ExternalLink size={14} /> Open JivoChat inbox</Button>
+                  <Button onClick={() => setShowSetup(true)}><Lightbulb size={14} /> Show setup guide</Button>
                 </div>
-              ) : (
-                <div>
-                  <iframe
-                    title="JivoChat inbox"
-                    src={jivoUrl}
-                    onError={() => setJivoBlocked(true)}
-                    style={{ width: '100%', height: '70vh', minHeight: 480, border: 'none', display: 'block' }}
-                  />
-                  <div style={{ padding: '10px 16px', borderTop: '1px solid #f0f0f0', fontSize: 12, color: '#999', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
-                    <span>Inbox blank or showing a "can't be displayed" message? JivoChat may block embedding.</span>
-                    <button onClick={() => setJivoBlocked(true)} style={{ background: 'none', border: 'none', color: '#378ADD', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                      <ExternalLink size={12} /> Open in a new tab instead
-                    </button>
+              </Card>
+            ) : (
+              <Card style={{ padding: 0, overflow: 'hidden' }}>
+                <div className="lc-wrap">
+                  {/* Thread list */}
+                  <div className="lc-list" style={{ display: activeThread ? undefined : 'block' }}>
+                    {chatLoading ? <div style={{ padding: 24 }}><Spinner /></div>
+                      : threads.length === 0 ? (
+                        <div style={{ padding: '40px 18px', textAlign: 'center', color: '#aaa', fontSize: 13 }}>
+                          No conversations yet.<br />Instagram &amp; Facebook DMs will appear here.
+                        </div>
+                      ) : threads.map(t => {
+                        const Icon = t.channel === 'instagram' ? Instagram : t.channel === 'facebook' ? Facebook : MessageCircle
+                        const tint = t.channel === 'instagram' ? '#C13584' : t.channel === 'facebook' ? '#1877F2' : '#FFA500'
+                        const isActive = activeThread?.id === t.id
+                        return (
+                          <button key={t.id} onClick={() => openThread(t)} className="lc-thread" style={{ background: isActive ? '#fff8ec' : 'transparent' }}>
+                            <div style={{ position: 'relative', flexShrink: 0 }}>
+                              <div style={{ width: 40, height: 40, borderRadius: '50%', background: tint + '22', color: tint, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 15 }}>
+                                {(t.client_name || '?').charAt(0).toUpperCase()}
+                              </div>
+                              <Icon size={14} color={tint} style={{ position: 'absolute', bottom: -2, right: -2, background: '#fff', borderRadius: '50%', padding: 1 }} />
+                            </div>
+                            <div style={{ minWidth: 0, flex: 1, textAlign: 'left' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6 }}>
+                                <span style={{ fontWeight: 700, fontSize: 13.5, color: '#0d1b2a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.client_name || 'Customer'}</span>
+                                {t.unread > 0 && <span style={{ background: '#FFA500', color: '#fff', fontSize: 10, fontWeight: 700, borderRadius: 99, padding: '1px 7px', flexShrink: 0 }}>{t.unread}</span>}
+                              </div>
+                              <div style={{ fontSize: 12, color: '#999', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.last_message || ''}</div>
+                            </div>
+                          </button>
+                        )
+                      })}
                   </div>
-                </div>
-              )}
-            </Card>
 
-            {/* Setup instructions */}
-            <Card style={{ marginTop: 16 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                <Lightbulb size={16} color="#FFA500" />
-                <span style={{ fontWeight: 700, fontSize: 14, color: '#0d1b2a' }}>How to connect Instagram &amp; Facebook DMs</span>
-              </div>
-              <ol style={{ margin: 0, paddingLeft: 20, fontSize: 13, color: '#555', lineHeight: 1.9 }}>
-                <li>Create a free JivoChat account at <a href="https://www.jivochat.com" target="_blank" rel="noopener noreferrer" style={{ color: '#378ADD', fontWeight: 600 }}>jivochat.com</a> (use the same email everywhere).</li>
-                <li>In JivoChat go to <strong>Manage → Channels</strong>.</li>
-                <li>Click <strong>Instagram</strong> → connect your Instagram Business account (it must be linked to a Facebook Page).</li>
-                <li>Click <strong>Facebook</strong> → connect your Facebook Page so Messenger DMs arrive too.</li>
-                <li>Come back here and press <strong>Open inbox</strong> — every Instagram &amp; Facebook DM lands in one place.</li>
-              </ol>
-              <div style={{ background: '#FFF8E1', border: '1px solid #FAEEDA', borderRadius: 10, padding: '10px 14px', marginTop: 14, fontSize: 12.5, color: '#8a6d1b' }}>
-                Tip: Instagram DMs require an <strong>Instagram Business or Creator</strong> account connected to a Facebook Page — this is an Instagram/Meta requirement, not a JivoChat one.
-              </div>
-            </Card>
+                  {/* Conversation */}
+                  <div className="lc-convo" style={{ display: activeThread ? 'flex' : 'none' }}>
+                    {activeThread && (
+                      <>
+                        <div className="lc-head">
+                          <button className="lc-back" onClick={() => setActiveThread(null)}>‹</button>
+                          <div style={{ fontWeight: 700, fontSize: 14, color: '#0d1b2a' }}>{activeThread.client_name || 'Customer'}</div>
+                          <span style={{ fontSize: 11, color: '#aaa', textTransform: 'capitalize' }}>· {activeThread.channel}</span>
+                        </div>
+                        <div className="lc-msgs">
+                          {chatMessages.length === 0 ? (
+                            <div style={{ textAlign: 'center', color: '#bbb', fontSize: 12, paddingTop: 30 }}>No messages.</div>
+                          ) : chatMessages.map(m => (
+                            <div key={m.id} style={{ display: 'flex', justifyContent: m.direction === 'out' ? 'flex-end' : 'flex-start', marginBottom: 8 }}>
+                              <div style={{ maxWidth: '78%', padding: '8px 12px', borderRadius: 14, fontSize: 13, lineHeight: 1.45,
+                                background: m.direction === 'out' ? 'linear-gradient(135deg,#FFA500,#ff8c00)' : '#f1f0ec',
+                                color: m.direction === 'out' ? '#fff' : '#0d1b2a',
+                                borderBottomRightRadius: m.direction === 'out' ? 4 : 14, borderBottomLeftRadius: m.direction === 'out' ? 14 : 4 }}>
+                                {m.body}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="lc-reply">
+                          <textarea value={replyText} onChange={e => setReplyText(e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendReply() } }}
+                            placeholder="Type a reply… (Enter to send)" className="mc-ta" style={{ minHeight: 44, maxHeight: 120 }} />
+                          <Button onClick={sendReply} disabled={replySending || !replyText.trim()}><Send size={14} /> {replySending ? '…' : 'Send'}</Button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Empty state when no thread chosen (desktop) */}
+                  {!activeThread && (
+                    <div className="lc-empty">
+                      <MessageCircle size={34} color="#e0ddd5" style={{ marginBottom: 10 }} />
+                      <div style={{ fontSize: 13, color: '#bbb' }}>Select a conversation to read &amp; reply.</div>
+                    </div>
+                  )}
+                </div>
+              </Card>
+            )}
           </div>
         )}
 
