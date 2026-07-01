@@ -9,7 +9,7 @@ import { getSettings } from '../lib/settings'
 const CHANNELS = ['Website','Instagram','Facebook','Retail shop','Pop-up shop','Call']
 const STATUSES = [{ value: 'created', label: 'Order created' },{ value: 'transit', label: 'Dispatched' },{ value: 'delivered', label: 'Delivered' },{ value: 'cancelled', label: 'Cancelled' }]
 const PAY_METHODS = ['Cash','BML Transfer','Bank Transfer','Card','Other']
-const EMPTY_FORM = { customer_id:'', customer_name:'', channel:'Retail shop', status:'created', order_date: new Date().toISOString().split('T')[0], notes:'', payment_status:'unpaid', payment_method:'', transfer_reference:'', invoice_number:'', delivery_person:'', discount_value:0, discount_type:'amount' }
+const EMPTY_FORM = { customer_id:'', customer_name:'', channel:'Retail shop', status:'created', order_date: new Date().toISOString().split('T')[0], notes:'', payment_status:'unpaid', payment_method:'', transfer_reference:'', invoice_number:'', delivery_person:'', delivery_date:'', discount_value:0, discount_type:'amount' }
 const EMPTY_ITEM = { product_id:'', product_name:'', qty:1, unit_price:0 }
 
 export default function Orders() {
@@ -102,6 +102,7 @@ export default function Orders() {
       transfer_reference: order.transfer_reference || '',
       invoice_number: order.invoice_number || '',
       delivery_person: order.delivery_person || '',
+      delivery_date: order.delivery_date || '',
       discount_value: totalDiscount,
       discount_type: 'amount',
     })
@@ -186,6 +187,7 @@ export default function Orders() {
       transfer_reference: form.transfer_reference || '',
       invoice_number: form.invoice_number || '',
       delivery_person: form.delivery_person || '',
+      delivery_date: form.delivery_date || null,
       product_id: item.product_id,
       product_name: item.product_name,
       qty: parseInt(item.qty) || 0,
@@ -1015,6 +1017,36 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
             <div style={{ minWidth: 180, flex: 1 }}>
               <Select label="Channel" value={form.channel} onChange={f('channel')} options={CHANNELS} />
             </div>
+          </div>
+
+          {/* Assign delivery — same feature as the Deliveries tab (staff + date),
+              connected via the order's delivery_person / delivery_date fields */}
+          <div style={{ marginBottom: 14, border: '1px solid #eef1f6', background: '#f7f9fc', borderRadius: 10, padding: '12px 14px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#378ADD', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: 10 }}>
+              <Package size={13} /> Assign delivery
+            </label>
+            <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+              <div style={{ flex: '1 1 220px', minWidth: 0 }}>
+                <label style={{ fontSize: 10, color: '#999', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: 4, fontWeight: 600 }}>Delivery staff</label>
+                {contacts.length === 0 ? (
+                  <input value={form.delivery_person} onChange={f('delivery_person')} placeholder="Type staff name…"
+                    style={{ width: '100%', padding: '8px 10px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', background: '#fff', outline: 'none', boxSizing: 'border-box' }} />
+                ) : (
+                  <select value={form.delivery_person} onChange={f('delivery_person')}
+                    style={{ width: '100%', padding: '8px 10px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', background: '#fff', outline: 'none', boxSizing: 'border-box' }}>
+                    <option value="">— Assign staff —</option>
+                    {contacts.map(c => <option key={c.id} value={c.name}>{c.name}{c.role ? ` (${c.role})` : ''}</option>)}
+                    {form.delivery_person && !contacts.some(c => c.name === form.delivery_person) && <option value={form.delivery_person}>{form.delivery_person}</option>}
+                  </select>
+                )}
+              </div>
+              <div style={{ flex: '1 1 180px', minWidth: 0 }}>
+                <label style={{ fontSize: 10, color: '#999', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: 4, fontWeight: 600 }}>Delivery date</label>
+                <input type="date" value={form.delivery_date || ''} onChange={f('delivery_date')}
+                  style={{ width: '100%', padding: '8px 10px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', background: '#fff', outline: 'none', boxSizing: 'border-box' }} />
+              </div>
+            </div>
+            <div style={{ fontSize: 11, color: '#9aa7b8', marginTop: 8 }}>Also editable from the Deliveries tab.</div>
           </div>
 
           {/* Order total summary */}
