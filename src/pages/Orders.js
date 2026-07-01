@@ -9,7 +9,8 @@ import { getSettings } from '../lib/settings'
 const CHANNELS = ['Website','Instagram','Facebook','Retail shop','Pop-up shop','Call']
 const STATUSES = [{ value: 'created', label: 'Order created' },{ value: 'transit', label: 'Dispatched' },{ value: 'delivered', label: 'Delivered' },{ value: 'cancelled', label: 'Cancelled' }]
 const PAY_METHODS = ['Cash','BML Transfer','Bank Transfer','Card','Other']
-const EMPTY_FORM = { customer_id:'', customer_name:'', channel:'Retail shop', status:'created', order_date: new Date().toISOString().split('T')[0], notes:'', payment_status:'unpaid', payment_method:'', transfer_reference:'', invoice_number:'', delivery_person:'', delivery_date:'', discount_value:0, discount_type:'amount' }
+const EMPTY_FORM = { customer_id:'', customer_name:'', channel:'Retail shop', status:'created', order_date: new Date().toISOString().split('T')[0], notes:'', payment_status:'unpaid', payment_method:'', transfer_reference:'', invoice_number:'', delivery_person:'', delivery_date:'', delivery_time:'', discount_value:0, discount_type:'amount' }
+const today = () => new Date().toISOString().split('T')[0]
 const EMPTY_ITEM = { product_id:'', product_name:'', qty:1, unit_price:0 }
 
 export default function Orders() {
@@ -77,7 +78,7 @@ export default function Orders() {
   function openAdd() {
     const { invoicePrefix } = getSettings()
     const num = `${invoicePrefix || 'INV'}-${Date.now().toString().slice(-6)}`
-    setForm({ ...EMPTY_FORM, order_date: new Date().toISOString().split('T')[0], invoice_number: num })
+    setForm({ ...EMPTY_FORM, order_date: today(), delivery_date: today(), invoice_number: num })
     setCartItems([{ ...EMPTY_ITEM }])
     setEditOrder(null)
     setModal(true)
@@ -103,6 +104,7 @@ export default function Orders() {
       invoice_number: order.invoice_number || '',
       delivery_person: order.delivery_person || '',
       delivery_date: order.delivery_date || '',
+      delivery_time: order.delivery_time || '',
       discount_value: totalDiscount,
       discount_type: 'amount',
     })
@@ -188,6 +190,7 @@ export default function Orders() {
       invoice_number: form.invoice_number || '',
       delivery_person: form.delivery_person || '',
       delivery_date: form.delivery_date || null,
+      delivery_time: form.delivery_time || null,
       product_id: item.product_id,
       product_name: item.product_name,
       qty: parseInt(item.qty) || 0,
@@ -1040,9 +1043,14 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
                   </select>
                 )}
               </div>
-              <div style={{ flex: '1 1 180px', minWidth: 0 }}>
+              <div style={{ flex: '1 1 140px', minWidth: 0 }}>
                 <label style={{ fontSize: 10, color: '#999', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: 4, fontWeight: 600 }}>Delivery date</label>
                 <input type="date" value={form.delivery_date || ''} onChange={f('delivery_date')}
+                  style={{ width: '100%', padding: '8px 10px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', background: '#fff', outline: 'none', boxSizing: 'border-box' }} />
+              </div>
+              <div style={{ flex: '1 1 120px', minWidth: 0 }}>
+                <label style={{ fontSize: 10, color: '#999', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: 4, fontWeight: 600 }}>Delivery time</label>
+                <input type="time" value={form.delivery_time || ''} onChange={f('delivery_time')}
                   style={{ width: '100%', padding: '8px 10px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', background: '#fff', outline: 'none', boxSizing: 'border-box' }} />
               </div>
             </div>
