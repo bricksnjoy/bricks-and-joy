@@ -7,6 +7,19 @@ const PRIORITIES = ['Low', 'Medium', 'High']
 const PRIORITY_COLORS = { Low: '#1D9E75', Medium: '#f57f17', High: '#c62828' }
 const TASK_EMPTY = { title: '', date: new Date().toISOString().split('T')[0], priority: 'Medium', notes: '' }
 
+// Pretty 24h "14:30" -> "2:30 PM"
+function fmtTime(t) {
+  if (!t) return ''
+  const [h, m] = String(t).split(':')
+  const hr = parseInt(h, 10)
+  if (isNaN(hr)) return t
+  const ap = hr >= 12 ? 'PM' : 'AM'
+  const h12 = ((hr + 11) % 12) + 1
+  return `${h12}:${(m || '00').padStart(2, '0')} ${ap}`
+}
+// The date a delivery is scheduled for (explicit delivery date, else the order date)
+const deliveryDay = o => o.delivery_date || o.order_date || (o.created_at ? o.created_at.split('T')[0] : '')
+
 function getDaysInMonth(year, month) {
   return new Date(year, month + 1, 0).getDate()
 }
@@ -35,7 +48,7 @@ export default function TasksCalendar() {
     const { data: ords } = await supabase
       .from('orders')
       .select('*')
-      .in('status', ['pending', 'transit'])
+      .in('status', ['created', 'pending', 'transit'])
       .order('order_date')
     setTasks(storedTasks)
     setOrders(ords || [])
@@ -111,7 +124,11 @@ export default function TasksCalendar() {
   function getEventsForDay(day) {
     const dateStr = `${monthStr}-${String(day).padStart(2, '0')}`
     const dayTasks = tasks.filter(t => t.date === dateStr)
-    const dayDeliveries = orders.filter(o => o.order_date === dateStr && o.delivery_person)
+    // Deliveries land on their scheduled delivery date (falls back to order date),
+    // sorted by delivery time so the day reads top-to-bottom in order.
+    const dayDeliveries = orders
+      .filter(o => o.delivery_person && deliveryDay(o) === dateStr)
+      .sort((a, b) => (a.delivery_time || '').localeCompare(b.delivery_time || ''))
     return { tasks: dayTasks, deliveries: dayDeliveries }
   }
 
@@ -120,7 +137,9 @@ export default function TasksCalendar() {
 
   const pendingTasks = tasks.filter(t => !t.done)
   const todayTasks = tasks.filter(t => t.date === today)
-  const upcomingDeliveries = orders.filter(o => o.delivery_person && o.order_date >= today)
+  const upcomingDeliveries = orders
+    .filter(o => o.delivery_person && deliveryDay(o) >= today)
+    .sort((a, b) => (deliveryDay(a) + (a.delivery_time || '')).localeCompare(deliveryDay(b) + (b.delivery_time || '')))
 
   const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
@@ -217,7 +236,7 @@ export default function TasksCalendar() {
                       {/* Delivery dots */}
                       {dd.map(o => (
                         <div key={o.id} className="event-label" style={{ fontSize: 10, background: '#EEF4FF', color: '#378ADD', borderRadius: 4, padding: '1px 4px', marginBottom: 2, fontWeight: 600, overflow: 'hidden' }}>
-                          <Bike size={9} style={{ flexShrink: 0 }} /> <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.delivery_person}</span>
+                          <Bike size={9} style={{ flexShrink: 0 }} /> <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.delivery_time ? `${fmtTime(o.delivery_time)} · ` : ''}{o.delivery_person}</span>
                         </div>
                       ))}
                       {/* Mobile dots only */}
@@ -281,6 +300,7 @@ export default function TasksCalendar() {
                           <div style={{ fontWeight: 600, fontSize: 13, color: '#0d1b2a' }}>{o.product_name}</div>
                           <div style={{ fontSize: 12, color: '#555', marginTop: 4, display: 'flex', alignItems: 'center', gap: 5 }}><User size={12} /> {o.customer_name || 'Walk-in'}</div>
                           <div style={{ fontSize: 12, color: '#378ADD', marginTop: 3, display: 'flex', alignItems: 'center', gap: 5 }}><Bike size={12} /> {o.delivery_person}</div>
+                          {o.delivery_time && <div style={{ fontSize: 12, color: '#f57f17', marginTop: 3, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 5 }}><Calendar size={12} /> {fmtTime(o.delivery_time)}</div>}
                           <div style={{ fontSize: 11, color: '#aaa', marginTop: 3, fontFamily: 'monospace' }}>{o.invoice_number || '—'}</div>
                         </div>
                       ))}
@@ -350,7 +370,7 @@ export default function TasksCalendar() {
                     <div style={{ fontWeight: 600, fontSize: 13 }}>{o.product_name}</div>
                     <div style={{ fontSize: 12, color: '#555', marginTop: 4, display: 'flex', alignItems: 'center', gap: 5 }}><User size={12} /> {o.customer_name || 'Walk-in'}</div>
                     <div style={{ fontSize: 12, color: '#378ADD', marginTop: 3, display: 'flex', alignItems: 'center', gap: 5 }}><Bike size={12} /> {o.delivery_person}</div>
-                    <div style={{ fontSize: 11, color: '#aaa', marginTop: 3 }}>{o.order_date}</div>
+                    <div style={{ fontSize: 11, color: '#aaa', marginTop: 3 }}>{deliveryDay(o)}{o.delivery_time ? ` · ${fmtTime(o.delivery_time)}` : ''}</div>
                   </div>
                 ))}
               </Card>
