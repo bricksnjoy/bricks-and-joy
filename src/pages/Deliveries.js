@@ -50,11 +50,15 @@ export default function Deliveries() {
     setSavingId(orderId)
     const patch = { ...draft }
     let { error } = await supabase.from('orders').update(patch).eq('id', orderId)
-    if (error && /delivery_date/i.test(error.message || '') && 'delivery_date' in patch) {
-      setDateColMissing(true)
-      const { delivery_date, ...rest } = patch
-      if (Object.keys(rest).length) { const r = await supabase.from('orders').update(rest).eq('id', orderId); error = r.error }
-      else error = null
+    // Drop any column the DB doesn't have yet (delivery_date / delivery_time) and retry.
+    while (error && /column .* does not exist|could not find|delivery_(date|time)/i.test(error.message || '')) {
+      const m = (error.message || '').match(/'([a-z_]+)' column/i) || (error.message || '').match(/column "?(delivery_[a-z]+)"?/i)
+      const col = m && m[1]
+      if (!col || !(col in patch)) break
+      if (/delivery_(date|time)/.test(col)) setDateColMissing(true)
+      delete patch[col]
+      if (!Object.keys(patch).length) { error = null; break }
+      error = (await supabase.from('orders').update(patch).eq('id', orderId)).error
     }
     if (error) {
       toast.error('Could not save: ' + error.message)
@@ -79,6 +83,11 @@ export default function Deliveries() {
     const d = drafts[o.id]
     if (d && 'delivery_date' in d) return d.delivery_date || ''
     return o.delivery_date || orderDate(o)
+  }
+  const effectiveTime = o => {
+    const d = drafts[o.id]
+    if (d && 'delivery_time' in d) return d.delivery_time || ''
+    return o.delivery_time || ''
   }
   const draftStaff = o => drafts[o.id]?.delivery_person !== undefined ? drafts[o.id].delivery_person : (o.delivery_person || '')
   const isDirty = o => !!drafts[o.id] && Object.keys(drafts[o.id]).length > 0
@@ -153,6 +162,10 @@ export default function Deliveries() {
     <input className="dlv-input" type="date" value={effectiveDate(o)} style={{ width, borderColor: isDirty(o) ? '#FFA500' : undefined }}
       onChange={e => draftChange(o.id, { delivery_date: e.target.value || null })} />
   )
+  const TimeInput = ({ o, width = 120 }) => (
+    <input className="dlv-input" type="time" value={effectiveTime(o)} style={{ width, borderColor: isDirty(o) ? '#FFA500' : undefined }}
+      onChange={e => draftChange(o.id, { delivery_time: e.target.value || null })} />
+  )
   const SaveBtn = ({ o }) => isDirty(o)
     ? <button onClick={() => saveDelivery(o.id)} disabled={savingId === o.id}
         style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 16px', border: 'none', borderRadius: 8, background: '#FFA500', color: '#fff', fontWeight: 700, fontSize: 13, fontFamily: 'inherit', cursor: 'pointer', boxShadow: '0 2px 8px rgba(255,165,0,0.35)', transition: 'opacity 0.15s' }}>
@@ -191,8 +204,8 @@ export default function Deliveries() {
 
       {dateColMissing && (
         <div style={{ background: '#FFF8E1', border: '1px solid #FAEEDA', borderRadius: 10, padding: '10px 14px', marginBottom: 16, fontSize: 12.5, color: '#8a6d1b' }}>
-          Staff is being saved, but delivery dates can’t be stored yet. Run this once in Supabase → SQL editor:
-          <code style={{ display: 'block', marginTop: 6, background: '#fff', padding: '7px 10px', borderRadius: 6, fontFamily: 'monospace', color: '#a15c00' }}>alter table orders add column if not exists delivery_date date;</code>
+          Staff is being saved, but delivery date/time can’t be stored yet. Run this once in Supabase → SQL editor:
+          <code style={{ display: 'block', marginTop: 6, background: '#fff', padding: '7px 10px', borderRadius: 6, fontFamily: 'monospace', color: '#a15c00' }}>alter table orders add column if not exists delivery_date date;<br/>alter table orders add column if not exists delivery_time text;</code>
         </div>
       )}
 
@@ -291,6 +304,10 @@ export default function Deliveries() {
                         <span style={{ display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Delivery date</span>
                         <DateInput o={o} width={170} />
                       </label>
+                      <label style={{ fontSize: 11, color: '#999', fontWeight: 600 }}>
+                        <span style={{ display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Delivery time</span>
+                        <TimeInput o={o} width={130} />
+                      </label>
                     </div>
                     <div><SaveBtn o={o} /></div>
                   </div>
@@ -303,7 +320,7 @@ export default function Deliveries() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 760 }}>
               <thead>
                 <tr>
-                  {['Order', 'Customer', 'Status', 'Delivery staff', 'Delivery date', ''].map(h => (
+                  {['Order', 'Customer', 'Status', 'Delivery staff', 'Delivery date', 'Delivery time', ''].map(h => (
                     <th key={h} style={{ textAlign: 'left', padding: '8px 12px', fontSize: 10, color: '#bbb', borderBottom: '2px solid #f0f0f0', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.6px', whiteSpace: 'nowrap' }}>{h}</th>
                   ))}
                 </tr>
@@ -324,6 +341,7 @@ export default function Deliveries() {
                       <td style={{ padding: '10px 12px' }}><StatusBadge status={o.status} /></td>
                       <td style={{ padding: '10px 12px' }}><StaffInput o={o} /></td>
                       <td style={{ padding: '10px 12px' }}><DateInput o={o} /></td>
+                      <td style={{ padding: '10px 12px' }}><TimeInput o={o} /></td>
                       <td style={{ padding: '10px 12px', width: 80 }}>
                         <SaveBtn o={o} />
                       </td>
