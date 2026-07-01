@@ -22,6 +22,24 @@ const BROADCAST_TEMPLATES = [
 function firstName(name) { return (name || '').trim().split(/\s+/)[0] || 'there' }
 function personalize(text, name) { return text.replace(/\{name\}/gi, firstName(name)) }
 
+// Pretty 24h "14:30" -> "2:30 PM"
+function fmtTime(t) {
+  if (!t) return ''
+  const [h, m] = String(t).split(':')
+  const hr = parseInt(h, 10)
+  if (isNaN(hr)) return t
+  const ap = hr >= 12 ? 'PM' : 'AM'
+  const h12 = ((hr + 11) % 12) + 1
+  return `${h12}:${(m || '00').padStart(2, '0')} ${ap}`
+}
+// Combined "date at time" for delivery messages
+function deliveryWhen(order) {
+  const d = order.delivery_date || ''
+  const t = fmtTime(order.delivery_time)
+  if (d && t) return `${d} at ${t}`
+  return d || t || ''
+}
+
 // ── Channel toggle (Email | SMS) ────────────────────────────────────────────
 function ChannelToggle({ value, onChange }) {
   const opt = (id, label, Icon) => (
@@ -170,11 +188,13 @@ export default function MessageCenter() {
     const pay = (order.payment_status || 'unpaid').toUpperCase()
     const phone = localPhone(customer.phone)
     const name = customer.name || order.customer_name || 'Walk-in'
+    const when = deliveryWhen(order)
     return [
       `Delivery — ${BNJ_NAME}`,
       `Item: ${order.product_name} × ${order.qty}`,
       `Name: ${name}${phone ? ` - ${phone}` : ''}`,
       customer.address ? `Address: ${customer.address}${customer.landmark ? `, ${customer.landmark}` : ''}` : null,
+      when ? `When: ${when}` : null,
       `Total: MVR ${Number(order.total_price || 0).toFixed(2)} (${pay})`,
       customer.notes ? `Drop: ${customer.notes}` : null,
     ].filter(Boolean).join('\n')
@@ -204,7 +224,7 @@ ORDER DETAILS
 Invoice:     ${order.invoice_number || '—'}
 Product:     ${order.product_name}
 Quantity:    ${order.qty}
-Order date:  ${order.order_date || '—'}${order.delivery_date ? `\nDelivery:    ${order.delivery_date}` : ''}
+Order date:  ${order.order_date || '—'}${deliveryWhen(order) ? `\nDelivery:    ${deliveryWhen(order)}` : ''}
 Status:      ${order.status}
 Total:       MVR ${Number(order.total_price || 0).toFixed(2)} (${pay})
 
@@ -413,7 +433,7 @@ Please confirm once delivered.
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><User size={13} /> {customer.name || o.customer_name || 'Walk-in'}</span>
                         {o.delivery_person && <><span style={{ color: '#ddd' }}>·</span><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#378ADD' }}><Bike size={13} /> {o.delivery_person}</span></>}
                       </div>
-                      <div style={{ fontSize: 12, color: '#aaa', marginTop: 2 }}>{o.invoice_number || '—'}{o.delivery_date ? ` · ${o.delivery_date}` : ''}</div>
+                      <div style={{ fontSize: 12, color: '#aaa', marginTop: 2 }}>{o.invoice_number || '—'}{deliveryWhen(o) ? ` · ${deliveryWhen(o)}` : ''}</div>
                     </div>
                     <Button onClick={() => openDelivery(o)}><Send size={13} /> Send note</Button>
                   </div>
