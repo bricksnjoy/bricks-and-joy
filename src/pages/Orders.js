@@ -40,6 +40,10 @@ export default function Orders() {
   const [view, setView] = useState('cards') // cards | list
   const [kebabOpen, setKebabOpen] = useState(null)
   const kebabRef = useRef(null)
+  // Quick "add customer" from within the order modal — shares the customers table
+  const [custModal, setCustModal] = useState(false)
+  const [custForm, setCustForm] = useState({ name: '', email: '', instagram: '', phone: '', address: '', landmark: '', notes: '' })
+  const [custSaving, setCustSaving] = useState(false)
   const toast = useToast()
 
   useEffect(() => { load() }, [])
@@ -121,6 +125,35 @@ export default function Orders() {
   function handleCustomerChange(e) {
     const cust = customers.find(c => c.id === e.target.value)
     setForm(p => ({ ...p, customer_id: e.target.value, customer_name: cust?.name || '' }))
+  }
+
+  function openNewCustomer() {
+    setCustForm({ name: '', email: '', instagram: '', phone: '', address: '', landmark: '', notes: '' })
+    setCustModal(true)
+  }
+
+  // Insert into the same customers table the Customers tab uses, then select the
+  // new customer in this order. Drops unknown columns and retries (matches Customers.js).
+  async function saveNewCustomer() {
+    if (!custForm.name.trim()) { toast.error('Customer name is required'); return }
+    setCustSaving(true)
+    const payload = { ...custForm }
+    const run = () => supabase.from('customers').insert(payload).select().single()
+    let { data, error } = await run()
+    while (error && /column .* does not exist|could not find/i.test(error.message || '')) {
+      const m = (error.message || '').match(/'([a-z_]+)' column/i) || (error.message || '').match(/column "?([a-z_]+)"?/i)
+      const col = m && m[1]
+      if (!col || !(col in payload)) break
+      delete payload[col]
+      const retry = await run(); data = retry.data; error = retry.error
+    }
+    setCustSaving(false)
+    if (error || !data) { toast.error('Failed to add customer'); return }
+    // Add to the local list and auto-select for this order
+    setCustomers(prev => [...prev, { id: data.id, name: data.name, phone: data.phone, address: data.address, instagram: data.instagram, landmark: data.landmark }].sort((a, b) => (a.name || '').localeCompare(b.name || '')))
+    setForm(p => ({ ...p, customer_id: data.id, customer_name: data.name || '' }))
+    setCustModal(false)
+    toast.success('Customer added & selected')
   }
 
   function updateCartItem(idx, patch) {
@@ -897,9 +930,12 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
         <Modal title={editOrder ? `Edit order — ${editOrder.invoice_number || ''}` : 'New order'} onClose={() => { setModal(false); setScanning(null) }} width={600} noBackdropClose>
           {/* Customer — required */}
           <div style={{ marginBottom: 14 }}>
-            <label style={{ fontSize: 12, color: '#666', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.4px', display: 'block', marginBottom: 5 }}>
-              Customer <span style={{ color: '#E24B4A' }}>*</span>
-            </label>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
+              <label style={{ fontSize: 12, color: '#666', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                Customer <span style={{ color: '#E24B4A' }}>*</span>
+              </label>
+              <button type="button" onClick={openNewCustomer} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', background: '#f0f0f0', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', color: '#555' }}><Plus size={12} /> New customer</button>
+            </div>
             <select value={form.customer_id} onChange={handleCustomerChange}
               style={{ width: '100%', padding: '9px 12px', border: `1px solid ${!form.customer_id ? '#FAEEDA' : '#ddd'}`, borderRadius: 8, fontSize: 13, fontFamily: 'inherit', background: !form.customer_id ? '#FFFDF7' : '#fff', outline: 'none' }}>
               <option value="">— Select a customer —</option>
@@ -1042,6 +1078,33 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 14 }}>
             <Button variant="ghost" onClick={() => setSmsModal(null)}>Cancel</Button>
             <Button onClick={sendSms} disabled={smsSending}><MessageSquare size={13} /> {smsSending ? 'Sending…' : 'Send SMS'}</Button>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── QUICK ADD CUSTOMER (from order modal) ── */}
+      {custModal && (
+        <Modal title="Add customer" subtitle="Saved to your Customers list and selected for this order" onClose={() => setCustModal(false)} width={520}>
+          <FormRow>
+            <Input label="Name *" value={custForm.name} onChange={e => setCustForm(p => ({ ...p, name: e.target.value }))} placeholder="Customer or store name" style={{ gridColumn: 'span 2' }} />
+          </FormRow>
+          <FormRow>
+            <Input label="Email" value={custForm.email} onChange={e => setCustForm(p => ({ ...p, email: e.target.value }))} placeholder="email@example.com" />
+            <Input label="Phone" value={custForm.phone} onChange={e => setCustForm(p => ({ ...p, phone: e.target.value }))} placeholder="7-digit (960 added automatically)" />
+          </FormRow>
+          <FormRow>
+            <Input label="Instagram username" value={custForm.instagram} onChange={e => setCustForm(p => ({ ...p, instagram: e.target.value }))} placeholder="@username" />
+          </FormRow>
+          <Input label="Address" value={custForm.address} onChange={e => setCustForm(p => ({ ...p, address: e.target.value }))} placeholder="Street, City" style={{ marginBottom: 12 }} />
+          <Input label="Landmark" value={custForm.landmark} onChange={e => setCustForm(p => ({ ...p, landmark: e.target.value }))} placeholder="e.g. near Sifco (optional)" style={{ marginBottom: 12 }} />
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ fontSize: 12, color: '#666', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.4px', display: 'block', marginBottom: 4 }}>Notes</label>
+            <textarea value={custForm.notes} onChange={e => setCustForm(p => ({ ...p, notes: e.target.value }))} placeholder="Any notes about this customer…"
+              style={{ width: '100%', padding: '9px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', resize: 'vertical', minHeight: 70, boxSizing: 'border-box', outline: 'none' }} />
+          </div>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+            <Button variant="ghost" onClick={() => setCustModal(false)}>Cancel</Button>
+            <Button onClick={saveNewCustomer} disabled={custSaving}>{custSaving ? 'Saving…' : 'Add customer'}</Button>
           </div>
         </Modal>
       )}
