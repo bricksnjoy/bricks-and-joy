@@ -41,6 +41,18 @@ function checklistProgress(plan) {
 
 const npName = x => (typeof x === 'string' ? x : x?.name || '')
 
+// If a write fails because the DB is missing a column, drop it and let the
+// caller retry — keeps campaigns syncing to Supabase instead of silently
+// dropping to browser-only mode on an older/partial schema.
+function dropMissingCol(error, payload) {
+  const msg = error?.message || ''
+  if (!/column .* does not exist|could not find|schema cache/i.test(msg)) return false
+  const m = msg.match(/'([a-z_]+)' column/i) || msg.match(/column "?([a-z_]+)"?/i)
+  const col = m && m[1]
+  if (col && col in payload) { delete payload[col]; return true }
+  return false
+}
+
 function buildEmailBody(camp, st, plan) {
   const trend = (plan?.trending || []).slice(0, 5).map(s => `• ${s}`).join('\n')
   const items = (plan?.stockUpExisting || []).slice(0, 8).map(p => `• ${p.name}${p.inInventory ? '' : ' (not in inventory yet)'}`).join('\n')
@@ -203,7 +215,9 @@ export default function Planning() {
     if (isLocalRec(camp)) {
       setCampaigns(cs => { const arr = cs.map(c => c.id === camp.id ? next : c); writeLocal(arr); return arr })
     } else {
-      await supabase.from('campaigns').update(changes).eq('id', camp.id)
+      const payload = { ...changes }
+      let { error } = await supabase.from('campaigns').update(payload).eq('id', camp.id)
+      while (error && dropMissingCol(error, payload)) { error = (await supabase.from('campaigns').update(payload).eq('id', camp.id)).error }
       setCampaigns(cs => cs.map(c => c.id === camp.id ? next : c))
     }
     if (planModal && planModal.id === camp.id) setPlanModal(next)
@@ -263,13 +277,16 @@ export default function Planning() {
       writeLocal(arr); setCampaigns(arr)
       toast.success('Campaign planned!')
     } else {
-      const { error } = await supabase.from('campaigns').insert({ ...rec, last_notified_year: null })
+      const payload = { ...rec, last_notified_year: null }
+      let { error } = await supabase.from('campaigns').insert(payload)
+      // Drop any columns an older schema is missing and retry before giving up.
+      while (error && dropMissingCol(error, payload)) { error = (await supabase.from('campaigns').insert(payload)).error }
       if (error) {
-        // Table not there yet → fall back to local so it still works
+        // Table missing or RLS blocks writes → fall back to local so it still works
         setUsingLocal(true)
         const arr = [...readLocal(), { id: 'local-' + Date.now(), created_at: new Date().toISOString(), last_notified_year: null, ...rec }]
         writeLocal(arr); setCampaigns(arr)
-        toast.info('Saved locally — run the campaigns table SQL to sync & enable background email')
+        toast.info('Saved locally — run integrations/planning-setup.sql to sync & enable background email')
       } else {
         toast.success('Campaign planned!')
         load()
@@ -343,7 +360,7 @@ export default function Planning() {
       {usingLocal && (
         <div style={{ background: '#EAF2FD', border: '1px solid #cfe0f5', borderRadius: 12, padding: '12px 16px', marginBottom: 18, fontSize: 12.5, color: '#2f6fc0', display: 'flex', gap: 10, alignItems: 'center' }}>
           <AlertTriangle size={16} style={{ flexShrink: 0 }} />
-          <span>Plans are saved in this browser only. Create the <strong>campaigns</strong> table in Supabase to sync across devices and enable automatic background reminder emails.</span>
+          <span>Plans are saved in this browser only. Run <strong>integrations/planning-setup.sql</strong> once in Supabase → SQL Editor to enable the campaigns table's access policy — then plans sync across devices and background reminder emails start working.</span>
         </div>
       )}
 
