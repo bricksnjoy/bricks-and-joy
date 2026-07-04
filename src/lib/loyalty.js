@@ -12,6 +12,25 @@ export const TIERS = [
 
 export const AT_RISK_DAYS = 60
 
+// Order rows are stored one per line item (products, 🚚 delivery fee, 🎁 gift)
+// sharing an invoice_number. Collapse them to ONE entry per invoice with the
+// totals summed, so order counts and loyalty tiers aren't inflated by extra lines.
+export function dedupeInvoices(rows) {
+  const map = new Map()
+  ;(rows || []).forEach(o => {
+    const key = o.customer_id && o.invoice_number ? `${o.customer_id}|${o.invoice_number}` : o.id
+    const prev = map.get(key)
+    if (prev) {
+      prev.total_price = Number(prev.total_price || 0) + Number(o.total_price || 0)
+      // A charge row shouldn't decide the invoice's status/product — keep the first product row's
+      if (!prev.product_id && o.product_id) { prev.product_id = o.product_id; prev.product_name = o.product_name; prev.status = o.status }
+    } else {
+      map.set(key, { ...o })
+    }
+  })
+  return [...map.values()]
+}
+
 export function tierFor(deliveredCount) {
   return TIERS.find(t => deliveredCount >= t.min) || TIERS[TIERS.length - 1]
 }
@@ -24,7 +43,8 @@ export function daysSince(dateStr) {
 }
 
 // Build a rich loyalty profile from a customer's orders.
-export function loyaltyProfile(custOrders) {
+export function loyaltyProfile(custRows) {
+  const custOrders = dedupeInvoices(custRows)   // one entry per invoice
   const delivered = custOrders.filter(o => o.status === 'delivered')
   const totalSpent = delivered.reduce((s, o) => s + Number(o.total_price || 0), 0)
   const dates = custOrders.map(o => o.order_date).filter(Boolean).sort()

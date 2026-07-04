@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase'
 import { logAudit } from '../lib/audit'
 import { PageHeader, Card, Button, Input, Table, Modal, Spinner, FormRow, useToast, Toasts, Badge, StatusBadge } from '../components/UI'
 import { Plus, Trash2, Edit2, Eye, Printer, MessageSquare, Crown, Sparkles } from 'lucide-react'
-import { loyaltyProfile, TIERS, AT_RISK_DAYS } from '../lib/loyalty'
+import { loyaltyProfile, dedupeInvoices, TIERS, AT_RISK_DAYS } from '../lib/loyalty'
 import { sendSMS } from '../lib/sms'
 import { getSettings } from '../lib/settings'
 
@@ -187,19 +187,21 @@ export default function Customers() {
 
   const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
 
-  // Customer stats
+  // Customer stats — counts are per INVOICE (line items like the 🚚 delivery fee
+  // share the invoice and must not count as extra orders); money sums use all rows.
   function getStats(customerId) {
-    const custOrders = orders.filter(o => o.customer_id === customerId)
-    const delivered = custOrders.filter(o => o.status === 'delivered')
-    const unpaid = custOrders.filter(o => (o.payment_status || 'unpaid') === 'unpaid' && o.status !== 'cancelled')
+    const custRows = orders.filter(o => o.customer_id === customerId)
+    const invoices = dedupeInvoices(custRows)
+    const delivered = invoices.filter(o => o.status === 'delivered')
+    const unpaid = invoices.filter(o => (o.payment_status || 'unpaid') === 'unpaid' && o.status !== 'cancelled')
     return {
-      totalOrders: custOrders.length,
+      totalOrders: invoices.length,
       deliveredOrders: delivered.length,
       totalSpent: delivered.reduce((s, o) => s + Number(o.total_price || 0), 0),
       unpaidAmount: unpaid.reduce((s, o) => s + Number(o.total_price || 0), 0),
-      lastOrder: [...custOrders].map(o => o.order_date).filter(Boolean).sort().pop() || null,
-      orders: custOrders,
-      loyalty: loyaltyProfile(custOrders),
+      lastOrder: [...invoices].map(o => o.order_date).filter(Boolean).sort().pop() || null,
+      orders: custRows,
+      loyalty: loyaltyProfile(custRows),
     }
   }
 
