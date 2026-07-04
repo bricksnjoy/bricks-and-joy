@@ -83,7 +83,7 @@ export default function Budget() {
   // Average monthly revenue over the last 90 days (basis for the estimate)
   const avgMonthlyRevenue = useMemo(() => {
     const since = new Date(Date.now() - 90 * 86400000).toISOString().split('T')[0]
-    const rev = orders.filter(o => o.status === 'delivered' && (o.order_date || '') >= since)
+    const rev = orders.filter(o => o.status !== 'cancelled' && (o.status === 'delivered' || o.payment_status === 'paid') && (o.order_date || '') >= since)
       .reduce((s, o) => s + Number(o.total_price || 0), 0)
     return rev / 3
   }, [orders])

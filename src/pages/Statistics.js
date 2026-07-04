@@ -177,7 +177,7 @@ export default function Statistics() {
     // Product forecast — which products will sell most next month based on trend
     const productTrend = {}
     months.slice(-3).forEach(m => {
-      ords.filter(o => o.status === 'delivered' && o.order_date?.startsWith(m)).forEach(o => {
+      ords.filter(o => o.status !== 'cancelled' && (o.status === 'delivered' || o.payment_status === 'paid') && o.order_date?.startsWith(m)).forEach(o => {
         if (!productTrend[o.product_name]) productTrend[o.product_name] = { name: o.product_name, recent: 0, older: 0 }
         const isRecent = m === months[months.length - 1]
         if (isRecent) productTrend[o.product_name].recent += o.qty

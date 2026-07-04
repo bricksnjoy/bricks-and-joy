@@ -128,7 +128,15 @@ export default function MessageCenter() {
   async function sendBroadcast() {
     if (!bcBody.trim()) { toast.error('Message is empty'); return }
     if (bcChannel === 'email' && !bcSubject.trim()) { toast.error('Add a subject for the email'); return }
-    const targets = bcEligible.filter(c => bcSel.has(c.id))
+    // Dedupe by phone/email so duplicate customer records don't get double-messaged
+    const seen = new Set()
+    const targets = bcEligible.filter(c => {
+      if (!bcSel.has(c.id)) return false
+      const key = bcChannel === 'email' ? (c.email || '').toLowerCase().trim() : (c.phone || '').replace(/\D/g, '').replace(/^960/, '')
+      if (!key || seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
     if (targets.length === 0) { toast.error('Select at least one customer'); return }
     if (!window.confirm(`Send this ${bcChannel.toUpperCase()} to ${targets.length} customer${targets.length !== 1 ? 's' : ''}?`)) return
     setSending(true)

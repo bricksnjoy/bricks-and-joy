@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { localToday } from '../lib/dates'
 import { PageHeader, Card, Button, Modal, Spinner, useToast, Toasts } from '../components/UI'
 import { Plus, Trash2, CheckCircle, Circle, ChevronLeft, ChevronRight, Calendar, ClipboardList, Square, Bike, User, Pin, CalendarDays, History } from 'lucide-react'
 
 const PRIORITIES = ['Low', 'Medium', 'High']
 const PRIORITY_COLORS = { Low: '#1D9E75', Medium: '#f57f17', High: '#c62828' }
-const TASK_EMPTY = { title: '', date: new Date().toISOString().split('T')[0], priority: 'Medium', notes: '' }
+const TASK_EMPTY = { title: '', date: localToday(), priority: 'Medium', notes: '' }
 
 // Pretty 24h "14:30" -> "2:30 PM"
 function fmtTime(t) {
@@ -93,7 +94,7 @@ export default function TasksCalendar() {
   }
 
   function openAdd(date) {
-    setForm({ ...TASK_EMPTY, date: date || new Date().toISOString().split('T')[0] })
+    setForm({ ...TASK_EMPTY, date: date || localToday() })
     setModal(true)
   }
 
@@ -115,7 +116,7 @@ export default function TasksCalendar() {
   const daysInMonth = getDaysInMonth(year, month)
   const firstDay = getFirstDayOfMonth(year, month)
   const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`
-  const today = new Date().toISOString().split('T')[0]
+  const today = localToday()
 
   function prevMonth() { setCalDate(new Date(year, month - 1, 1)); setSelectedDay(null) }
   function nextMonth() { setCalDate(new Date(year, month + 1, 1)); setSelectedDay(null) }

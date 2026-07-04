@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { localToday } from '../lib/dates'
 import { StockBadge, StatusBadge, Spinner } from '../components/UI'
 import {
   Package, ShoppingCart, Users, TrendingUp, TrendingDown,
@@ -57,10 +58,10 @@ export default function Dashboard() {
     const totalExp = (expenses.data || []).reduce((s, e) => s + Number(e.amount || 0), 0)
     const netProfit = revenue - cogs - totalExp
 
-    const todayStr = new Date().toISOString().split('T')[0]
-    const thisMonthStr = new Date().toISOString().slice(0, 7)
+    const todayStr = localToday()
+    const thisMonthStr = todayStr.slice(0, 7)
     const lastMonthDate = new Date(); lastMonthDate.setMonth(lastMonthDate.getMonth() - 1)
-    const lastMonthStr = lastMonthDate.toISOString().slice(0, 7)
+    const lastMonthStr = `${lastMonthDate.getFullYear()}-${String(lastMonthDate.getMonth() + 1).padStart(2, '0')}`
     const todaySales = revenueOrders.filter(o => o.order_date === todayStr).reduce((s, o) => s + Number(o.total_price || 0), 0)
     const thisMonthSales = revenueOrders.filter(o => o.order_date?.startsWith(thisMonthStr)).reduce((s, o) => s + Number(o.total_price || 0), 0)
     const lastMonthSales = revenueOrders.filter(o => o.order_date?.startsWith(lastMonthStr)).reduce((s, o) => s + Number(o.total_price || 0), 0)
