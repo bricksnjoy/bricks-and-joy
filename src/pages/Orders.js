@@ -11,8 +11,12 @@ import { logAudit } from '../lib/audit'
 const CHANNELS = ['Website','Instagram','Facebook','Retail shop','Pop-up shop','Call']
 const STATUSES = [{ value: 'created', label: 'Order created' },{ value: 'transit', label: 'Dispatched' },{ value: 'delivered', label: 'Delivered' },{ value: 'cancelled', label: 'Cancelled' }]
 const PAY_METHODS = ['Cash','BML Transfer','Bank Transfer','Card','Other']
-const EMPTY_FORM = { customer_id:'', customer_name:'', channel:'Retail shop', status:'created', order_date:'', notes:'', payment_status:'unpaid', payment_method:'', transfer_reference:'', invoice_number:'', delivery_person:'', delivery_date:'', delivery_time:'', discount_value:0, discount_type:'amount', special_request:'', delivery_fee:'', delivery_fee_covered:false }
+const EMPTY_FORM = { customer_id:'', customer_name:'', channel:'Retail shop', status:'created', order_date:'', notes:'', payment_status:'unpaid', payment_method:'', transfer_reference:'', invoice_number:'', delivery_person:'', delivery_date:'', delivery_time:'', discount_value:0, discount_type:'amount', special_request:'', delivery_fee:'', delivery_fee_covered:false, special_request_cost:'', special_request_covered:false }
 const today = localToday
+// Gift/special-request charges live on their OWN invoice row (no product) so they
+// appear as a separate transaction on receipts and in reconciliation.
+const GIFT_NAME = '🎁 Gift / special request'
+const isGiftRow = r => !r.product_id && String(r.product_name || '').startsWith('🎁')
 const EMPTY_ITEM = { product_id:'', product_name:'', qty:1, unit_price:0 }
 
 export default function Orders() {
@@ -23,6 +27,8 @@ export default function Orders() {
   const [modal, setModal] = useState(false)
   const [editOrder, setEditOrder] = useState(null)
   const [editOrderRows, setEditOrderRows] = useState([])
+  const [editGiftRow, setEditGiftRow] = useState(null)          // existing gift line item when editing
+  const [editHadCoveredGift, setEditHadCoveredGift] = useState(false)
   const [viewModal, setViewModal] = useState(null)
   const [payModal, setPayModal] = useState(null)
   const [returnModal, setReturnModal] = useState(null)
@@ -83,6 +89,8 @@ export default function Orders() {
     setForm({ ...EMPTY_FORM, order_date: today(), delivery_date: today(), invoice_number: num })
     setCartItems([{ ...EMPTY_ITEM }])
     setEditOrder(null)
+    setEditGiftRow(null)
+    setEditHadCoveredGift(false)
     setModal(true)
   }
 
@@ -91,7 +99,10 @@ export default function Orders() {
     const siblings = order.invoice_number
       ? orders.filter(o => o.customer_id === order.customer_id && o.invoice_number === order.invoice_number)
       : [order]
-    const rows = siblings.length ? siblings : [order]
+    const allRows = siblings.length ? siblings : [order]
+    // The gift/special-request charge is its own row — keep it out of the product cart
+    const giftRow = allRows.find(isGiftRow) || null
+    const rows = allRows.filter(r => !isGiftRow(r))
     const totalDiscount = rows.reduce((s, r) => s + Number(r.discount || 0), 0)
     setForm({
       customer_id: order.customer_id || '',
@@ -109,13 +120,17 @@ export default function Orders() {
       delivery_time: order.delivery_time || '',
       discount_value: totalDiscount,
       discount_type: 'amount',
-      special_request: rows.map(r => r.special_request).find(Boolean) || '',
+      special_request: allRows.map(r => r.special_request).find(Boolean) || '',
       delivery_fee: (() => { const r = rows.find(x => Number(x.delivery_fee) > 0); return r ? Number(r.delivery_fee) : '' })(),
       delivery_fee_covered: rows.some(r => Number(r.delivery_fee) > 0 && r.delivery_fee_covered),
+      special_request_cost: giftRow ? Number(giftRow.total_price) || '' : (() => { const r = rows.find(x => Number(x.special_request_cost) > 0); return r ? Number(r.special_request_cost) : '' })(),
+      special_request_covered: !giftRow && rows.some(r => Number(r.special_request_cost) > 0 && r.special_request_covered),
     })
     setCartItems(rows.map(r => ({ product_id: r.product_id || '', product_name: r.product_name || '', qty: r.qty || 1, unit_price: r.unit_price || 0 })))
     setEditOrder(order)
     setEditOrderRows(rows)
+    setEditGiftRow(giftRow)
+    setEditHadCoveredGift(rows.some(r => Number(r.special_request_cost) > 0 && r.special_request_covered))
     setModal(true)
   }
 
@@ -189,6 +204,30 @@ export default function Orders() {
     const fee = parseFloat(form.delivery_fee) || 0
     return { fee, covered: !!form.delivery_fee_covered }
   }
+  function giftInfo() {
+    const cost = parseFloat(form.special_request_cost) || 0
+    return { cost, covered: !!form.special_request_covered }
+  }
+  // The gift charge as its own invoice line — a separate transaction in the books
+  function buildGiftRow() {
+    const { cost } = giftInfo()
+    return {
+      customer_id: form.customer_id || null,
+      customer_name: form.customer_name || '',
+      channel: form.channel,
+      status: form.status,
+      order_date: form.order_date,
+      payment_status: form.payment_status,
+      payment_method: form.payment_method || '',
+      transfer_reference: form.transfer_reference || '',
+      invoice_number: form.invoice_number || '',
+      product_id: null,
+      product_name: `${GIFT_NAME}${form.special_request ? ` — ${form.special_request.slice(0, 80)}` : ''}`,
+      qty: 1, unit_price: cost, total_price: cost, discount: 0,
+      special_request: form.special_request || '',
+      created_by_email: editOrder ? (editOrder.created_by_email || userEmail) : userEmail,
+    }
+  }
 
   function buildPayload(item, itemDiscount, isFirst = false) {
     const { fee, covered } = feeInfo()
@@ -197,6 +236,8 @@ export default function Orders() {
       special_request: form.special_request || '',
       delivery_fee: feeOnRow,
       delivery_fee_covered: isFirst ? covered : false,
+      special_request_cost: isFirst ? (parseFloat(form.special_request_cost) || 0) : 0,
+      special_request_covered: isFirst ? !!form.special_request_covered : false,
       customer_id: form.customer_id || null,
       customer_name: form.customer_name || '',
       channel: form.channel,
@@ -291,6 +332,30 @@ export default function Orders() {
         })
         toast.info(`Delivery fee MVR ${fee.toFixed(2)} logged as expense`)
       }
+      // Gift/special-request charge — keep its own invoice row in sync
+      {
+        const g = giftInfo()
+        if (g.cost > 0 && !g.covered) {
+          const giftPayload = buildGiftRow()
+          if (editGiftRow) {
+            let { error: ge } = await supabase.from('orders').update(giftPayload).eq('id', editGiftRow.id)
+            while (ge && dropMissingCol(ge, giftPayload)) { ge = (await supabase.from('orders').update(giftPayload).eq('id', editGiftRow.id)).error }
+          } else {
+            let { error: ge } = await supabase.from('orders').insert(giftPayload)
+            while (ge && dropMissingCol(ge, giftPayload)) { ge = (await supabase.from('orders').insert(giftPayload)).error }
+          }
+        } else if (editGiftRow) {
+          // cost removed or now covered by the shop — drop the charge row
+          await supabase.from('orders').delete().eq('id', editGiftRow.id)
+        }
+        if (g.covered && g.cost > 0 && !editHadCoveredGift) {
+          await supabase.from('expenses').insert({
+            description: `Gift / special request (covered) — ${form.invoice_number || form.customer_name}${form.special_request ? ': ' + form.special_request.slice(0, 80) : ''}`,
+            category: 'Packaging', amount: g.cost, currency: 'MVR', expense_date: today(),
+          })
+          toast.info(`Gift cost MVR ${g.cost.toFixed(2)} logged as expense`)
+        }
+      }
       logAudit('update', 'order', `${form.invoice_number || ''} — ${form.customer_name}`, { items: validItems.length, total: cartTotal })
       setSaving(false)
       toast.success(`Order updated!${validItems.length > 1 ? ` (${validItems.length} items)` : ''}`)
@@ -326,6 +391,22 @@ export default function Orders() {
           category: 'Delivery', amount: fee, currency: 'MVR', expense_date: today(),
         })
         toast.info(`Delivery fee MVR ${fee.toFixed(2)} logged as expense`)
+      }
+    }
+    // Gift/special-request charge — its own transaction
+    {
+      const g = giftInfo()
+      if (g.cost > 0 && !g.covered) {
+        const giftPayload = buildGiftRow()
+        let { error: ge } = await supabase.from('orders').insert(giftPayload)
+        while (ge && dropMissingCol(ge, giftPayload)) { ge = (await supabase.from('orders').insert(giftPayload)).error }
+        if (!ge) toast.info(`Gift charge MVR ${g.cost.toFixed(2)} added as its own line`)
+      } else if (g.cost > 0 && g.covered) {
+        await supabase.from('expenses').insert({
+          description: `Gift / special request (covered) — ${form.invoice_number || form.customer_name}${form.special_request ? ': ' + form.special_request.slice(0, 80) : ''}`,
+          category: 'Packaging', amount: g.cost, currency: 'MVR', expense_date: today(),
+        })
+        toast.info(`Gift cost MVR ${g.cost.toFixed(2)} logged as expense`)
       }
     }
     logAudit('create', 'order', `${form.invoice_number || ''} — ${form.customer_name}`, { items: validItems.length, total: cartTotal })
@@ -896,6 +977,11 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
             <div style={{ background: '#FFF3F7', border: '1px solid #f7d6e3', borderRadius: 8, padding: '10px 14px', marginBottom: 12, fontSize: 13, color: '#8a2b52' }}>
               <div style={{ fontSize: 11, color: '#c77b9c', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: 4 }}>🎁 Special request</div>
               {viewModal.special_request}
+              {Number(viewModal.special_request_cost) > 0 && (
+                <div style={{ marginTop: 5, fontWeight: 700 }}>
+                  Cost: MVR {Number(viewModal.special_request_cost).toFixed(2)} — {viewModal.special_request_covered ? 'covered by the shop (own Packaging expense)' : 'charged to customer (own line on the invoice)'}
+                </div>
+              )}
             </div>
           )}
           {Number(viewModal.delivery_fee) > 0 && (
@@ -1130,6 +1216,29 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
             </label>
             <input value={form.special_request} onChange={f('special_request')} placeholder="e.g. Gift wrapping, birthday card, hide the price tag…"
               style={{ width: '100%', padding: '8px 10px', border: '1px solid #eee0c8', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', background: '#fff', outline: 'none', boxSizing: 'border-box', marginBottom: 10 }} />
+            {/* Gift cost — recorded as its OWN transaction so it shows separately in reconciliation */}
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 10 }}>
+              <div style={{ flex: '0 1 160px', minWidth: 0 }}>
+                <label style={{ fontSize: 10, color: '#999', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: 4, fontWeight: 600 }}>Gift / request cost (MVR)</label>
+                <input type="number" min="0" step="0.01" value={form.special_request_cost} onChange={f('special_request_cost')} placeholder="0"
+                  style={{ width: '100%', padding: '8px 10px', border: '1px solid #eee0c8', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', background: '#fff', outline: 'none', boxSizing: 'border-box' }} />
+              </div>
+              {parseFloat(form.special_request_cost) > 0 && (
+                <div style={{ display: 'flex', border: '1px solid #eee0c8', borderRadius: 8, overflow: 'hidden' }}>
+                  <button type="button" onClick={() => setForm(p => ({ ...p, special_request_covered: false }))}
+                    style={{ padding: '8px 13px', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, fontFamily: 'inherit', background: !form.special_request_covered ? '#1D9E75' : '#fff', color: !form.special_request_covered ? '#fff' : '#888' }}>Customer pays</button>
+                  <button type="button" onClick={() => setForm(p => ({ ...p, special_request_covered: true }))}
+                    style={{ padding: '8px 13px', border: 'none', borderLeft: '1px solid #eee0c8', cursor: 'pointer', fontSize: 12, fontWeight: 700, fontFamily: 'inherit', background: form.special_request_covered ? '#c62828' : '#fff', color: form.special_request_covered ? '#fff' : '#888' }}>We cover it</button>
+                </div>
+              )}
+            </div>
+            {parseFloat(form.special_request_cost) > 0 && (
+              <div style={{ fontSize: 11.5, color: form.special_request_covered ? '#c62828' : '#1D9E75', marginBottom: 10, fontWeight: 600 }}>
+                {form.special_request_covered
+                  ? `Shop covers MVR ${(parseFloat(form.special_request_cost) || 0).toFixed(2)} — logged as its own Packaging expense (separate transaction in reconciliation).`
+                  : `MVR ${(parseFloat(form.special_request_cost) || 0).toFixed(2)} added as its own line on the invoice (separate transaction in reconciliation).`}
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
               <div style={{ flex: '0 1 160px', minWidth: 0 }}>
                 <label style={{ fontSize: 10, color: '#999', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: 4, fontWeight: 600 }}>Island delivery fee (MVR)</label>
@@ -1159,7 +1268,8 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
             <span>Subtotal: <strong>MVR {cartSubtotal.toFixed(2)}</strong></span>
             {discountAmount > 0 && <span style={{ color: '#1D9E75' }}>Discount: <strong>-MVR {discountAmount.toFixed(2)}{form.discount_type === 'percent' ? ` (${form.discount_value}%)` : ''}</strong></span>}
             {parseFloat(form.delivery_fee) > 0 && !form.delivery_fee_covered && <span style={{ color: '#378ADD' }}>Delivery: <strong>+MVR {(parseFloat(form.delivery_fee) || 0).toFixed(2)}</strong></span>}
-            <span style={{ fontWeight: 800, color: '#0d1b2a' }}>Total: <strong>MVR {(cartTotal + (form.delivery_fee_covered ? 0 : parseFloat(form.delivery_fee) || 0)).toFixed(2)}</strong></span>
+            {parseFloat(form.special_request_cost) > 0 && !form.special_request_covered && <span style={{ color: '#b8740a' }}>Gift: <strong>+MVR {(parseFloat(form.special_request_cost) || 0).toFixed(2)}</strong></span>}
+            <span style={{ fontWeight: 800, color: '#0d1b2a' }}>Total: <strong>MVR {(cartTotal + (form.delivery_fee_covered ? 0 : parseFloat(form.delivery_fee) || 0) + (form.special_request_covered ? 0 : parseFloat(form.special_request_cost) || 0)).toFixed(2)}</strong></span>
             <span style={{ fontSize: 11, color: '#aaa' }}>Invoice: {form.invoice_number}</span>
           </div>
 

@@ -28,3 +28,8 @@ alter table orders add column if not exists delivery_fee numeric(10,2) default 0
 -- true  = the shop covers the fee (logged as a Delivery expense)
 -- false = the customer pays it back (added to the invoice total)
 alter table orders add column if not exists delivery_fee_covered boolean default false;
+-- Gift / special-request cost. Kept as a SEPARATE transaction:
+--   customer pays -> its own line item on the invoice (own entry in reconciliation money-in)
+--   shop covers   -> its own Packaging expense    (own entry in reconciliation money-out)
+alter table orders add column if not exists special_request_cost numeric(10,2) default 0;
+alter table orders add column if not exists special_request_covered boolean default false;
