@@ -99,7 +99,8 @@ export default function MessageCenter() {
       supabase.from('customers').select('*').order('name'),
       supabase.from('email_contacts').select('*').order('name'),
     ])
-    setOrders(o.data || [])
+    // Charge lines (🚚 delivery fee / 🎁 gift) aren't deliverable items
+    setOrders((o.data || []).filter(r => !(!r.product_id && /^(🚚|🎁)/.test(String(r.product_name || '')))))
     setProducts(p.data || [])
     setCustomers(c.data || [])
     setContacts(ct.data || [])
