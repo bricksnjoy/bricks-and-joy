@@ -144,7 +144,11 @@ export function generateInsights({ orders, products, customers, restock = [], lo
   // Best seller (30d)
   const since30 = daysAgo(30)
   const sold30 = {}
-  delivered.filter(o => o.order_date >= since30).forEach(o => { if (o.product_name) sold30[o.product_name] = (sold30[o.product_name] || 0) + Number(o.qty || 0) })
+  delivered.filter(o => o.order_date >= since30).forEach(o => {
+    // skip charge lines (🚚 delivery fee / 🎁 gift) — they're not products
+    if (!o.product_id && /^(🚚|🎁)/.test(String(o.product_name || ''))) return
+    if (o.product_name) sold30[o.product_name] = (sold30[o.product_name] || 0) + Number(o.qty || 0)
+  })
   const topSeller = Object.entries(sold30).sort((a, b) => b[1] - a[1])[0]
   if (topSeller) out.push({ tone: 'good', text: `“${topSeller[0]}” is your hot seller — ${topSeller[1]} units in 30 days. Make sure it never goes out of stock.` })
 
