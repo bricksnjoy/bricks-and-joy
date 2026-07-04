@@ -678,7 +678,24 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
     return c?.name || email
   }
 
-  const filteredOrders = filter === 'all' ? orders : orders.filter(o => o.status === filter)
+  // Charge lines (delivery fee / gift) don't get their own card — they display
+  // as a small line under their invoice's product order. Only orphaned charges
+  // (no product sibling at all) fall back to their own card.
+  const isChargeRow = o => isFeeRow(o) || isGiftRow(o)
+  const invKey = o => `${o.customer_id || ''}|${o.invoice_number || ''}`
+  const chargesFor = o => o.invoice_number
+    ? orders.filter(c => isChargeRow(c) && invKey(c) === invKey(o))
+    : []
+  // First product row of each invoice carries the charges (avoid duplicating on multi-item invoices)
+  const isFirstOfInvoice = o => {
+    if (!o.invoice_number) return true
+    const sibs = orders.filter(x => !isChargeRow(x) && invKey(x) === invKey(o))
+    return sibs.length === 0 || sibs[0].id === o.id
+  }
+  const hasProductSibling = o => orders.some(x => !isChargeRow(x) && invKey(x) === invKey(o))
+  const displayOrders = (filter === 'all' ? orders : orders.filter(o => o.status === filter))
+    .filter(o => !(isChargeRow(o) && o.invoice_number && hasProductSibling(o)))
+  const filteredOrders = displayOrders
   const totalRevenue = orders.filter(o => o.status !== 'cancelled' && (o.status === 'delivered' || o.payment_status === 'paid')).reduce((s, o) => s + Number(o.total_price || 0), 0)
   const unpaidTotal = orders.filter(o => (o.payment_status || 'unpaid') === 'unpaid' && o.status !== 'cancelled').reduce((s, o) => s + Number(o.total_price || 0), 0)
   const lowStockCount = products.filter(p => p.stock_qty > 0 && p.stock_qty <= (p.low_stock_threshold ?? 10)).length
@@ -714,6 +731,11 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
       <div>
         <div style={{ fontWeight: 500, color: '#333', fontSize: 13 }}>{r.product_name}</div>
         <div style={{ fontSize: 11, color: '#bbb' }}>× {r.qty}</div>
+        {isFirstOfInvoice(r) && chargesFor(r).map(c => (
+          <div key={c.id} style={{ fontSize: 11, color: '#8a6d1b', marginTop: 2 }}>
+            {isFeeRow(c) ? '🚚' : '🎁'} {isFeeRow(c) ? 'Delivery fee' : 'Gift'} · MVR {Number(c.total_price || 0).toFixed(2)}
+          </div>
+        ))}
       </div>
     )},
     { key: 'total_price', label: 'Total', render: r => (
@@ -935,6 +957,20 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
                       <span className="ord-price" style={{ fontWeight: 800, fontSize: 19, color: '#0d1b2a' }}>MVR {Number(o.total_price || 0).toFixed(2)}</span>
                       {o.discount > 0 && <span style={{ fontSize: 11, color: '#1D9E75', fontWeight: 600 }}>-MVR {Number(o.discount).toFixed(2)}</span>}
                     </div>
+
+                    {/* Charge lines of the same invoice — small, grouped under the order */}
+                    {isFirstOfInvoice(o) && chargesFor(o).map(c => (
+                      <div key={c.id} onClick={() => setViewModal(c)} title="View charge"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, alignSelf: 'flex-start', cursor: 'pointer',
+                          fontSize: 12, fontWeight: 600, color: '#8a6d1b', background: '#FFF8E1', border: '1px solid #FAEEDA',
+                          borderRadius: 99, padding: '4px 11px' }}>
+                        <span style={{ fontSize: 13 }}>{isFeeRow(c) ? '🚚' : '🎁'}</span>
+                        {isFeeRow(c) ? 'Delivery fee' : 'Gift'} · MVR {Number(c.total_price || 0).toFixed(2)}
+                        <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'capitalize', color: payColors[c.payment_status || 'unpaid'] || '#888' }}>
+                          {c.payment_status || 'unpaid'}
+                        </span>
+                      </div>
+                    ))}
 
                     {/* Status + Payment row */}
                     <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
