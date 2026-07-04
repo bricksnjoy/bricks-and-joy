@@ -4,10 +4,15 @@ import { localToday } from '../lib/dates'
 import { PageHeader, Card, Spinner, useToast, Toasts, StatusBadge, MetricCard } from '../components/UI'
 import { Truck, User, Bike, CalendarDays, Package, CheckCircle, Search, Instagram, LayoutGrid, List, Award, Save } from 'lucide-react'
 
+// Charge lines (delivery fee / gift) are money rows, not deliverable items —
+// they show as a small note under their invoice's order instead of own cards.
+const isChargeRow = r => !r.product_id && /^(🚚|🎁)/.test(String(r.product_name || ''))
+
 // Deliveries is a record-keeping tab: attach a staff member and a delivery date
 // to each order. Changes stay local until Save is clicked.
 export default function Deliveries() {
   const [orders, setOrders] = useState([])
+  const [charges, setCharges] = useState([])
   const [contacts, setContacts] = useState([])
   const [customers, setCustomers] = useState([])
   const [products, setProducts] = useState([])
@@ -31,7 +36,9 @@ export default function Deliveries() {
       supabase.from('customers').select('*'),
       supabase.from('products').select('id, name, photo_url'),
     ])
-    setOrders(o.data || [])
+    const all = o.data || []
+    setOrders(all.filter(r => !isChargeRow(r)))
+    setCharges(all.filter(isChargeRow))
     setContacts(c.data || [])
     setCustomers(cu.data || [])
     setProducts(p.data || [])
@@ -93,6 +100,15 @@ export default function Deliveries() {
   const draftStaff = o => drafts[o.id]?.delivery_person !== undefined ? drafts[o.id].delivery_person : (o.delivery_person || '')
   const isDirty = o => !!drafts[o.id] && Object.keys(drafts[o.id]).length > 0
   const contactNames = contacts.map(c => c.name)
+
+  // Charge lines of this order's invoice (shown on its first product row only)
+  const invKey = o => `${o.customer_id || ''}|${o.invoice_number || ''}`
+  const chargesFor = o => {
+    if (!o.invoice_number) return []
+    const sibs = orders.filter(x => invKey(x) === invKey(o))
+    if (sibs.length && sibs[0].id !== o.id) return []
+    return charges.filter(c => invKey(c) === invKey(o))
+  }
 
   const filtered = orders.filter(o => {
     const matchSearch = !search ||
@@ -292,6 +308,11 @@ export default function Deliveries() {
                       {insta && <div style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#C13584', fontSize: 13, marginTop: 2 }}><Instagram size={13} /> @{insta.replace(/^@/, '')}</div>}
                     </div>
                     <div style={{ fontSize: 14, color: '#555', fontWeight: 600 }}>{o.product_name} × {o.qty}</div>
+                    {chargesFor(o).map(c => (
+                      <div key={c.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, alignSelf: 'flex-start', fontSize: 11.5, fontWeight: 600, color: '#8a6d1b', background: '#FFF8E1', border: '1px solid #FAEEDA', borderRadius: 99, padding: '3px 10px' }}>
+                        {String(c.product_name).startsWith('🚚') ? '🚚 Delivery fee' : '🎁 Gift'} · MVR {Number(c.total_price || 0).toFixed(2)}
+                      </div>
+                    ))}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
                       <span style={{ fontSize: 12, color: '#aaa', fontFamily: 'monospace' }}>{o.invoice_number || '—'}</span>
                       <StatusBadge status={o.status} />
@@ -334,6 +355,11 @@ export default function Deliveries() {
                       <td style={{ padding: '10px 12px' }}>
                         <div style={{ fontWeight: 600, color: '#0d1b2a' }}>{o.product_name} × {o.qty}</div>
                         <div style={{ fontSize: 11, color: '#aaa', fontFamily: 'monospace' }}>{o.invoice_number || '—'}</div>
+                        {chargesFor(o).map(c => (
+                          <div key={c.id} style={{ fontSize: 11, color: '#8a6d1b', marginTop: 2 }}>
+                            {String(c.product_name).startsWith('🚚') ? '🚚 Delivery fee' : '🎁 Gift'} · MVR {Number(c.total_price || 0).toFixed(2)}
+                          </div>
+                        ))}
                       </td>
                       <td style={{ padding: '10px 12px' }}>
                         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: '#555' }}><User size={13} /> {customerName(o)}</div>
