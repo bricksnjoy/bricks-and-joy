@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
-import { PageHeader, Card, Button, Spinner, useToast, Toasts } from '../components/UI'
-import { Upload, CheckCircle, AlertTriangle, X, Scale, Trash2, Plus, FileSpreadsheet, ChevronDown } from 'lucide-react'
+import { PageHeader, Card, Button, Spinner, useToast, Toasts, Modal } from '../components/UI'
+import { Upload, CheckCircle, AlertTriangle, X, Scale, Trash2, Plus, FileSpreadsheet, ChevronDown, Eye } from 'lucide-react'
 import { getSettings } from '../lib/settings'
 
 const LS_KEY = 'bnj_reconciliations_v1'
@@ -45,6 +45,11 @@ export default function Reconciliation() {
   const [stmtTxns, setStmtTxns] = useState(null)   // parsed statement rows
   const [matches, setMatches] = useState([])        // [{ stmt, amt, isIn, matchId }]
   const [fileName, setFileName] = useState('')
+  // View / edit a saved reconciliation
+  const [viewRecon, setViewRecon] = useState(null)  // the history record being viewed
+  const [editLines, setEditLines] = useState([])    // working copy of its lines
+  const [reconFilter, setReconFilter] = useState('all') // all | matched | unmatched
+  const [savingEdit, setSavingEdit] = useState(false)
   const fileRef = useRef(null)
   const toast = useToast()
 
@@ -205,6 +210,11 @@ export default function Reconciliation() {
       matched_count: cleared.length,
       unmatched_count: sum.unmatchedCount,
       cleared,
+      // Full line detail so the reconciliation can be reviewed & edited later
+      lines: matches.map(m => ({
+        date: ymd(m.stmt.date), party: m.stmt.party || '', type: m.stmt.type || '',
+        ref: m.stmt.ref || '', amount: m.amt, isIn: m.isIn, matchId: m.matchId || null,
+      })),
       created_at: new Date().toISOString(),
     }
     localStorage.setItem('bnj_recon_last_account', account)
@@ -212,7 +222,13 @@ export default function Reconciliation() {
       const arr = [{ id: 'local-' + Date.now(), ...rec }, ...history]
       writeLocal(arr); setHistory(arr)
     } else {
-      const { error } = await supabase.from('reconciliations').insert(rec)
+      let { error } = await supabase.from('reconciliations').insert(rec)
+      // Older table without the `lines` column — save without the detail
+      if (error && /lines/i.test(error.message || '')) {
+        const { lines: _l, ...noLines } = rec
+        error = (await supabase.from('reconciliations').insert(noLines)).error
+        if (!error) toast.info('Saved. Run integrations/reconciliation-setup.sql to also store line details for later review.')
+      }
       if (error) {
         setUsingLocal(true)
         const arr = [{ id: 'local-' + Date.now(), ...rec }, ...readLocal()]
@@ -237,6 +253,58 @@ export default function Reconciliation() {
   }
 
   function cancelUpload() { setStmtTxns(null); setMatches([]); setFileName('') }
+
+  // ── View / edit a saved reconciliation ──────────────────────────────────────
+  function openRecon(h) {
+    setViewRecon(h)
+    setEditLines(Array.isArray(h.lines) ? h.lines.map(l => ({ ...l })) : [])
+    setReconFilter('all')
+  }
+
+  // Book ids cleared by OTHER reconciliations (this record's own matches stay available)
+  const reconciledElsewhere = useMemo(() => {
+    if (!viewRecon) return reconciledIds
+    const set = new Set()
+    history.forEach(h => { if (h.id !== viewRecon.id) (h.cleared || []).forEach(id => set.add(id)) })
+    return set
+  }, [history, viewRecon, reconciledIds])
+
+  function reconCandidates(line, idx) {
+    const usedHere = new Set(editLines.filter((l, i) => i !== idx && l.matchId).map(l => l.matchId))
+    const pool = (line.isIn ? bookIn : bookOut).filter(b => !reconciledElsewhere.has(b.id) && !usedHere.has(b.id))
+    const lineDate = line.date ? new Date(line.date) : null
+    return pool.sort((a, b) =>
+      Math.abs(a.amount - line.amount) - Math.abs(b.amount - line.amount) ||
+      daysApart(a.date, lineDate) - daysApart(b.date, lineDate)
+    ).slice(0, 40)
+  }
+
+  async function saveReconEdits() {
+    if (!viewRecon) return
+    setSavingEdit(true)
+    const cleared = editLines.filter(l => l.matchId).map(l => l.matchId)
+    const changes = {
+      cleared,
+      lines: editLines,
+      matched_count: cleared.length,
+      unmatched_count: editLines.filter(l => !l.matchId).length,
+    }
+    if (usingLocal || String(viewRecon.id).startsWith('local-')) {
+      const arr = history.map(h => h.id === viewRecon.id ? { ...h, ...changes } : h)
+      writeLocal(arr); setHistory(arr)
+    } else {
+      let { error } = await supabase.from('reconciliations').update(changes).eq('id', viewRecon.id)
+      if (error && /lines/i.test(error.message || '')) {
+        const { lines: _l, ...noLines } = changes
+        error = (await supabase.from('reconciliations').update(noLines).eq('id', viewRecon.id)).error
+      }
+      if (error) { toast.error('Could not save: ' + error.message); setSavingEdit(false); return }
+      setHistory(hs => hs.map(h => h.id === viewRecon.id ? { ...h, ...changes } : h))
+    }
+    setSavingEdit(false)
+    setViewRecon(null)
+    toast.success('Reconciliation updated')
+  }
 
   return (
     <div>
@@ -310,14 +378,22 @@ export default function Reconciliation() {
                     </tr></thead>
                     <tbody>
                       {history.map(h => (
-                        <tr key={h.id}>
+                        <tr key={h.id} onClick={() => openRecon(h)} style={{ cursor: 'pointer' }}
+                          onMouseEnter={e => e.currentTarget.style.background = '#faf9f6'}
+                          onMouseLeave={e => e.currentTarget.style.background = ''}>
                           <td style={{ fontWeight: 600 }}>{h.account || '—'}</td>
                           <td style={{ color: '#666' }}>{fmtDate(h.period_start)} – {fmtDate(h.period_end)}</td>
                           <td style={{ textAlign: 'right', color: '#1D9E75', fontWeight: 600 }}>{money(h.statement_in)}</td>
                           <td style={{ textAlign: 'right', color: '#E24B4A', fontWeight: 600 }}>{money(h.statement_out)}</td>
                           <td style={{ textAlign: 'right', fontWeight: 700 }}>{money(h.closing_balance)}</td>
-                          <td style={{ color: '#666' }}>{h.matched_count} cleared{h.unmatched_count ? ` · ${h.unmatched_count} skipped` : ''}</td>
-                          <td><button onClick={() => deleteRecon(h)} title="Delete" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ccc', padding: 5 }}><Trash2 size={14} /></button></td>
+                          <td style={{ color: '#666' }}>
+                            {h.matched_count} cleared
+                            {h.unmatched_count > 0 && <span className="rec-pill" style={{ background: '#FFF3D6', color: '#b8740a', marginLeft: 8 }}><AlertTriangle size={11} /> {h.unmatched_count} unreviewed</span>}
+                          </td>
+                          <td style={{ whiteSpace: 'nowrap' }} onClick={e => e.stopPropagation()}>
+                            <button onClick={() => openRecon(h)} title="View & edit" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#378ADD', padding: 5 }}><Eye size={14} /></button>
+                            <button onClick={() => deleteRecon(h)} title="Delete" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ccc', padding: 5 }}><Trash2 size={14} /></button>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -415,6 +491,109 @@ export default function Reconciliation() {
           </Card>
         </>
       )}
+
+      {/* ── View / edit a saved reconciliation ── */}
+      {viewRecon && (() => {
+        const matchedN = editLines.filter(l => l.matchId).length
+        const unmatchedN = editLines.length - matchedN
+        const shown = editLines
+          .map((l, idx) => ({ l, idx }))
+          .filter(({ l }) => reconFilter === 'all' ? true : reconFilter === 'matched' ? !!l.matchId : !l.matchId)
+        const dirty = JSON.stringify(editLines) !== JSON.stringify(viewRecon.lines || [])
+        return (
+          <Modal title={`${viewRecon.account || 'Reconciliation'} — ${fmtDate(viewRecon.period_start)} to ${fmtDate(viewRecon.period_end)}`}
+            subtitle={`In ${money(viewRecon.statement_in)} · Out ${money(viewRecon.statement_out)} · Closing ${money(viewRecon.closing_balance)}`}
+            onClose={() => setViewRecon(null)} width={860}>
+            {editLines.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '30px 10px', color: '#999', fontSize: 13, lineHeight: 1.7 }}>
+                This reconciliation was saved before line details were stored, so only the summary is available.<br />
+                {viewRecon.matched_count} transaction{viewRecon.matched_count === 1 ? '' : 's'} cleared{viewRecon.unmatched_count ? ` · ${viewRecon.unmatched_count} left unreviewed` : ''}.
+              </div>
+            ) : (
+              <>
+                <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
+                  {[
+                    ['all', `All (${editLines.length})`],
+                    ['matched', `Matched (${matchedN})`],
+                    ['unmatched', `Unreviewed (${unmatchedN})`],
+                  ].map(([k, label]) => (
+                    <button key={k} onClick={() => setReconFilter(k)}
+                      style={{ padding: '7px 14px', borderRadius: 99, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, fontFamily: 'inherit',
+                        background: reconFilter === k ? (k === 'unmatched' ? '#b8740a' : '#0d1b2a') : '#f3f1ec',
+                        color: reconFilter === k ? '#fff' : '#777' }}>
+                      {label}
+                    </button>
+                  ))}
+                  {unmatchedN > 0 && reconFilter !== 'unmatched' && (
+                    <span style={{ fontSize: 12, color: '#b8740a', fontWeight: 600 }}>· {unmatchedN} line{unmatchedN === 1 ? '' : 's'} still need review</span>
+                  )}
+                </div>
+                <div className="rec-scroll" style={{ maxHeight: '48vh', overflowY: 'auto', border: '1px solid #f0f0f0', borderRadius: 12 }}>
+                  <table className="rec-table" style={{ minWidth: 640 }}>
+                    <thead><tr>
+                      <th>Date</th><th>Bank line</th><th style={{ textAlign: 'right' }}>Amount</th><th>Matched to</th>
+                    </tr></thead>
+                    <tbody>
+                      {shown.map(({ l, idx }) => {
+                        const matched = l.matchId ? bookById[l.matchId] : null
+                        return (
+                          <tr key={idx} className={l.matchId ? '' : 'unmatched'}>
+                            <td style={{ whiteSpace: 'nowrap', color: '#666' }}>{fmtDate(l.date)}</td>
+                            <td>
+                              <div style={{ fontWeight: 600, color: '#0d1b2a' }}>{l.party || l.type || 'Transaction'}</div>
+                              <div style={{ fontSize: 11, color: '#aaa' }}>{l.type}{l.ref ? ` · ${l.ref}` : ''}</div>
+                            </td>
+                            <td style={{ textAlign: 'right' }} className={l.isIn ? 'rec-in' : 'rec-out'}>
+                              {l.isIn ? '+' : '−'}{money(l.amount)}
+                            </td>
+                            <td>
+                              {matched ? (
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                                  <span className="rec-pill" style={{ background: '#E1F5EE', color: '#1D9E75' }}><CheckCircle size={12} /> {matched.label}</span>
+                                  <button onClick={() => setEditLines(ls => ls.map((x, i) => i === idx ? { ...x, matchId: null } : x))} title="Unmatch"
+                                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ccc' }}><X size={13} /></button>
+                                </span>
+                              ) : l.matchId ? (
+                                // matched to a book entry that no longer exists
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                                  <span className="rec-pill" style={{ background: '#f5f5f5', color: '#999' }}>Matched (record deleted)</span>
+                                  <button onClick={() => setEditLines(ls => ls.map((x, i) => i === idx ? { ...x, matchId: null } : x))} title="Unmatch"
+                                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ccc' }}><X size={13} /></button>
+                                </span>
+                              ) : (
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                                  <span className="rec-pill" style={{ background: '#FFF3D6', color: '#b8740a' }}><AlertTriangle size={12} /> Unreviewed</span>
+                                  <select className="rec-sel" value="" onChange={e => { const v = e.target.value; if (v) setEditLines(ls => ls.map((x, i) => i === idx ? { ...x, matchId: v } : x)) }}>
+                                    <option value="">Match to…</option>
+                                    {reconCandidates(l, idx).map(b => (
+                                      <option key={b.id} value={b.id}>{money(b.amount)} · {fmtDate(b.date)} · {b.label}</option>
+                                    ))}
+                                  </select>
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                      {shown.length === 0 && (
+                        <tr><td colSpan={4} style={{ textAlign: 'center', color: '#bbb', padding: '22px 0' }}>
+                          {reconFilter === 'unmatched' ? 'Nothing left to review — every line is matched. 🎉' : 'No lines here.'}
+                        </td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 16 }}>
+                  <Button variant="ghost" onClick={() => setViewRecon(null)}>Close</Button>
+                  <Button onClick={saveReconEdits} disabled={savingEdit || !dirty}>
+                    {savingEdit ? 'Saving…' : dirty ? <><CheckCircle size={14} /> Save changes</> : 'No changes'}
+                  </Button>
+                </div>
+              </>
+            )}
+          </Modal>
+        )
+      })()}
 
       <Toasts toasts={toast.toasts} />
     </div>
