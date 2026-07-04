@@ -99,9 +99,12 @@ export default function Statistics() {
     }))
 
     // Product performance (with profit = revenue − COGS)
+    // Charge lines (🚚 delivery fee / 🎁 gift) aren't products — keep them out of rankings
+    const isChargeLine = o => !o.product_id && /^(🚚|🎁)/.test(String(o.product_name || ''))
     const prodById = Object.fromEntries(prods.map(p => [p.id, p]))
     const productPerf = {}
     ords.forEach(o => {
+      if (isChargeLine(o)) return
       if (!productPerf[o.product_name]) productPerf[o.product_name] = { name: o.product_name, revenue: 0, units: 0, orders: 0, cancelled: 0, cogs: 0 }
       if (o.status !== 'cancelled' && (o.status === 'delivered' || o.payment_status === 'paid')) {
         productPerf[o.product_name].revenue += Number(o.total_price || 0)
@@ -177,7 +180,7 @@ export default function Statistics() {
     // Product forecast — which products will sell most next month based on trend
     const productTrend = {}
     months.slice(-3).forEach(m => {
-      ords.filter(o => o.status !== 'cancelled' && (o.status === 'delivered' || o.payment_status === 'paid') && o.order_date?.startsWith(m)).forEach(o => {
+      ords.filter(o => !isChargeLine(o) && o.status !== 'cancelled' && (o.status === 'delivered' || o.payment_status === 'paid') && o.order_date?.startsWith(m)).forEach(o => {
         if (!productTrend[o.product_name]) productTrend[o.product_name] = { name: o.product_name, recent: 0, older: 0 }
         const isRecent = m === months[months.length - 1]
         if (isRecent) productTrend[o.product_name].recent += o.qty
