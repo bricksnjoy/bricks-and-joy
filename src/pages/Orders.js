@@ -885,9 +885,14 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
               const payStatus = o.payment_status || 'unpaid'
               return (
                 <div key={o.id} className="ord-card">
-                  {/* Left: product photo — click to view details */}
-                  <div className="ord-photo" onClick={() => setViewModal(o)} title="Click to view order details">
-                    {photo ? <img src={photo} alt={o.product_name} /> : <Package size={56} color="#d8d4c8" />}
+                  {/* Left: product photo — click to view details. Charge lines
+                      (delivery fee / gift) have no product, so show their emoji big. */}
+                  <div className="ord-photo" onClick={() => setViewModal(o)} title="Click to view order details"
+                    style={isFeeRow(o) || isGiftRow(o) ? { background: 'linear-gradient(135deg,#fff3df,#ffe9c7)' } : undefined}>
+                    {photo ? <img src={photo} alt={o.product_name} />
+                      : isFeeRow(o) ? <span style={{ fontSize: 64, lineHeight: 1 }}>🚚</span>
+                      : isGiftRow(o) ? <span style={{ fontSize: 64, lineHeight: 1 }}>🎁</span>
+                      : <Package size={56} color="#d8d4c8" />}
                   </div>
 
                   {/* Right: details */}
