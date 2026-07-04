@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { localToday } from '../lib/dates'
 import { PageHeader, Card, Spinner, useToast, Toasts, StatusBadge, MetricCard } from '../components/UI'
 import { Truck, User, Bike, CalendarDays, Package, CheckCircle, Search, Instagram, LayoutGrid, List, Award, Save } from 'lucide-react'
 
@@ -113,7 +114,7 @@ export default function Deliveries() {
   const assignedCount = orders.filter(o => o.delivery_person && o.status !== 'delivered').length
   const unassignedCount = orders.filter(o => !o.delivery_person).length
   const deliveredCount = orders.filter(o => o.status === 'delivered').length
-  const today = new Date().toISOString().split('T')[0]
+  const today = localToday()
   const todayCount = orders.filter(o => effectiveDate(o) === today).length
 
   // Deliveries handled by each staff member (assigned total + completed).

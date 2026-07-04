@@ -5,12 +5,14 @@ import { Plus, Trash2, AlertTriangle, Package, Upload, Eye, CreditCard, X, Camer
 import BarcodeScanner from '../components/BarcodeScanner'
 import { sendSMS } from '../lib/sms'
 import { getSettings } from '../lib/settings'
+import { localToday } from '../lib/dates'
+import { logAudit } from '../lib/audit'
 
 const CHANNELS = ['Website','Instagram','Facebook','Retail shop','Pop-up shop','Call']
 const STATUSES = [{ value: 'created', label: 'Order created' },{ value: 'transit', label: 'Dispatched' },{ value: 'delivered', label: 'Delivered' },{ value: 'cancelled', label: 'Cancelled' }]
 const PAY_METHODS = ['Cash','BML Transfer','Bank Transfer','Card','Other']
-const EMPTY_FORM = { customer_id:'', customer_name:'', channel:'Retail shop', status:'created', order_date: new Date().toISOString().split('T')[0], notes:'', payment_status:'unpaid', payment_method:'', transfer_reference:'', invoice_number:'', delivery_person:'', delivery_date:'', delivery_time:'', discount_value:0, discount_type:'amount' }
-const today = () => new Date().toISOString().split('T')[0]
+const EMPTY_FORM = { customer_id:'', customer_name:'', channel:'Retail shop', status:'created', order_date:'', notes:'', payment_status:'unpaid', payment_method:'', transfer_reference:'', invoice_number:'', delivery_person:'', delivery_date:'', delivery_time:'', discount_value:0, discount_type:'amount', special_request:'', delivery_fee:'', delivery_fee_covered:false }
+const today = localToday
 const EMPTY_ITEM = { product_id:'', product_name:'', qty:1, unit_price:0 }
 
 export default function Orders() {
@@ -96,7 +98,7 @@ export default function Orders() {
       customer_name: order.customer_name || '',
       channel: order.channel || 'Retail store',
       status: order.status || 'created',
-      order_date: order.order_date || new Date().toISOString().split('T')[0],
+      order_date: order.order_date || today(),
       notes: order.notes || '',
       payment_status: order.payment_status || 'unpaid',
       payment_method: order.payment_method || '',
@@ -107,6 +109,9 @@ export default function Orders() {
       delivery_time: order.delivery_time || '',
       discount_value: totalDiscount,
       discount_type: 'amount',
+      special_request: rows.map(r => r.special_request).find(Boolean) || '',
+      delivery_fee: (() => { const r = rows.find(x => Number(x.delivery_fee) > 0); return r ? Number(r.delivery_fee) : '' })(),
+      delivery_fee_covered: rows.some(r => Number(r.delivery_fee) > 0 && r.delivery_fee_covered),
     })
     setCartItems(rows.map(r => ({ product_id: r.product_id || '', product_name: r.product_name || '', qty: r.qty || 1, unit_price: r.unit_price || 0 })))
     setEditOrder(order)
@@ -176,8 +181,22 @@ export default function Orders() {
   const discountAmount = form.discount_type === 'percent' ? (cartSubtotal * discountVal / 100) : discountVal
   const cartTotal = Math.max(0, cartSubtotal - discountAmount)
 
-  function buildPayload(item, itemDiscount) {
+  // The delivery fee lives on the FIRST row of an invoice only, so summing an
+  // invoice's rows never double-counts it. When the customer pays the fee back
+  // it's added to that row's total; when the shop covers it it stays out of
+  // revenue and is logged as a Delivery expense instead.
+  function feeInfo() {
+    const fee = parseFloat(form.delivery_fee) || 0
+    return { fee, covered: !!form.delivery_fee_covered }
+  }
+
+  function buildPayload(item, itemDiscount, isFirst = false) {
+    const { fee, covered } = feeInfo()
+    const feeOnRow = isFirst ? fee : 0
     return {
+      special_request: form.special_request || '',
+      delivery_fee: feeOnRow,
+      delivery_fee_covered: isFirst ? covered : false,
       customer_id: form.customer_id || null,
       customer_name: form.customer_name || '',
       channel: form.channel,
@@ -195,7 +214,7 @@ export default function Orders() {
       product_name: item.product_name,
       qty: parseInt(item.qty) || 0,
       unit_price: parseFloat(item.unit_price) || 0,
-      total_price: Math.max(0, (parseFloat(item.unit_price) || 0) * (parseInt(item.qty) || 0) - (itemDiscount || 0)),
+      total_price: Math.max(0, (parseFloat(item.unit_price) || 0) * (parseInt(item.qty) || 0) - (itemDiscount || 0)) + (isFirst && !covered ? feeOnRow : 0),
       discount: itemDiscount || 0,
       created_by_email: editOrder ? (editOrder.created_by_email || userEmail) : userEmail,
     }
@@ -233,7 +252,7 @@ export default function Orders() {
 
         if (newItem && oldRow) {
           // UPDATE existing row
-          const payload = buildPayload(newItem, itemDiscount)
+          const payload = buildPayload(newItem, itemDiscount, idx === 0)
           let { error } = await supabase.from('orders').update(payload).eq('id', oldRow.id)
           while (error && dropMissingCol(error, payload)) { error = (await supabase.from('orders').update(payload).eq('id', oldRow.id)).error }
           if (error) { console.error(error); setSaving(false); toast.error('Failed to update: ' + error.message); return }
@@ -249,7 +268,7 @@ export default function Orders() {
           }
         } else if (newItem && !oldRow) {
           // INSERT newly added row
-          const payload = buildPayload(newItem, itemDiscount)
+          const payload = buildPayload(newItem, itemDiscount, idx === 0)
           let { error } = await supabase.from('orders').insert(payload)
           while (error && dropMissingCol(error, payload)) { error = (await supabase.from('orders').insert(payload)).error }
           if (error) { console.error(error); setSaving(false); toast.error('Failed to add item: ' + error.message); return }
@@ -262,17 +281,30 @@ export default function Orders() {
           }
         }
       }
+      // Shop newly covering an island delivery fee → log it as a Delivery expense
+      const { fee, covered } = feeInfo()
+      const hadCoveredFee = editOrderRows.some(r => Number(r.delivery_fee) > 0 && r.delivery_fee_covered)
+      if (covered && fee > 0 && !hadCoveredFee) {
+        await supabase.from('expenses').insert({
+          description: `Island delivery (covered) — ${form.invoice_number || form.customer_name}`,
+          category: 'Delivery', amount: fee, currency: 'MVR', expense_date: today(),
+        })
+        toast.info(`Delivery fee MVR ${fee.toFixed(2)} logged as expense`)
+      }
+      logAudit('update', 'order', `${form.invoice_number || ''} — ${form.customer_name}`, { items: validItems.length, total: cartTotal })
       setSaving(false)
       toast.success(`Order updated!${validItems.length > 1 ? ` (${validItems.length} items)` : ''}`)
       setModal(false); load(); return
     }
 
+    let firstRow = true
     for (const item of validItems) {
       const itemSubtotal = parseFloat(item.unit_price) * parseInt(item.qty)
       const itemDiscount = form.discount_type === 'percent'
         ? itemSubtotal * (parseFloat(form.discount_value || 0) / 100)
         : parseFloat(form.discount_value || 0) / validItems.length
-      const payload = buildPayload(item, itemDiscount)
+      const payload = buildPayload(item, itemDiscount, firstRow)
+      firstRow = false
       let { error } = await supabase.from('orders').insert(payload)
       while (error && dropMissingCol(error, payload)) { error = (await supabase.from('orders').insert(payload)).error }
       if (error) { console.error(error); setSaving(false); toast.error('Failed to save: ' + error.message); return }
@@ -282,9 +314,21 @@ export default function Orders() {
         const { lowStockThreshold } = getSettings()
         await supabase.from('products').update({ stock_qty: newStock }).eq('id', item.product_id)
         if (newStock <= 0) toast.error(`⚠️ ${prod.name} OUT OF STOCK!`)
-        else if (newStock <= (prod.low_stock_threshold || lowStockThreshold || 10)) toast.info(`⚠️ Low stock: ${prod.name} — ${newStock} left`)
+        else if (newStock <= (prod.low_stock_threshold ?? lowStockThreshold ?? 10)) toast.info(`⚠️ Low stock: ${prod.name} — ${newStock} left`)
       }
     }
+    // Shop covering the island delivery fee → log it as a Delivery expense
+    {
+      const { fee, covered } = feeInfo()
+      if (covered && fee > 0) {
+        await supabase.from('expenses').insert({
+          description: `Island delivery (covered) — ${form.invoice_number || form.customer_name}`,
+          category: 'Delivery', amount: fee, currency: 'MVR', expense_date: today(),
+        })
+        toast.info(`Delivery fee MVR ${fee.toFixed(2)} logged as expense`)
+      }
+    }
+    logAudit('create', 'order', `${form.invoice_number || ''} — ${form.customer_name}`, { items: validItems.length, total: cartTotal })
     setSaving(false)
     toast.success(`Order added!${validItems.length > 1 ? ` (${validItems.length} items)` : ''}`)
     setModal(false); load()
@@ -309,13 +353,20 @@ export default function Orders() {
   async function savePayment() {
     if (!payModal) return
     setSaving(true)
-    await supabase.from('orders').update({
+    const patch = {
       payment_status: payForm.payment_status,
       payment_method: payForm.payment_method,
       transfer_reference: payForm.transfer_reference,
       transfer_slip_url: payForm.transfer_slip_url,
       paid_at: payForm.payment_status === 'paid' ? new Date().toISOString() : null,
-    }).eq('id', payModal.id)
+    }
+    // An invoice is one row PER LINE ITEM — mark every sibling row too, so a
+    // multi-item invoice doesn't end up half paid / half unpaid.
+    let q = supabase.from('orders').update(patch)
+    if (payModal.invoice_number) q = q.eq('invoice_number', payModal.invoice_number).eq('customer_id', payModal.customer_id)
+    else q = q.eq('id', payModal.id)
+    await q
+    logAudit('payment', 'order', `${payModal.invoice_number || payModal.id} — ${payModal.customer_name}`, { status: payForm.payment_status, method: payForm.payment_method })
     setSaving(false); toast.success('Payment recorded!'); setPayModal(null); load()
   }
 
@@ -339,9 +390,10 @@ export default function Orders() {
         description: `Refund — ${order.product_name} (${order.invoice_number || order.id.slice(0,6)})${returnForm.reason ? ': ' + returnForm.reason : ''}`,
         category: 'Returns / Refunds',
         amount: parseFloat(returnForm.refund_amount),
-        expense_date: new Date().toISOString().split('T')[0],
+        expense_date: today(),
       })
     }
+    logAudit('return', 'order', `${order.invoice_number || order.id} — ${order.customer_name || ''} (${order.product_name})`, { reason: returnForm.reason, refund: parseFloat(returnForm.refund_amount) || 0 })
     setSaving(false); toast.success('Return processed, stock restored!'); setReturnModal(null); load()
   }
 
@@ -352,6 +404,7 @@ export default function Orders() {
       const { data: prod } = await supabase.from('products').select('stock_qty, name').eq('id', order.product_id).single()
       if (prod) { await supabase.from('products').update({ stock_qty: (Number(prod.stock_qty) || 0) + (Number(order.qty) || 0) }).eq('id', order.product_id); toast.info(`Stock restored: ${prod.name} +${order.qty}`) }
     }
+    logAudit(newStatus === 'cancelled' ? 'cancel' : 'update', 'order', `${order?.invoice_number || id} — ${order?.customer_name || ''}`, { status: newStatus })
     load()
   }
 
@@ -363,6 +416,7 @@ export default function Orders() {
       if (prod) await supabase.from('products').update({ stock_qty: (Number(prod.stock_qty) || 0) + (Number(order.qty) || 0) }).eq('id', order.product_id)
     }
     await supabase.from('orders').delete().eq('id', id)
+    logAudit('delete', 'order', `${order?.invoice_number || id} — ${order?.customer_name || ''} (${order?.product_name} ×${order?.qty})`, { total: Number(order?.total_price || 0) })
     toast.success('Deleted'); load()
   }
 
@@ -508,7 +562,7 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
   }
 
   const filteredOrders = filter === 'all' ? orders : orders.filter(o => o.status === filter)
-  const totalRevenue = orders.filter(o => o.status === 'delivered').reduce((s, o) => s + Number(o.total_price || 0), 0)
+  const totalRevenue = orders.filter(o => o.status !== 'cancelled' && (o.status === 'delivered' || o.payment_status === 'paid')).reduce((s, o) => s + Number(o.total_price || 0), 0)
   const unpaidTotal = orders.filter(o => (o.payment_status || 'unpaid') === 'unpaid' && o.status !== 'cancelled').reduce((s, o) => s + Number(o.total_price || 0), 0)
   const lowStockCount = products.filter(p => p.stock_qty > 0 && p.stock_qty <= (p.low_stock_threshold ?? 10)).length
   const outOfStockCount = products.filter(p => p.stock_qty <= 0).length
@@ -838,6 +892,18 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
             ))}
           </div>
           {viewModal.transfer_reference && <div style={{ fontSize: 13, color: '#555', marginBottom: 8 }}>Reference: <strong>{viewModal.transfer_reference}</strong></div>}
+          {viewModal.special_request && (
+            <div style={{ background: '#FFF3F7', border: '1px solid #f7d6e3', borderRadius: 8, padding: '10px 14px', marginBottom: 12, fontSize: 13, color: '#8a2b52' }}>
+              <div style={{ fontSize: 11, color: '#c77b9c', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: 4 }}>🎁 Special request</div>
+              {viewModal.special_request}
+            </div>
+          )}
+          {Number(viewModal.delivery_fee) > 0 && (
+            <div style={{ background: viewModal.delivery_fee_covered ? '#fef2f2' : '#EEF4FF', border: `1px solid ${viewModal.delivery_fee_covered ? '#f5c6c6' : '#d0e4ff'}`, borderRadius: 8, padding: '10px 14px', marginBottom: 12, fontSize: 13, color: viewModal.delivery_fee_covered ? '#c62828' : '#2f6fc0' }}>
+              <div style={{ fontSize: 11, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: 4 }}>Island delivery fee</div>
+              MVR {Number(viewModal.delivery_fee).toFixed(2)} — {viewModal.delivery_fee_covered ? 'covered by the shop (logged as expense)' : 'paid by the customer (included in total)'}
+            </div>
+          )}
           {viewModal.notes && (
             <div style={{ background: '#FFF8E1', border: '1px solid #FAEEDA', borderRadius: 8, padding: '10px 14px', marginBottom: 12, fontSize: 13, color: '#555' }}>
               <div style={{ fontSize: 11, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: 4 }}>Notes</div>
@@ -1057,11 +1123,43 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
             <div style={{ fontSize: 11, color: '#9aa7b8', marginTop: 8 }}>Also editable from the Deliveries tab.</div>
           </div>
 
+          {/* Special request + island delivery fee */}
+          <div style={{ marginBottom: 14, border: '1px solid #FAEEDA', background: '#FFFDF6', borderRadius: 10, padding: '12px 14px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#b8740a', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: 10 }}>
+              🎁 Special request & delivery fee
+            </label>
+            <input value={form.special_request} onChange={f('special_request')} placeholder="e.g. Gift wrapping, birthday card, hide the price tag…"
+              style={{ width: '100%', padding: '8px 10px', border: '1px solid #eee0c8', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', background: '#fff', outline: 'none', boxSizing: 'border-box', marginBottom: 10 }} />
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              <div style={{ flex: '0 1 160px', minWidth: 0 }}>
+                <label style={{ fontSize: 10, color: '#999', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: 4, fontWeight: 600 }}>Island delivery fee (MVR)</label>
+                <input type="number" min="0" step="0.01" value={form.delivery_fee} onChange={f('delivery_fee')} placeholder="0"
+                  style={{ width: '100%', padding: '8px 10px', border: '1px solid #eee0c8', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', background: '#fff', outline: 'none', boxSizing: 'border-box' }} />
+              </div>
+              {parseFloat(form.delivery_fee) > 0 && (
+                <div style={{ display: 'flex', border: '1px solid #eee0c8', borderRadius: 8, overflow: 'hidden' }}>
+                  <button type="button" onClick={() => setForm(p => ({ ...p, delivery_fee_covered: false }))}
+                    style={{ padding: '8px 13px', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, fontFamily: 'inherit', background: !form.delivery_fee_covered ? '#1D9E75' : '#fff', color: !form.delivery_fee_covered ? '#fff' : '#888' }}>Customer pays back</button>
+                  <button type="button" onClick={() => setForm(p => ({ ...p, delivery_fee_covered: true }))}
+                    style={{ padding: '8px 13px', border: 'none', borderLeft: '1px solid #eee0c8', cursor: 'pointer', fontSize: 12, fontWeight: 700, fontFamily: 'inherit', background: form.delivery_fee_covered ? '#c62828' : '#fff', color: form.delivery_fee_covered ? '#fff' : '#888' }}>We cover it</button>
+                </div>
+              )}
+            </div>
+            {parseFloat(form.delivery_fee) > 0 && (
+              <div style={{ fontSize: 11.5, color: form.delivery_fee_covered ? '#c62828' : '#1D9E75', marginTop: 8, fontWeight: 600 }}>
+                {form.delivery_fee_covered
+                  ? `Shop covers MVR ${(parseFloat(form.delivery_fee) || 0).toFixed(2)} — logged as a Delivery expense, not added to the bill.`
+                  : `MVR ${(parseFloat(form.delivery_fee) || 0).toFixed(2)} added to the customer's total.`}
+              </div>
+            )}
+          </div>
+
           {/* Order total summary */}
           <div style={{ background: '#f8f7f4', borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 13, display: 'flex', gap: 20, flexWrap: 'wrap' }}>
             <span>Subtotal: <strong>MVR {cartSubtotal.toFixed(2)}</strong></span>
             {discountAmount > 0 && <span style={{ color: '#1D9E75' }}>Discount: <strong>-MVR {discountAmount.toFixed(2)}{form.discount_type === 'percent' ? ` (${form.discount_value}%)` : ''}</strong></span>}
-            <span style={{ fontWeight: 800, color: '#0d1b2a' }}>Total: <strong>MVR {cartTotal.toFixed(2)}</strong></span>
+            {parseFloat(form.delivery_fee) > 0 && !form.delivery_fee_covered && <span style={{ color: '#378ADD' }}>Delivery: <strong>+MVR {(parseFloat(form.delivery_fee) || 0).toFixed(2)}</strong></span>}
+            <span style={{ fontWeight: 800, color: '#0d1b2a' }}>Total: <strong>MVR {(cartTotal + (form.delivery_fee_covered ? 0 : parseFloat(form.delivery_fee) || 0)).toFixed(2)}</strong></span>
             <span style={{ fontSize: 11, color: '#aaa' }}>Invoice: {form.invoice_number}</span>
           </div>
 

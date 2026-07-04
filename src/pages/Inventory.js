@@ -1,5 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
+import { localToday } from '../lib/dates'
+import { logAudit } from '../lib/audit'
 import { PageHeader, Card, Button, Input, Select, Table, Modal, Badge, StockBadge, Spinner, FormRow, useToast, Toasts, ImageTile } from '../components/UI'
 import { Plus, Trash2, Edit2, Upload, X, Package, Eye, Barcode, Download, Printer, Camera, LayoutGrid, List, MoreVertical, ShoppingBag, Percent, Minus, RotateCcw } from 'lucide-react'
 
@@ -174,6 +176,7 @@ export default function Inventory() {
     }
     setSaving(false)
     if (error) { toast.error('Failed to save: ' + error.message); return }
+    logAudit(modal === 'add' ? 'create' : 'update', 'product', form.name, { stock: payload.stock_qty, cost: payload.cost_price, sell: payload.sell_price })
     toast.success(modal === 'add' ? 'Product added!' : 'Updated!')
     setModal(null); load()
   }
@@ -195,7 +198,7 @@ export default function Inventory() {
       customer_name: cust?.name || orderForm.customer_name || '',
       channel: orderForm.channel,
       status: 'pending',
-      order_date: new Date().toISOString().split('T')[0],
+      order_date: localToday(),
       payment_status: orderForm.payment_status,
       invoice_number: `INV-${Date.now().toString().slice(-6)}`,
       product_id: p.id,
@@ -212,13 +215,16 @@ export default function Inventory() {
     await supabase.from('products').update({ stock_qty: newStock }).eq('id', p.id)
     setPlacingOrder(false)
     setOrderModal(null)
+    logAudit('create', 'order', `${payload.invoice_number} — ${payload.customer_name || 'Walk-in'} (${p.name} ×${qty})`, { total: payload.total_price })
     toast.success(`Order created for ${p.name} — view it in Orders`)
     load()
   }
 
   async function del(id) {
     if (!window.confirm('Delete this product?')) return
+    const prod = products.find(p => p.id === id)
     await supabase.from('products').delete().eq('id', id)
+    logAudit('delete', 'product', prod?.name || id, { stock: prod?.stock_qty })
     toast.success('Deleted'); load()
   }
 

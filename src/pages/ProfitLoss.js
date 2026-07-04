@@ -52,9 +52,11 @@ export default function Accounting() {
 
   const inPeriod = date => periodFilter === 'all' || (date && date.startsWith(periodFilter))
 
-  // Calculations
+  // Calculations — revenue counts paid orders even if not yet delivered
+  const isRevenue = o => o.status !== 'cancelled' && (o.status === 'delivered' || o.payment_status === 'paid')
+  const revOrders = orders.filter(o => isRevenue(o) && inPeriod(o.order_date))
   const delivered = orders.filter(o => o.status === 'delivered' && inPeriod(o.order_date))
-  const revenue = delivered.reduce((s, o) => s + Number(o.total_price || 0), 0)
+  const revenue = revOrders.reduce((s, o) => s + Number(o.total_price || 0), 0)
   const cogs = delivered.reduce((s, o) => {
     const p = products.find(p => p.id === o.product_id)
     return s + (p ? o.qty * Number(p.cost_price) : 0)
@@ -78,14 +80,14 @@ export default function Accounting() {
     monthlyMatrix[e.category][m] = (monthlyMatrix[e.category][m] || 0) + Number(e.amount)
   })
   const monthlyRevenue = {}
-  orders.filter(o => o.status === 'delivered').forEach(o => {
+  orders.filter(isRevenue).forEach(o => {
     const m = o.order_date?.slice(0, 7)
     if (m) monthlyRevenue[m] = (monthlyRevenue[m] || 0) + Number(o.total_price || 0)
   })
 
   // Journal
   const journal = []
-  orders.filter(o => o.status === 'delivered').forEach(o => {
+  orders.filter(isRevenue).forEach(o => {
     const amt = Number(o.total_price || 0)
     const p = products.find(p => p.id === o.product_id)
     const cost = p ? o.qty * Number(p.cost_price) : 0
@@ -302,7 +304,7 @@ export default function Accounting() {
 
         <div class="doc-footer">
           <div class="footer-brand">Brick's &amp; Joy</div>
-          <div>Rate: 1 USD = ${MVR_RATE} MVR &nbsp;·&nbsp; Revenue recognized on delivered orders only</div>
+          <div>Rate: 1 USD = ${MVR_RATE} MVR &nbsp;·&nbsp; Revenue recognized on paid & delivered orders</div>
         </div>
         <script>window.onload = () => window.print()</script>
       </body></html>`)
@@ -370,12 +372,12 @@ export default function Accounting() {
           : gstPeriod === '3m' ? new Date(now.getFullYear(), now.getMonth() - 3, 1)
           : new Date(now.getFullYear(), now.getMonth() - 12, 1)
         const sinceDateStr = sinceDate.toISOString().split('T')[0]
-        const periodDelivered = orders.filter(o => o.status === 'delivered' && o.order_date >= sinceDateStr)
+        const periodDelivered = orders.filter(o => isRevenue(o) && o.order_date >= sinceDateStr)
         const periodRevenue = periodDelivered.reduce((s, o) => s + Number(o.total_price || 0), 0)
 
         // Last 12m revenue (for threshold check)
         const last12Start = new Date(now.getFullYear(), now.getMonth() - 12, 1).toISOString().split('T')[0]
-        const last12Revenue = orders.filter(o => o.status === 'delivered' && o.order_date >= last12Start)
+        const last12Revenue = orders.filter(o => isRevenue(o) && o.order_date >= last12Start)
           .reduce((s, o) => s + Number(o.total_price || 0), 0)
 
         const thresholdPct = Math.min(100, (last12Revenue / GST_THRESHOLD) * 100)

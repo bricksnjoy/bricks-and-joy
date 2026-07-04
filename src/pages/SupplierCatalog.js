@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
+import { localToday } from '../lib/dates'
 import { PageHeader, Card, Button, Input, Select, Modal, Spinner, FormRow, useToast, Toasts, Badge, ImageTile } from '../components/UI'
 import {
   Plus, Trash2, Edit2, Eye, Search, Building2, Package, Truck,
@@ -367,7 +368,7 @@ export default function SupplierCatalog() {
   async function saveBatchPO() {
     if (batchPoItems.length === 0) return
     setSaving(true)
-    const orderDate = new Date().toISOString().split('T')[0]
+    const orderDate = localToday()
     // Single batch_id groups everything into one purchase order — one invoice, arrives once.
     const batchId = (window.crypto?.randomUUID?.() || `b${Date.now()}${Math.random().toString(36).slice(2, 8)}`)
     const records = batchPoItems.map(item => {
@@ -556,7 +557,7 @@ export default function SupplierCatalog() {
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Catalog')
     const who = activeSupplier ? activeSupplier.name.replace(/[^\w]+/g, '_') : 'all-suppliers'
-    XLSX.writeFile(wb, `supplier-catalog-${who}-${new Date().toISOString().split('T')[0]}.xlsx`)
+    XLSX.writeFile(wb, `supplier-catalog-${who}-${localToday()}.xlsx`)
     toast.success(`Exported ${rows.length} product${rows.length === 1 ? '' : 's'}`)
   }
 

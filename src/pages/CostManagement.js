@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { localToday } from '../lib/dates'
 import { PageHeader, Card, Button, Input, Select, Table, Modal, Spinner, FormRow, useToast, Toasts, Badge } from '../components/UI'
 import { Plus, Trash2, Edit2, Gift, FlaskConical, Megaphone, Instagram, Users, Package, Truck, User, Store, Lightbulb, Undo2, FileText, ArrowLeftRight, Tag, PieChart, Filter } from 'lucide-react'
 
@@ -37,7 +38,7 @@ const CAT_COLORS = {
   'Returns / Refunds': 'red', 'Other': 'gray',
 }
 
-const EMPTY = { description: '', category: 'Meta Ads', amount: '', currency: 'MVR', expense_date: new Date().toISOString().split('T')[0] }
+const EMPTY = { description: '', category: 'Meta Ads', amount: '', currency: 'MVR', expense_date: localToday() }
 
 export default function CostManagement() {
   const [costs, setCosts] = useState([])

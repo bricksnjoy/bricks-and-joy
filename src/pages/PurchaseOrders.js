@@ -1,5 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
+import { localToday } from '../lib/dates'
+import { logAudit } from '../lib/audit'
 import { PageHeader, Card, Button, Input, Select, Table, Modal, Spinner, FormRow, useToast, Toasts, Badge } from '../components/UI'
 import { Plus, Trash2, Package, Truck, X, Info, AlertTriangle, CreditCard, Wallet, CheckCircle, Paperclip, Eye, Pencil, LayoutGrid, List, ChevronDown } from 'lucide-react'
 import { restockPredictions } from '../lib/insights'
@@ -40,7 +42,7 @@ export default function PurchaseOrders() {
   const [batchModal, setBatchModal] = useState(false)
   const [supplierModal, setSupplierModal] = useState(false)
   const [payModal, setPayModal] = useState(null) // PO object being paid
-  const [payForm, setPayForm] = useState({ amount: '', payment_date: new Date().toISOString().split('T')[0], payment_method: 'Bank Transfer', reference: '', notes: '', slips: [] })
+  const [payForm, setPayForm] = useState({ amount: '', payment_date: localToday(), payment_method: 'Bank Transfer', reference: '', notes: '', slips: [] })
   const [paymentsTab, setPaymentsTab] = useState(false)
   const [viewSlips, setViewSlips] = useState(null) // { slips: [...], title } for fullscreen viewer
   const [viewTab, setViewTab] = useState('ongoing') // 'ongoing' | 'history'
@@ -51,7 +53,7 @@ export default function PurchaseOrders() {
   const [productsModal, setProductsModal] = useState(null) // group whose products are shown in full
   const [editPayModal, setEditPayModal] = useState(null) // payment being edited
   const [editPayForm, setEditPayForm] = useState({ amount: '', payment_date: '', payment_method: 'Bank Transfer', reference: '', notes: '', slips: [], newCosts: [] })
-  const [batchForm, setBatchForm] = useState({ supplier_id: '', supplier_name: '', order_date: new Date().toISOString().split('T')[0], expected_date: '', items: [], extraCosts: [] })
+  const [batchForm, setBatchForm] = useState({ supplier_id: '', supplier_name: '', order_date: localToday(), expected_date: '', items: [], extraCosts: [] })
   const [supplierForm, setSupplierForm] = useState({ name: '', contact_name: '', email: '', phone: '', address: '' })
   const [saving, setSaving] = useState(false)
   const [supplierCatalog, setSupplierCatalog] = useState([])
@@ -72,7 +74,7 @@ export default function PurchaseOrders() {
       localStorage.removeItem('bnj_batch_prefill')
       const items = JSON.parse(raw)
       if (Array.isArray(items) && items.length) {
-        setBatchForm({ supplier_id: '', supplier_name: '', order_date: new Date().toISOString().split('T')[0], expected_date: '', items, extraCosts: [] })
+        setBatchForm({ supplier_id: '', supplier_name: '', order_date: localToday(), expected_date: '', items, extraCosts: [] })
         setBatchModal(true)
       }
     } catch { /* ignore */ }
@@ -195,7 +197,7 @@ export default function PurchaseOrders() {
 
     setBatchForm({
       supplier_id: '', supplier_name: '',
-      order_date: new Date().toISOString().split('T')[0],
+      order_date: localToday(),
       expected_date: '',
       items: suggestedItems.length > 0 ? suggestedItems : [{ product_id: '', product_name: '', qty: 1, unit_cost: 0, current_stock: 0 }],
       extraCosts: []
@@ -392,6 +394,7 @@ export default function PurchaseOrders() {
       const paid = paidForGroup(group)
       if (paid < group.total) openGroupPayModal(group)
     }
+    logAudit(newStatus === 'received' ? 'stock' : 'update', 'purchase_order', `${group.batchLabel || group.rows[0]?.supplier_name || ''} (${group.rows.length} items)`, { status: newStatus, total: group.total })
     load()
   }
 
@@ -403,6 +406,7 @@ export default function PurchaseOrders() {
   async function delGroup(group) {
     if (!window.confirm('Delete this order? This will delete all line items including fees.')) return
     await supabase.from('purchase_orders').delete().in('id', group.rows.map(r => r.id))
+    logAudit('delete', 'purchase_order', `${group.batchLabel || group.rows[0]?.supplier_name || ''} (${group.rows.length} items)`, { total: group.total })
     toast.success('Order deleted')
     load()
   }
@@ -416,7 +420,7 @@ export default function PurchaseOrders() {
     const anchor = group.rows.find(r => r.cost_type !== 'extra') || group.rows[0]
     const paid = paidForGroup(group)
     const outstanding = Math.max(0, group.total - paid)
-    setPayForm({ amount: outstanding > 0 ? outstanding.toFixed(2) : '', payment_date: new Date().toISOString().split('T')[0], payment_method: 'Bank Transfer', reference: '', notes: '', slips: [] })
+    setPayForm({ amount: outstanding > 0 ? outstanding.toFixed(2) : '', payment_date: localToday(), payment_method: 'Bank Transfer', reference: '', notes: '', slips: [] })
     setPayModal({ ...anchor, total_cost: group.total, _groupTotal: group.total, _groupPaid: paid, _groupIds: group.rows.map(r => r.id) })
   }
 
@@ -488,7 +492,7 @@ export default function PurchaseOrders() {
     const newGroupPaid = freshPay.filter(x => payModal._groupIds?.includes(x.purchase_order_id) || x.purchase_order_id === payModal.id).reduce((s, x) => s + Number(x.amount), 0)
     const newOutstanding = Math.max(0, payModal._groupTotal - newGroupPaid)
     setPayModal(prev => ({ ...prev, _groupPaid: newGroupPaid }))
-    setPayForm({ amount: newOutstanding > 0 ? newOutstanding.toFixed(2) : '', payment_date: new Date().toISOString().split('T')[0], payment_method: payForm.payment_method, reference: '', notes: '', slips: [] })
+    setPayForm({ amount: newOutstanding > 0 ? newOutstanding.toFixed(2) : '', payment_date: localToday(), payment_method: payForm.payment_method, reference: '', notes: '', slips: [] })
   }
 
   function switchView(v) { setListView(v); localStorage.setItem('po_list_view', v) }
@@ -496,7 +500,7 @@ export default function PurchaseOrders() {
   function openEditPayment(payment) {
     setEditPayForm({
       amount: String(payment.amount ?? ''),
-      payment_date: payment.payment_date || new Date().toISOString().split('T')[0],
+      payment_date: payment.payment_date || localToday(),
       payment_method: payment.payment_method || 'Bank Transfer',
       reference: payment.reference || '',
       notes: payment.notes || '',
@@ -538,7 +542,7 @@ export default function PurchaseOrders() {
         qty: 1,
         unit_cost: parseFloat(c.amount),
         status: po?.status || 'received',
-        order_date: po?.order_date || new Date().toISOString().split('T')[0],
+        order_date: po?.order_date || localToday(),
         expected_date: po?.expected_date || null,
         cost_type: 'extra',
         batch_id: batchId,
@@ -627,7 +631,7 @@ export default function PurchaseOrders() {
       batchNo: anchor.batch_no || null,
       supplier_id: anchor.supplier_id || '',
       supplier_name: anchor.supplier_name || '',
-      order_date: anchor.order_date || new Date().toISOString().split('T')[0],
+      order_date: anchor.order_date || localToday(),
       expected_date: anchor.expected_date || '',
       // Editable copies of existing product rows
       existingItems: productRows.map(r => ({ id: r.id, product_id: r.product_id, product_name: r.product_name, qty: r.qty, unit_cost: r.unit_cost, image_url: r.image_url, _origQty: r.qty, _stockAdded: r.stock_added })),

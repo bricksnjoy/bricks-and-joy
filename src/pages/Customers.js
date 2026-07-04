@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { logAudit } from '../lib/audit'
 import { PageHeader, Card, Button, Input, Table, Modal, Spinner, FormRow, useToast, Toasts, Badge, StatusBadge } from '../components/UI'
 import { Plus, Trash2, Edit2, Eye, Printer, MessageSquare, Crown, Sparkles } from 'lucide-react'
 import { loyaltyProfile, TIERS, AT_RISK_DAYS } from '../lib/loyalty'
@@ -68,13 +69,16 @@ export default function Customers() {
     }
     setSaving(false)
     if (error) { toast.error('Failed to save'); return }
+    logAudit(modal === 'add' ? 'create' : 'update', 'customer', form.name, null)
     toast.success(modal === 'add' ? 'Customer added!' : 'Updated!')
     setModal(null); load()
   }
 
   async function del(id) {
     if (!window.confirm('Delete this customer?')) return
+    const c = customers.find(x => x.id === id)
     await supabase.from('customers').delete().eq('id', id)
+    logAudit('delete', 'customer', c?.name || id, null)
     toast.success('Deleted'); load()
   }
 
