@@ -11,7 +11,7 @@ import { logAudit } from '../lib/audit'
 const CHANNELS = ['Website','Instagram','Facebook','Retail shop','Pop-up shop','Call']
 const STATUSES = [{ value: 'created', label: 'Order created' },{ value: 'transit', label: 'Dispatched' },{ value: 'delivered', label: 'Delivered' },{ value: 'cancelled', label: 'Cancelled' }]
 const PAY_METHODS = ['Cash','BML Transfer','Bank Transfer','Card','Other']
-const EMPTY_FORM = { customer_id:'', customer_name:'', channel:'Retail shop', status:'created', order_date:'', notes:'', payment_status:'unpaid', payment_method:'', transfer_reference:'', invoice_number:'', delivery_person:'', delivery_date:'', delivery_time:'', discount_value:0, discount_type:'amount', special_request:'', delivery_fee:'', delivery_fee_covered:false, delivery_fee_separate:true, special_request_cost:'', special_request_covered:false, special_request_separate:true }
+const EMPTY_FORM = { customer_id:'', customer_name:'', channel:'Retail shop', status:'created', order_date:'', notes:'', payment_status:'unpaid', payment_method:'', transfer_reference:'', invoice_number:'', delivery_person:'', delivery_date:'', delivery_time:'', discount_value:0, discount_type:'amount', special_request:'', delivery_fee:'', delivery_fee_covered:false, delivery_fee_separate:true, delivery_fee_expense:true, special_request_cost:'', special_request_covered:false, special_request_separate:true, special_request_expense:false }
 const today = localToday
 // Gift/special-request charges and customer-paid delivery fees live on their OWN
 // invoice rows (no product) so each appears as a separate transaction on receipts
@@ -31,7 +31,6 @@ export default function Orders() {
   const [editOrder, setEditOrder] = useState(null)
   const [editOrderRows, setEditOrderRows] = useState([])
   const [editGiftRow, setEditGiftRow] = useState(null)          // existing gift line item when editing
-  const [editHadCoveredGift, setEditHadCoveredGift] = useState(false)
   const [editFeeRow, setEditFeeRow] = useState(null)            // existing delivery-fee line item when editing
   const [viewModal, setViewModal] = useState(null)
   const [payModal, setPayModal] = useState(null)
@@ -94,7 +93,6 @@ export default function Orders() {
     setCartItems([{ ...EMPTY_ITEM }])
     setEditOrder(null)
     setEditGiftRow(null)
-    setEditHadCoveredGift(false)
     setEditFeeRow(null)
     setModal(true)
   }
@@ -134,12 +132,15 @@ export default function Orders() {
       special_request_cost: giftRow ? Number(giftRow.total_price) || '' : (() => { const r = rows.find(x => Number(x.special_request_cost) > 0); return r ? Number(r.special_request_cost) : '' })(),
       special_request_covered: !giftRow && rows.some(r => Number(r.special_request_cost) > 0 && r.special_request_covered),
       special_request_separate: giftRow ? true : !rows.some(r => Number(r.special_request_cost) > 0 && !r.special_request_covered),
+      // On edit, don't auto-log payout expenses unless the user ticks the box
+      // (duplicates are prevented by invoice-number dedupe anyway)
+      delivery_fee_expense: false,
+      special_request_expense: false,
     })
     setCartItems(rows.map(r => ({ product_id: r.product_id || '', product_name: r.product_name || '', qty: r.qty || 1, unit_price: r.unit_price || 0 })))
     setEditOrder(order)
     setEditOrderRows(rows)
     setEditGiftRow(giftRow)
-    setEditHadCoveredGift(rows.some(r => Number(r.special_request_cost) > 0 && r.special_request_covered))
     setEditFeeRow(feeRow)
     setModal(true)
   }
@@ -240,6 +241,40 @@ export default function Orders() {
   }
   const buildGiftRow = () => buildChargeRow(`${GIFT_NAME}${form.special_request ? ` — ${form.special_request.slice(0, 80)}` : ''}`, giftInfo().cost)
   const buildFeeRow = () => buildChargeRow(FEE_NAME, feeInfo().fee)
+
+  // Log the payout side of a charge (shop pays courier / buys wrapping) as an
+  // expense so the −MVR line on the bank statement has something to reconcile
+  // against. Deduped by invoice number so edits never double-log it.
+  async function ensureChargeExpense(category, amount, description) {
+    const inv = form.invoice_number || ''
+    if (inv) {
+      const { data } = await supabase.from('expenses').select('id').eq('category', category).ilike('description', `%${inv}%`).limit(1)
+      if (data && data.length) return false
+    }
+    let payload = { description, category, amount, currency: 'MVR', expense_date: today() }
+    let { error } = await supabase.from('expenses').insert(payload)
+    while (error && dropMissingCol(error, payload)) { error = (await supabase.from('expenses').insert(payload)).error }
+    return !error
+  }
+
+  // The payout side of both charges. Covered charges always log an expense;
+  // customer-pays-back charges log one only when "paid from bank" is ticked
+  // (shop fronted the money and the customer reimburses it).
+  async function logChargeExpenses() {
+    const inv = form.invoice_number || form.customer_name
+    const fi = feeInfo()
+    if (fi.fee > 0 && (fi.covered || form.delivery_fee_expense)) {
+      const added = await ensureChargeExpense('Delivery', fi.fee,
+        `Island delivery ${fi.covered ? '(covered)' : '(paid out — customer pays back)'} — ${inv}`)
+      if (added) toast.info(`Delivery payout MVR ${fi.fee.toFixed(2)} logged as expense`)
+    }
+    const g = giftInfo()
+    if (g.cost > 0 && (g.covered || form.special_request_expense)) {
+      const added = await ensureChargeExpense('Packaging', g.cost,
+        `Gift / special request ${g.covered ? '(covered)' : '(paid out — customer pays back)'} — ${inv}${form.special_request ? ': ' + form.special_request.slice(0, 80) : ''}`)
+      if (added) toast.info(`Gift payout MVR ${g.cost.toFixed(2)} logged as expense`)
+    }
+  }
 
   // Upsert or remove a charge's own invoice row when editing an order
   async function syncChargeRow(existingRow, shouldExist, build) {
@@ -356,30 +391,14 @@ export default function Orders() {
           }
         }
       }
-      // Shop newly covering an island delivery fee → log it as a Delivery expense
-      const { fee, covered } = feeInfo()
-      const hadCoveredFee = editOrderRows.some(r => Number(r.delivery_fee) > 0 && r.delivery_fee_covered)
-      if (covered && fee > 0 && !hadCoveredFee) {
-        await supabase.from('expenses').insert({
-          description: `Island delivery (covered) — ${form.invoice_number || form.customer_name}`,
-          category: 'Delivery', amount: fee, currency: 'MVR', expense_date: today(),
-        })
-        toast.info(`Delivery fee MVR ${fee.toFixed(2)} logged as expense`)
-      }
       // Gift & delivery-fee charges — keep their own invoice rows in sync.
       // (Only when marked "separate"; merged charges live inside the first row's total.)
       {
         const g = giftInfo()
         await syncChargeRow(editGiftRow, g.cost > 0 && !g.covered && g.separate, buildGiftRow)
-        if (g.covered && g.cost > 0 && !editHadCoveredGift) {
-          await supabase.from('expenses').insert({
-            description: `Gift / special request (covered) — ${form.invoice_number || form.customer_name}${form.special_request ? ': ' + form.special_request.slice(0, 80) : ''}`,
-            category: 'Packaging', amount: g.cost, currency: 'MVR', expense_date: today(),
-          })
-          toast.info(`Gift cost MVR ${g.cost.toFixed(2)} logged as expense`)
-        }
         const fi = feeInfo()
         await syncChargeRow(editFeeRow, fi.fee > 0 && !fi.covered && fi.separate, buildFeeRow)
+        await logChargeExpenses()
       }
       logAudit('update', 'order', `${form.invoice_number || ''} — ${form.customer_name}`, { items: validItems.length, total: cartTotal })
       setSaving(false)
@@ -407,17 +426,6 @@ export default function Orders() {
         else if (newStock <= (prod.low_stock_threshold ?? lowStockThreshold ?? 10)) toast.info(`⚠️ Low stock: ${prod.name} — ${newStock} left`)
       }
     }
-    // Shop covering the island delivery fee → log it as a Delivery expense
-    {
-      const { fee, covered } = feeInfo()
-      if (covered && fee > 0) {
-        await supabase.from('expenses').insert({
-          description: `Island delivery (covered) — ${form.invoice_number || form.customer_name}`,
-          category: 'Delivery', amount: fee, currency: 'MVR', expense_date: today(),
-        })
-        toast.info(`Delivery fee MVR ${fee.toFixed(2)} logged as expense`)
-      }
-    }
     // Gift & delivery-fee charges as their own transactions (when marked separate)
     {
       const g = giftInfo()
@@ -426,12 +434,6 @@ export default function Orders() {
         let { error: ge } = await supabase.from('orders').insert(giftPayload)
         while (ge && dropMissingCol(ge, giftPayload)) { ge = (await supabase.from('orders').insert(giftPayload)).error }
         if (!ge) toast.info(`Gift charge MVR ${g.cost.toFixed(2)} added as its own line`)
-      } else if (g.cost > 0 && g.covered) {
-        await supabase.from('expenses').insert({
-          description: `Gift / special request (covered) — ${form.invoice_number || form.customer_name}${form.special_request ? ': ' + form.special_request.slice(0, 80) : ''}`,
-          category: 'Packaging', amount: g.cost, currency: 'MVR', expense_date: today(),
-        })
-        toast.info(`Gift cost MVR ${g.cost.toFixed(2)} logged as expense`)
       }
       const fi = feeInfo()
       if (fi.fee > 0 && !fi.covered && fi.separate) {
@@ -440,6 +442,7 @@ export default function Orders() {
         while (fe && dropMissingCol(fe, feePayload)) { fe = (await supabase.from('orders').insert(feePayload)).error }
         if (!fe) toast.info(`Delivery fee MVR ${fi.fee.toFixed(2)} added as its own line`)
       }
+      await logChargeExpenses()
     }
     logAudit('create', 'order', `${form.invoice_number || ''} — ${form.customer_name}`, { items: validItems.length, total: cartTotal })
     setSaving(false)
@@ -1281,6 +1284,12 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
                     : `MVR ${(parseFloat(form.special_request_cost) || 0).toFixed(2)} merged into the order total — one combined transaction.`}
               </div>
             )}
+            {parseFloat(form.special_request_cost) > 0 && !form.special_request_covered && (
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 7, fontSize: 11.5, color: '#666', marginBottom: 10, cursor: 'pointer' }}>
+                <input type="checkbox" checked={!!form.special_request_expense} onChange={e => setForm(p => ({ ...p, special_request_expense: e.target.checked }))} style={{ marginTop: 1 }} />
+                <span>We paid for this from the bank (wrapping, gift item…) — also log a <strong>Packaging expense</strong> so the −MVR line in the statement reconciles.</span>
+              </label>
+            )}
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
               <div style={{ flex: '0 1 160px', minWidth: 0 }}>
                 <label style={{ fontSize: 10, color: '#999', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: 4, fontWeight: 600 }}>Island delivery fee (MVR)</label>
@@ -1312,6 +1321,12 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
                     ? `MVR ${(parseFloat(form.delivery_fee) || 0).toFixed(2)} added as its own line on the invoice — shows separately in reconciliation (e.g. 550 + 30, not 580).`
                     : `MVR ${(parseFloat(form.delivery_fee) || 0).toFixed(2)} merged into the order total — one combined transaction.`}
               </div>
+            )}
+            {parseFloat(form.delivery_fee) > 0 && !form.delivery_fee_covered && (
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 7, fontSize: 11.5, color: '#666', marginTop: 8, cursor: 'pointer' }}>
+                <input type="checkbox" checked={!!form.delivery_fee_expense} onChange={e => setForm(p => ({ ...p, delivery_fee_expense: e.target.checked }))} style={{ marginTop: 1 }} />
+                <span>We paid the courier/boat from the bank — also log a <strong>Delivery expense</strong> so the −MVR {(parseFloat(form.delivery_fee) || 0).toFixed(0)} line in the statement reconciles.</span>
+              </label>
             )}
           </div>
 
