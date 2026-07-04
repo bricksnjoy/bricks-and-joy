@@ -254,6 +254,7 @@ export default function Orders() {
     let payload = { description, category, amount, currency: 'MVR', expense_date: today() }
     let { error } = await supabase.from('expenses').insert(payload)
     while (error && dropMissingCol(error, payload)) { error = (await supabase.from('expenses').insert(payload)).error }
+    if (error) toast.error(`Could not log ${category} expense: ` + error.message)
     return !error
   }
 
