@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useRef } from 'react'
 import { supabase } from './lib/supabase'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
@@ -65,6 +65,69 @@ const DEFAULT_NAV = [
 ]
 
 const NAV_KEY = 'bnj_nav_layout_v1'
+
+const PRESENCE_COLORS = ['#7F77DD', '#1D9E75', '#FFA500', '#378ADD', '#E24B4A', '#0F6E56']
+const presenceColor = name => PRESENCE_COLORS[[...(name || '?')].reduce((a, c) => a + c.charCodeAt(0), 0) % PRESENCE_COLORS.length]
+
+// Live "who's online" indicator (header). Uses Supabase Realtime Presence:
+// every open session joins one shared channel and broadcasts its user + current
+// page; everyone connected sees the same list update in real time.
+function OnlineUsers({ session, pageLabel }) {
+  const [online, setOnline] = useState([])
+  const channelRef = useRef(null)
+  const userId = session?.user?.id
+
+  useEffect(() => {
+    if (!userId) return
+    const user = session.user
+    const name = user.user_metadata?.full_name || (user.email || '').split('@')[0] || 'Someone'
+    const channel = supabase.channel('bnj-online', { config: { presence: { key: userId } } })
+    channelRef.current = channel
+    channel.on('presence', { event: 'sync' }, () => {
+      const state = channel.presenceState()
+      setOnline(Object.entries(state).map(([id, metas]) => ({ id, ...metas[metas.length - 1] })))
+    })
+    channel.subscribe(status => {
+      if (status === 'SUBSCRIBED') channel.track({ name, email: user.email, page: pageLabel })
+    })
+    return () => { channelRef.current = null; supabase.removeChannel(channel); setOnline([]) }
+  }, [userId])
+
+  // Broadcast the page currently being viewed without rejoining the channel
+  useEffect(() => {
+    const ch = channelRef.current
+    if (!ch || ch.state !== 'joined') return
+    const user = session?.user
+    if (!user) return
+    const name = user.user_metadata?.full_name || (user.email || '').split('@')[0] || 'Someone'
+    ch.track({ name, email: user.email, page: pageLabel })
+  }, [pageLabel])
+
+  if (!online.length) return null
+  const sorted = [...online].sort((a, b) => (a.id === userId) - (b.id === userId)) // self last
+  return (
+    <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+      {sorted.map(u => {
+        const isMe = u.id === userId
+        const color = presenceColor(u.name)
+        return (
+          <div key={u.id} title={`${u.name}${isMe ? ' (you)' : ''} — on ${u.page || '…'}${u.email ? ` · ${u.email}` : ''}`}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 9px 4px 5px', borderRadius: 99, background: '#f8f7f4', border: '1px solid #f0ece6', cursor: 'default' }}>
+            <span style={{ position: 'relative', display: 'inline-flex' }}>
+              <span style={{ width: 22, height: 22, borderRadius: '50%', background: color, color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 800 }}>
+                {(u.name || '?')[0].toUpperCase()}
+              </span>
+              <span style={{ position: 'absolute', right: -1, bottom: -1, width: 8, height: 8, borderRadius: '50%', background: '#2ecc71', border: '2px solid #fff', animation: 'presencePulse 2s ease-in-out infinite' }} />
+            </span>
+            <span className="presence-name" style={{ fontSize: 11.5, fontWeight: 600, color: '#556', maxWidth: 90, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {u.name}{isMe ? ' (you)' : ''}
+            </span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
 
 // Merge a saved layout with defaults so newly added pages always appear and
 // removed pages are dropped.
@@ -189,6 +252,8 @@ export default function App() {
         @keyframes spin { to { transform: rotate(360deg) } }
         @keyframes fadeSlideUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes wobble { 0%,100%{transform:rotate(-1.2deg)} 50%{transform:rotate(1.2deg)} }
+        @keyframes presencePulse { 0%,100%{box-shadow:0 0 0 0 rgba(46,204,113,0.5)} 50%{box-shadow:0 0 0 4px rgba(46,204,113,0)} }
+        @media (max-width: 768px) { .presence-name { display: none !important; } }
 
         .nav-item {
           display: flex; align-items: center; gap: 10px; padding: 9px 12px;
@@ -377,6 +442,7 @@ export default function App() {
           <span style={{ fontSize: 14, fontWeight: 700, color: '#0d1b2a', letterSpacing: '-0.2px' }}>
             {currentItem?.label || 'Dashboard'}
           </span>
+          <OnlineUsers session={session} pageLabel={currentItem?.label || 'Dashboard'} />
         </div>
 
         <div key={page} className="page-content" style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '22px 26px' }}>
