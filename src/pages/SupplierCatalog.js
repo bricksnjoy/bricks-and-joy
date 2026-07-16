@@ -156,6 +156,7 @@ export default function SupplierCatalog() {
     const sup = s.data || []
     setSuppliers(sup)
     setCatalog(c.data || [])
+    syncFavs(c.data || [])
     const prods = pr.data || []
     setInventoryNames(new Set(prods.map(p => (p.name || '').toLowerCase().trim()).filter(Boolean)))
     setInventoryByName(new Map(prods.filter(p => p.name).map(p => [p.name.toLowerCase().trim(), { id: p.id, stock_qty: p.stock_qty }])))
@@ -164,13 +165,45 @@ export default function SupplierCatalog() {
     setLoading(false)
   }
 
-  function toggleFav(id) {
+  // Favourites are shared across devices via supplier_products.is_favorite.
+  // Legacy per-device favourites (localStorage 'bnj_cat_favs') are merged into
+  // the database once per device, then the local copy is removed.
+  async function syncFavs(items) {
+    const dbFavs = new Set(items.filter(i => i.is_favorite).map(i => i.id))
+    const validIds = new Set(items.map(i => i.id))
+    const local = JSON.parse(localStorage.getItem('bnj_cat_favs') || '[]')
+    const toMigrate = local.filter(id => validIds.has(id) && !dbFavs.has(id))
+    if (toMigrate.length) {
+      const { error } = await supabase.from('supplier_products').update({ is_favorite: true }).in('id', toMigrate)
+      if (error) {
+        // DB not ready (e.g. is_favorite column missing) — keep local favourites visible and retry next load
+        console.warn('Favourite migration failed:', error.message)
+        toMigrate.forEach(id => dbFavs.add(id))
+        setFavs(dbFavs)
+        return
+      }
+      toMigrate.forEach(id => dbFavs.add(id))
+    }
+    localStorage.removeItem('bnj_cat_favs')
+    setFavs(dbFavs)
+  }
+
+  async function toggleFav(id) {
+    const willFav = !favs.has(id)
     setFavs(prev => {
       const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
-      localStorage.setItem('bnj_cat_favs', JSON.stringify([...next]))
+      willFav ? next.add(id) : next.delete(id)
       return next
     })
+    const { error } = await supabase.from('supplier_products').update({ is_favorite: willFav }).eq('id', id)
+    if (error) {
+      setFavs(prev => {
+        const next = new Set(prev)
+        willFav ? next.delete(id) : next.add(id)
+        return next
+      })
+      toast.error('Failed to save favourite: ' + error.message)
+    }
   }
 
   // ── Filter ──────────────────────────────────────────────────────────────────

@@ -127,9 +127,11 @@ create table supplier_products (
   barcode text,
   notes text,
   custom_fields jsonb,
+  is_favorite boolean default false,   -- shared favourite flag, synced across all devices
   created_at timestamptz default now()
 );
 -- For existing databases: alter table supplier_products add column if not exists custom_fields jsonb;
+-- For existing databases: alter table supplier_products add column if not exists is_favorite boolean default false;
 
 -- PRODUCT CATEGORIES
 create table categories (
