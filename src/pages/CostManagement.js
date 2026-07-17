@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { localToday } from '../lib/dates'
+import { logAudit } from '../lib/audit'
 import { PageHeader, Card, Button, Input, Select, Table, Modal, Spinner, FormRow, useToast, Toasts, Badge } from '../components/UI'
 import { Plus, Trash2, Edit2, Gift, FlaskConical, Megaphone, Instagram, Users, Package, Truck, User, Store, Lightbulb, Undo2, FileText, ArrowLeftRight, Tag, PieChart, Filter } from 'lucide-react'
 
@@ -40,6 +41,10 @@ const CAT_COLORS = {
 
 const EMPTY = { description: '', category: 'Meta Ads', amount: '', currency: 'MVR', expense_date: localToday() }
 
+// Categories that make sense for handing out physical products
+const GIVEAWAY_CATEGORIES = ['Giveaway', 'Sample Testing', 'Sponsorship', 'Promotions']
+const EMPTY_GA_ROW = { product_id: '', qty: 1, unit_cost: '' }
+
 export default function CostManagement() {
   const [costs, setCosts] = useState([])
   const [loading, setLoading] = useState(true)
@@ -49,15 +54,24 @@ export default function CostManagement() {
   const [saving, setSaving] = useState(false)
   const [filterCat, setFilterCat] = useState('all')
   const [filterMonth, setFilterMonth] = useState('all')
+  const [products, setProducts] = useState([])
+  const [gaModal, setGaModal] = useState(false)
+  const [gaRows, setGaRows] = useState([{ ...EMPTY_GA_ROW }])
+  const [gaForm, setGaForm] = useState({ category: 'Giveaway', description: '', expense_date: localToday() })
   const toast = useToast()
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load(); loadProducts() }, [])
 
   async function load() {
     setLoading(true)
     const { data } = await supabase.from('expenses').select('*').order('expense_date', { ascending: false })
     setCosts(data || [])
     setLoading(false)
+  }
+
+  async function loadProducts() {
+    const { data } = await supabase.from('products').select('id, name, stock_qty, cost_price, low_stock_threshold').order('name')
+    setProducts(data || [])
   }
 
   function openAdd() { setForm(EMPTY); setEditItem(null); setModal(true) }
@@ -88,6 +102,55 @@ export default function CostManagement() {
   }
 
   const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
+
+  // ── Give away products: log the cost AND deduct the stock ────────────────────
+  function openGiveaway() {
+    setGaRows([{ ...EMPTY_GA_ROW }])
+    setGaForm({ category: 'Giveaway', description: '', expense_date: localToday() })
+    setGaModal(true)
+  }
+
+  function setGaRow(idx, patch) {
+    setGaRows(rows => rows.map((r, i) => i === idx ? { ...r, ...patch } : r))
+  }
+
+  function pickGaProduct(idx, productId) {
+    const prod = products.find(p => p.id === productId)
+    // default the unit cost to the product's cost price, still editable
+    setGaRow(idx, { product_id: productId, unit_cost: prod ? Number(prod.cost_price || 0) : '' })
+  }
+
+  const gaValidRows = gaRows.filter(r => r.product_id && parseInt(r.qty) > 0)
+  const gaTotal = gaValidRows.reduce((s, r) => s + parseInt(r.qty) * (parseFloat(r.unit_cost) || 0), 0)
+
+  async function saveGiveaway() {
+    if (!gaValidRows.length) { toast.error('Pick at least one product'); return }
+    setSaving(true)
+    for (const r of gaValidRows) {
+      const prod = products.find(p => p.id === r.product_id)
+      const qty = parseInt(r.qty)
+      const unitCost = parseFloat(r.unit_cost) || 0
+      const desc = `${gaForm.category}: ${prod?.name || 'Product'} ×${qty}${gaForm.description ? ` — ${gaForm.description}` : ''}`
+      const { error } = await supabase.from('expenses').insert({
+        description: desc, category: gaForm.category,
+        amount: +(qty * unitCost).toFixed(2), expense_date: gaForm.expense_date,
+      })
+      if (error) { setSaving(false); toast.error('Failed to save: ' + error.message); return }
+      // Deduct stock using a fresh read so concurrent edits aren't clobbered
+      const { data: fresh } = await supabase.from('products').select('stock_qty, name, low_stock_threshold').eq('id', r.product_id).single()
+      if (fresh) {
+        const newStock = (Number(fresh.stock_qty) || 0) - qty
+        await supabase.from('products').update({ stock_qty: newStock }).eq('id', r.product_id)
+        if (newStock <= 0) toast.error(`⚠️ ${fresh.name} OUT OF STOCK!`)
+        else if (newStock <= (fresh.low_stock_threshold ?? 10)) toast.info(`⚠️ Low stock: ${fresh.name} — ${newStock} left`)
+      }
+      logAudit('stock', 'product', `${prod?.name || r.product_id} −${qty} given away (${gaForm.category})`, { qty, unit_cost: unitCost, reason: gaForm.description || null })
+    }
+    setSaving(false)
+    toast.success('Giveaway logged — cost added & inventory updated!')
+    setGaModal(false)
+    load(); loadProducts()
+  }
 
   const months = [...new Set(costs.map(c => c.expense_date?.slice(0, 7)).filter(Boolean))].sort().reverse()
   const filtered = costs.filter(c => {
@@ -130,7 +193,12 @@ export default function CostManagement() {
       `}</style>
 
       <PageHeader title="Cost Management" subtitle="Track all business costs — giveaways, ads, samples, operations"
-        action={<Button onClick={openAdd}><Plus size={15} /> Add cost</Button>} />
+        action={
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Button variant="ghost" onClick={openGiveaway} style={{ border: '1px solid #e0e0e0' }}><Gift size={15} /> Give away products</Button>
+            <Button onClick={openAdd}><Plus size={15} /> Add cost</Button>
+          </div>
+        } />
 
       {/* Summary */}
       <div className="cm-grid">
@@ -243,6 +311,68 @@ export default function CostManagement() {
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <Button variant="ghost" onClick={() => setModal(false)}>Cancel</Button>
             <Button onClick={save} disabled={saving || !form.description || !form.amount}>{saving ? 'Saving…' : editItem ? 'Save changes' : 'Add cost'}</Button>
+          </div>
+        </Modal>
+      )}
+      {gaModal && (
+        <Modal title="Give away products" subtitle="Logs the cost here and deducts the stock from Inventory" onClose={() => setGaModal(false)}>
+          <FormRow>
+            <Select label="Reason *" value={gaForm.category} onChange={e => setGaForm(p => ({ ...p, category: e.target.value }))}
+              options={GIVEAWAY_CATEGORIES.map(c => ({ value: c, label: c }))} />
+            <Input label="Date" type="date" value={gaForm.expense_date} onChange={e => setGaForm(p => ({ ...p, expense_date: e.target.value }))} />
+          </FormRow>
+          <FormRow>
+            <Input label="Note / recipient" value={gaForm.description} onChange={e => setGaForm(p => ({ ...p, description: e.target.value }))}
+              placeholder="e.g. Instagram June giveaway winner" style={{ gridColumn: 'span 2' }} />
+          </FormRow>
+
+          <div style={{ fontSize: 12, color: '#666', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: 8 }}>Products *</div>
+          {gaRows.map((r, idx) => {
+            const prod = products.find(p => p.id === r.product_id)
+            const qty = parseInt(r.qty) || 0
+            const short = prod && qty > (Number(prod.stock_qty) || 0)
+            return (
+              <div key={idx} style={{ marginBottom: 10 }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+                  <Select label={idx === 0 ? 'Product' : undefined} value={r.product_id} onChange={e => pickGaProduct(idx, e.target.value)}
+                    options={[{ value: '', label: 'Select a product…' }, ...products.map(p => ({ value: p.id, label: `${p.name} (${p.stock_qty ?? 0} in stock)` }))]}
+                    style={{ flex: 1, minWidth: 0 }} />
+                  <Input label={idx === 0 ? 'Qty' : undefined} type="number" min="1" value={r.qty}
+                    onChange={e => setGaRow(idx, { qty: e.target.value })} style={{ width: 70, flexShrink: 0 }} />
+                  <Input label={idx === 0 ? 'Unit cost' : undefined} type="number" step="0.01" min="0" value={r.unit_cost}
+                    onChange={e => setGaRow(idx, { unit_cost: e.target.value })} style={{ width: 100, flexShrink: 0 }} />
+                  {gaRows.length > 1 && (
+                    <Button variant="ghost" onClick={() => setGaRows(rows => rows.filter((_, i) => i !== idx))} style={{ flexShrink: 0, padding: '10px 10px' }}>
+                      <Trash2 size={14} color="#E24B4A" />
+                    </Button>
+                  )}
+                </div>
+                {short && (
+                  <div style={{ fontSize: 11, color: '#E24B4A', marginTop: 4 }}>
+                    ⚠️ Only {prod.stock_qty ?? 0} in stock — this will take the stock below zero
+                  </div>
+                )}
+              </div>
+            )
+          })}
+          <Button variant="ghost" size="sm" onClick={() => setGaRows(rows => [...rows, { ...EMPTY_GA_ROW }])} style={{ marginBottom: 16 }}>
+            <Plus size={13} /> Add another product
+          </Button>
+
+          {gaValidRows.length > 0 && (
+            <div style={{ background: '#f8f7f4', borderRadius: 10, padding: '12px 16px', marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 13, color: '#666' }}>
+                {gaValidRows.reduce((s, r) => s + parseInt(r.qty), 0)} item(s) will be deducted from inventory
+              </span>
+              <span style={{ fontSize: 17, fontWeight: 700, color: '#E24B4A' }}>MVR {gaTotal.toFixed(2)}</span>
+            </div>
+          )}
+
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+            <Button variant="ghost" onClick={() => setGaModal(false)}>Cancel</Button>
+            <Button onClick={saveGiveaway} disabled={saving || !gaValidRows.length}>
+              {saving ? 'Saving…' : <><Gift size={14} /> Give away & log cost</>}
+            </Button>
           </div>
         </Modal>
       )}
