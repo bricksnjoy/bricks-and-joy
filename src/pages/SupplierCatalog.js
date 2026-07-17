@@ -223,9 +223,10 @@ export default function SupplierCatalog() {
     }
     return (item.product_name || '').toLowerCase()
   }
-  // Price sort: numeric, cheapest or priciest first; items without a price sink
-  // to the bottom (alphabetically among themselves) instead of polluting the top.
-  const priceOf = item => (item.price === null || item.price === undefined || item.price === '' ? null : Number(item.price))
+  // Cost sort: numeric on cost price, cheapest or priciest first; items without
+  // a cost sink to the bottom (alphabetically among themselves) instead of
+  // polluting the top.
+  const priceOf = item => (item.cost_price === null || item.cost_price === undefined || item.cost_price === '' ? null : Number(item.cost_price))
   const compareItems = (a, b) => {
     if (sortMode === 'price-asc' || sortMode === 'price-desc') {
       const pa = priceOf(a), pb = priceOf(b)
@@ -1064,8 +1065,8 @@ export default function SupplierCatalog() {
                   {[
                     { k: 'name', label: 'Name A–Z' },
                     { k: 'tag', label: 'Tag A–Z' },
-                    { k: 'price-asc', label: 'Price ↑' },
-                    { k: 'price-desc', label: 'Price ↓' },
+                    { k: 'price-asc', label: 'Cost ↑' },
+                    { k: 'price-desc', label: 'Cost ↓' },
                   ].map((f, i) => (
                     <button key={f.k} onClick={() => changeSort(f.k)} title="Sort products"
                       style={{ padding: '8px 12px', border: 'none', borderLeft: i ? '1px solid #e0e0e0' : 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 600,
