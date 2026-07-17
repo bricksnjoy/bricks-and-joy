@@ -223,10 +223,24 @@ export default function SupplierCatalog() {
     }
     return (item.product_name || '').toLowerCase()
   }
+  // Price sort: numeric, cheapest or priciest first; items without a price sink
+  // to the bottom (alphabetically among themselves) instead of polluting the top.
+  const priceOf = item => (item.price === null || item.price === undefined || item.price === '' ? null : Number(item.price))
+  const compareItems = (a, b) => {
+    if (sortMode === 'price-asc' || sortMode === 'price-desc') {
+      const pa = priceOf(a), pb = priceOf(b)
+      if (pa === null && pb === null) return sortKey(a).localeCompare(sortKey(b))
+      if (pa === null) return 1
+      if (pb === null) return -1
+      if (pa !== pb) return sortMode === 'price-asc' ? pa - pb : pb - pa
+      return sortKey(a).localeCompare(sortKey(b))
+    }
+    return sortKey(a).localeCompare(sortKey(b))
+  }
   const visibleCatalog = scopedCatalog.filter(item =>
     (invFilter === 'all' ? true : invFilter === 'missing' ? !inInventory(item) : inInventory(item))
     && (!favFilter || favs.has(item.id))
-  ).sort((a, b) => sortKey(a).localeCompare(sortKey(b)))
+  ).sort(compareItems)
   const favCountForSupplier = s => catalog.filter(i => i.supplier_id === s.id && favs.has(i.id)).length
 
   // Dropdown options grow from data: base presets + any value already used by a
@@ -1050,6 +1064,8 @@ export default function SupplierCatalog() {
                   {[
                     { k: 'name', label: 'Name A–Z' },
                     { k: 'tag', label: 'Tag A–Z' },
+                    { k: 'price-asc', label: 'Price ↑' },
+                    { k: 'price-desc', label: 'Price ↓' },
                   ].map((f, i) => (
                     <button key={f.k} onClick={() => changeSort(f.k)} title="Sort products"
                       style={{ padding: '8px 12px', border: 'none', borderLeft: i ? '1px solid #e0e0e0' : 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 600,
