@@ -1061,19 +1061,15 @@ export default function SupplierCatalog() {
                 </div>
               )}
               {!compareMode && (
-                <div style={{ display: 'flex', border: '1px solid #e0e0e0', borderRadius: 9, overflow: 'hidden' }}>
-                  {[
-                    { k: 'name', label: 'Name A–Z' },
-                    { k: 'tag', label: 'Tag A–Z' },
-                    { k: 'price-asc', label: 'Cost ↑' },
-                    { k: 'price-desc', label: 'Cost ↓' },
-                  ].map((f, i) => (
-                    <button key={f.k} onClick={() => changeSort(f.k)} title="Sort products"
-                      style={{ padding: '8px 12px', border: 'none', borderLeft: i ? '1px solid #e0e0e0' : 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 600,
-                        background: sortMode === f.k ? '#0d1b2a' : '#fff', color: sortMode === f.k ? '#fff' : '#888', whiteSpace: 'nowrap' }}>
-                      {f.label}
-                    </button>
-                  ))}
+                <div title="Sort products" style={{ display: 'flex', alignItems: 'center', gap: 5, border: '1px solid #e0e0e0', borderRadius: 9, padding: '0 4px 0 10px', background: '#fff' }}>
+                  <ArrowUpDown size={13} color="#999" style={{ flexShrink: 0 }} />
+                  <select value={sortMode} onChange={e => changeSort(e.target.value)}
+                    style={{ border: 'none', outline: 'none', fontFamily: 'inherit', fontSize: 12, fontWeight: 600, color: '#0d1b2a', background: 'transparent', cursor: 'pointer', padding: '8px 2px', maxWidth: 150 }}>
+                    <option value="name">Name A–Z</option>
+                    <option value="tag">Tag A–Z</option>
+                    <option value="price-asc">Cost: low–high</option>
+                    <option value="price-desc">Cost: high–low</option>
+                  </select>
                 </div>
               )}
               {!compareMode && (
