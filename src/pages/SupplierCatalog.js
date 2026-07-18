@@ -573,7 +573,9 @@ export default function SupplierCatalog() {
   // Downloads the current products in the same column format the importer reads,
   // so the sheet can be edited and re-uploaded — only changed/new rows are applied.
   function exportExcel() {
-    const rows = activeSupplier ? catalog.filter(c => c.supplier_id === activeSupplier.id) : catalog
+    // What you see is what you export: the active filters (favourites,
+    // inventory status, search) and sort order all apply to the sheet.
+    const rows = visibleCatalog
     if (!rows.length) { toast.error('No products to export'); return }
     // Expand any custom fields into their own columns so they round-trip too.
     const customKeys = [...new Set(rows.flatMap(r => (r.custom_fields ? Object.keys(r.custom_fields) : [])))]
@@ -605,8 +607,9 @@ export default function SupplierCatalog() {
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Catalog')
     const who = activeSupplier ? activeSupplier.name.replace(/[^\w]+/g, '_') : 'all-suppliers'
-    XLSX.writeFile(wb, `supplier-catalog-${who}-${localToday()}.xlsx`)
-    toast.success(`Exported ${rows.length} product${rows.length === 1 ? '' : 's'}`)
+    const suffix = favFilter ? '-favourites' : ''
+    XLSX.writeFile(wb, `supplier-catalog-${who}${suffix}-${localToday()}.xlsx`)
+    toast.success(`Exported ${rows.length} product${rows.length === 1 ? '' : 's'}${favFilter ? ' (favourites only)' : ''}`)
   }
 
   // ── Excel import ──────────────────────────────────────────────────────────────
@@ -756,7 +759,7 @@ export default function SupplierCatalog() {
       if (!match) return { ...r, _status: 'new', _selected: true }
       const changed = diffFields(r, match)
       if (changed.size === 0) return { ...r, _status: 'duplicate', _existingId: match.id, _selected: false }
-      return { ...r, _status: 'updated', _existingId: match.id, _changed: [...changed], _selected: true }
+      return { ...r, _status: 'updated', _existingId: match.id, _changed: [...changed], _old: match, _selected: true }
     })
 
     setImportRows(annotated)
@@ -1425,9 +1428,15 @@ export default function SupplierCatalog() {
                         {['product_name','category','brand','age_range','pieces','cost_price','sell_price','stock_qty','unit','sizes','weight','dimensions','tags','notes'].map(k=>{
                           const isChanged = changed.has(k)
                           return (
-                          <td key={k} style={{ padding:'7px 10px', background: isChanged ? '#fff3df' : 'transparent', borderRadius: isChanged ? 6 : 0 }} title={isChanged ? 'Changed in this import' : undefined}>
+                          <td key={k} style={{ padding:'7px 10px', background: isChanged ? '#fff3df' : 'transparent', borderRadius: isChanged ? 6 : 0 }}
+                            title={isChanged ? `Was: ${normVal(row._old?.[k]) || '(empty)'}` : undefined}>
                             <input value={row[k]||''} onChange={e => setImportRows(rows => rows.map((r,j) => j===i ? {...r,[k]:e.target.value} : r))}
                               style={{ width: k==='product_name'?140:80, border:'none', background:'transparent', fontSize:12, fontFamily:'inherit', outline:'none', color:'#0d1b2a', fontWeight: isChanged ? 700 : 400 }} />
+                            {isChanged && row._old && (
+                              <div style={{ fontSize:10, color:'#c9a', textDecoration:'line-through', whiteSpace:'nowrap', maxWidth:140, overflow:'hidden', textOverflow:'ellipsis' }}>
+                                {normVal(row._old[k]) || '(empty)'}
+                              </div>
+                            )}
                           </td>
                           )
                         })}
