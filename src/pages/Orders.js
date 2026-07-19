@@ -26,6 +26,19 @@ const isGiftRow = r => !r.product_id && String(r.product_name || '').startsWith(
 const isFeeRow = r => !r.product_id && String(r.product_name || '').startsWith('🚚')
 const EMPTY_ITEM = { product_id:'', product_name:'', qty:1, unit_price:0 }
 
+// SMS segment math. Messages of only GSM-7 characters fit 160 per SMS (153 each
+// when split); any other character (×, —, emoji…) switches the whole message to
+// Unicode where one SMS fits just 70 (67 when split).
+const GSM7 = /^[A-Za-z0-9 \r\n@£$¥èéùìòÇØøÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ!"#¤%&'()*+,\-./:;<=>?¡ÄÖÑܧ¿äöñüà^{}\\[\]~|€]*$/
+const GSM7_EXT = /[\^{}\\[\]~|€]/g
+function smsInfo(msg = '') {
+  if (GSM7.test(msg)) {
+    const len = msg.length + (msg.match(GSM7_EXT) || []).length
+    return { len, segments: len === 0 ? 1 : len <= 160 ? 1 : Math.ceil(len / 153), unicode: false }
+  }
+  return { len: msg.length, segments: msg.length <= 70 ? 1 : Math.ceil(msg.length / 67), unicode: true }
+}
+
 export default function Orders() {
   const [orders, setOrders] = useState([])
   const [customers, setCustomers] = useState([])
@@ -542,13 +555,15 @@ export default function Orders() {
   }
 
   function customerMsg(o) {
-    return `Hi ${o.customer_name || 'there'}, your order ${o.invoice_number || ''} (${o.product_name} ×${o.qty}) total MVR ${Number(o.total_price || 0).toFixed(2)} is ${o.status}. Thank you! — Brick's & Joy`
+    return `Hi ${o.customer_name || 'there'}, your order ${o.invoice_number || ''} (${o.product_name} x${o.qty}) total MVR ${Number(o.total_price || 0).toFixed(2)} is ${o.status}. Thank you! - Brick's & Joy`
   }
   function paymentMsg(o) {
-    return `Hi ${o.customer_name || 'there'}, thank you for your purchase!\n${o.product_name} ×${o.qty} — MVR ${Number(o.total_price || 0).toFixed(2)}\nPlease transfer to:\n${BANK_ACCOUNT_NO}\n${BANK_ACCOUNT_NAME}\nThank you — Brick's & Joy`
+    // Plain "x" and "-" keep the message GSM-7 encoded (160 chars/SMS); the
+    // fancy × and — glyphs would silently switch it to Unicode (70 chars/SMS).
+    return `Hi ${o.customer_name || 'there'}, thank you for your purchase!\n${o.product_name} x${o.qty}, MVR ${Number(o.total_price || 0).toFixed(2)}\nPlease transfer to:\n${BANK_ACCOUNT_NO}\n${BANK_ACCOUNT_NAME}\nThank you - Brick's & Joy`
   }
   function deliveryMsg(o, cust) {
-    return `DELIVERY — ${o.customer_name || 'Walk-in'}\nPhone: ${cust?.phone || '—'}\nAddress: ${cust?.address || '—'}\nOrder ${o.invoice_number || ''}: ${o.product_name} ×${o.qty}\nTotal: MVR ${Number(o.total_price || 0).toFixed(2)} (${o.payment_status || 'unpaid'})`
+    return `DELIVERY - ${o.customer_name || 'Walk-in'}\nPhone: ${cust?.phone || '-'}\nAddress: ${cust?.address || '-'}\nOrder ${o.invoice_number || ''}: ${o.product_name} x${o.qty}\nTotal: MVR ${Number(o.total_price || 0).toFixed(2)} (${o.payment_status || 'unpaid'})`
   }
   function openSms(order) {
     const cust = customers.find(c => c.id === order.customer_id)
@@ -1438,7 +1453,15 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
             <label style={{ fontSize: 12, color: '#666', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.4px', display: 'block', marginBottom: 5 }}>Message</label>
             <textarea value={smsForm.message} onChange={e => setSmsForm(p => ({ ...p, message: e.target.value }))}
               style={{ width: '100%', padding: '9px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', resize: 'vertical', minHeight: 90, boxSizing: 'border-box', outline: 'none' }} />
-            <div style={{ fontSize: 11, color: '#aaa', marginTop: 4 }}>{smsForm.message.length} characters · ~{Math.max(1, Math.ceil(smsForm.message.length / 160))} SMS</div>
+            {(() => {
+              const info = smsInfo(smsForm.message)
+              return (
+                <div style={{ fontSize: 11, color: info.segments > 1 ? '#E24B4A' : '#aaa', marginTop: 4 }}>
+                  {info.len} characters · {info.segments} SMS
+                  {info.unicode && <span> · special characters (×, —, emoji…) shrink each SMS to 70 chars</span>}
+                </div>
+              )
+            })()}
           </div>
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 14 }}>
             <Button variant="ghost" onClick={() => setSmsModal(null)}>Cancel</Button>
