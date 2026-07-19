@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { X, AlertTriangle, CheckCircle, Info, Inbox } from 'lucide-react'
+import { X, AlertTriangle, CheckCircle, Info, Inbox, Search, Check, ChevronDown, Clock } from 'lucide-react'
 
 // ─── Image tile that auto-matches its background to the photo's edge color ──────
 // Renders a container whose background blends with the product image's own
@@ -143,6 +143,115 @@ export function Select({ label, options = [], style = {}, ...props }) {
           <option key={o.value ?? o} value={o.value ?? o}>{o.label ?? o}</option>
         ))}
       </select>
+    </div>
+  )
+}
+
+// ─── SearchSelect ─────────────────────────────────────────────────────────────
+// Searchable dropdown for long lists (customers, products…). Options are
+// { value, label, sub?, keywords? } — `sub` renders as a gray hint line and both
+// `sub` and `keywords` are searchable. Pass `recentValues` (ids, newest first)
+// to pin a "Recent" section on top when the search box is empty.
+export function SearchSelect({ value, onChange, options = [], placeholder = 'Select…', recentValues = [], recentLabel = 'Recent', emptyText = 'No matches found', triggerStyle = {}, style = {} }) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const wrapRef = useRef(null)
+  const inputRef = useRef(null)
+
+  useEffect(() => {
+    if (!open) return
+    function handler(e) { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', handler)
+    document.addEventListener('touchstart', handler)
+    return () => { document.removeEventListener('mousedown', handler); document.removeEventListener('touchstart', handler) }
+  }, [open])
+
+  useEffect(() => { if (open) inputRef.current?.focus() }, [open])
+
+  const selected = options.find(o => o.value === value)
+  const q = query.trim().toLowerCase()
+  const matches = q ? options.filter(o => `${o.label || ''} ${o.sub || ''} ${o.keywords || ''}`.toLowerCase().includes(q)) : options
+  // Recents only show while the search box is empty — a typed query returns one flat list
+  const recents = q ? [] : recentValues.map(v => options.find(o => o.value === v)).filter(Boolean)
+  const rest = recents.length ? matches.filter(o => !recents.some(r => r.value === o.value)) : matches
+
+  function pick(v) {
+    onChange(v)
+    setOpen(false)
+    setQuery('')
+  }
+
+  function onKeyDown(e) {
+    if (e.key === 'Escape') { setOpen(false); setQuery('') }
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      const first = (recents.length ? recents : rest)[0]
+      if (first) pick(first.value)
+    }
+  }
+
+  const Row = ({ o, recent }) => {
+    const active = o.value === value
+    return (
+      <div key={o.value} onClick={() => pick(o.value)}
+        style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', cursor: 'pointer', background: active ? '#FFF8E9' : '#fff', borderRadius: 8 }}
+        onMouseEnter={e => { if (!active) e.currentTarget.style.background = '#f7f7f7' }}
+        onMouseLeave={e => { e.currentTarget.style.background = active ? '#FFF8E9' : '#fff' }}>
+        {recent && <Clock size={12} color="#c9a227" style={{ flexShrink: 0 }} />}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: active ? 700 : 500, color: '#0d1b2a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.label}</div>
+          {o.sub && <div style={{ fontSize: 11, color: '#aaa', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.sub}</div>}
+        </div>
+        {active && <Check size={14} color="#FFA500" style={{ flexShrink: 0 }} />}
+      </div>
+    )
+  }
+
+  return (
+    <div ref={wrapRef} style={{ position: 'relative', ...style }}>
+      <button type="button" onClick={() => { setOpen(o => !o); setQuery('') }}
+        style={{
+          width: '100%', padding: '9px 12px', border: '1px solid #ddd', borderRadius: 8,
+          fontSize: 13, fontFamily: 'inherit', background: '#fff', outline: 'none', cursor: 'pointer',
+          display: 'flex', alignItems: 'center', gap: 8, textAlign: 'left', boxSizing: 'border-box',
+          color: selected ? '#0d1b2a' : '#888', ...triggerStyle,
+        }}>
+        <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {selected ? selected.label : placeholder}
+          {selected?.sub && <span style={{ color: '#aaa', fontSize: 12 }}> — {selected.sub}</span>}
+        </span>
+        <ChevronDown size={14} color="#999" style={{ flexShrink: 0, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} />
+      </button>
+
+      {open && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 60,
+          background: '#fff', border: '1px solid #e8e8e8', borderRadius: 12,
+          boxShadow: '0 12px 32px rgba(13,27,42,0.16)', overflow: 'hidden',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', borderBottom: '1px solid #f0f0f0' }}>
+            <Search size={14} color="#bbb" style={{ flexShrink: 0 }} />
+            {/* 16px font stops iOS Safari from auto-zooming the field on focus */}
+            <input ref={inputRef} value={query} onChange={e => setQuery(e.target.value)} onKeyDown={onKeyDown}
+              placeholder="Type to search…"
+              style={{ flex: 1, minWidth: 0, border: 'none', outline: 'none', fontSize: 16, fontFamily: 'inherit', background: 'transparent', padding: 0 }} />
+            {query && <button type="button" onClick={() => { setQuery(''); inputRef.current?.focus() }} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, display: 'flex', color: '#bbb' }}><X size={13} /></button>}
+          </div>
+          <div style={{ maxHeight: 260, overflowY: 'auto', padding: 4, WebkitOverflowScrolling: 'touch' }}>
+            {recents.length > 0 && (
+              <>
+                <div style={{ fontSize: 10, fontWeight: 700, color: '#c9a227', textTransform: 'uppercase', letterSpacing: '0.6px', padding: '6px 12px 3px' }}>{recentLabel}</div>
+                {recents.map(o => <Row key={`r-${o.value}`} o={o} recent />)}
+                {rest.length > 0 && <div style={{ fontSize: 10, fontWeight: 700, color: '#bbb', textTransform: 'uppercase', letterSpacing: '0.6px', padding: '8px 12px 3px', borderTop: '1px solid #f5f5f5', marginTop: 4 }}>All</div>}
+              </>
+            )}
+            {rest.map(o => <Row key={o.value} o={o} />)}
+            {recents.length === 0 && rest.length === 0 && (
+              <div style={{ padding: '18px 12px', textAlign: 'center', fontSize: 12.5, color: '#bbb' }}>{emptyText}</div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
