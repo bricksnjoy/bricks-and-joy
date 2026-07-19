@@ -577,7 +577,29 @@ export default function Orders() {
     return `${greet}\n${nameOf(items[0])}, MVR ${money(total)}\n${tail}`
   }
   function deliveryMsg(o, cust) {
-    return `DELIVERY - ${o.customer_name || 'Walk-in'}\nPhone: ${cust?.phone || '-'}\nAddress: ${cust?.address || '-'}\nOrder ${o.invoice_number || ''}: ${o.product_name} x${o.qty}\nTotal: MVR ${Number(o.total_price || 0).toFixed(2)} (${o.payment_status || 'unpaid'})`
+    // Same layout as the Message Center delivery note, with plain "x"/"-" so
+    // the SMS stays GSM-7 encoded (160 chars per segment instead of 70).
+    const pay = (o.payment_status || 'unpaid').toUpperCase()
+    let phone = String(cust?.phone || '').replace(/\D/g, '')
+    if (phone.startsWith('960') && phone.length > 7) phone = phone.slice(3)
+    const fmtTime = t => {
+      if (!t) return ''
+      const [h, m] = String(t).split(':').map(Number)
+      if (isNaN(h)) return t
+      return `${h % 12 || 12}:${String(m || 0).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`
+    }
+    const when = o.delivery_date && fmtTime(o.delivery_time)
+      ? `${o.delivery_date} at ${fmtTime(o.delivery_time)}`
+      : o.delivery_date || fmtTime(o.delivery_time) || ''
+    return [
+      `Delivery - Brick's & Joy`,
+      `Item: ${o.product_name} x ${o.qty}`,
+      `Name: ${o.customer_name || 'Walk-in'}${phone ? ` - ${phone}` : ''}`,
+      cust?.address ? `Address: ${cust.address}${cust.landmark ? `, ${cust.landmark}` : ''}` : null,
+      when ? `When: ${when}` : null,
+      `Total: MVR ${Number(o.total_price || 0).toFixed(2)} (${pay})`,
+      cust?.notes ? `Drop: ${cust.notes}` : null,
+    ].filter(Boolean).join('\n')
   }
   function openSms(order) {
     const cust = customers.find(c => c.id === order.customer_id)
