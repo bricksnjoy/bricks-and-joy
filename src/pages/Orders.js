@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
-import { PageHeader, Card, Button, Input, Select, Table, Modal, StatusBadge, StockBadge, Spinner, FormRow, useToast, Toasts, Badge } from '../components/UI'
+import { PageHeader, Card, Button, Input, Select, SearchSelect, Table, Modal, StatusBadge, StockBadge, Spinner, FormRow, useToast, Toasts, Badge } from '../components/UI'
 import { Plus, Trash2, AlertTriangle, Package, Upload, Eye, CreditCard, X, Camera, Edit2, RotateCcw, MessageSquare, MoreVertical, LayoutGrid, List, Instagram, Printer } from 'lucide-react'
 import BarcodeScanner from '../components/BarcodeScanner'
 import { sendSMS } from '../lib/sms'
@@ -173,10 +173,25 @@ export default function Orders() {
     setScanning(null)
   }
 
-  function handleCustomerChange(e) {
-    const cust = customers.find(c => c.id === e.target.value)
-    setForm(p => ({ ...p, customer_id: e.target.value, customer_name: cust?.name || '' }))
+  function handleCustomerChange(id) {
+    const cust = customers.find(c => c.id === id)
+    setForm(p => ({ ...p, customer_id: id, customer_name: cust?.name || '' }))
   }
+
+  // Orders arrive newest-first, so the first occurrence of a customer/product
+  // in the list is its recency rank. Recently used entries float to the top of
+  // the pickers; never-used ones follow alphabetically.
+  function byRecentUse(list, key) {
+    const rank = new Map()
+    orders.forEach((o, i) => { const k = o[key]; if (k && !rank.has(k)) rank.set(k, i) })
+    return [...list].sort((a, b) => {
+      const ra = rank.has(a.id) ? rank.get(a.id) : Infinity
+      const rb = rank.has(b.id) ? rank.get(b.id) : Infinity
+      return ra !== rb ? ra - rb : (a.name || '').localeCompare(b.name || '')
+    })
+  }
+  const customerOptions = byRecentUse(customers, 'customer_id').map(c => ({ value: c.id, label: c.name }))
+  const productOptions = byRecentUse(products, 'product_id').map(p => ({ value: p.id, label: p.name, hint: `${p.stock_qty ?? 0} in stock` }))
 
   function openNewCustomer() {
     setCustForm({ name: '', email: '', instagram: '', phone: '', address: '', landmark: '', notes: '' })
@@ -211,9 +226,9 @@ export default function Orders() {
     setCartItems(prev => prev.map((item, i) => i === idx ? { ...item, ...patch } : item))
   }
 
-  function handleProductChange(e, idx) {
-    const prod = products.find(p => p.id === e.target.value)
-    updateCartItem(idx, { product_id: e.target.value, product_name: prod?.name || '', unit_price: prod?.sell_price || 0 })
+  function handleProductChange(id, idx) {
+    const prod = products.find(p => p.id === id)
+    updateCartItem(idx, { product_id: id, product_name: prod?.name || '', unit_price: prod?.sell_price || 0 })
   }
 
   function addCartItem() { setCartItems(p => [...p, { ...EMPTY_ITEM }]) }
@@ -1246,11 +1261,8 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
               </label>
               <button type="button" onClick={openNewCustomer} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', background: '#f0f0f0', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', color: '#555' }}><Plus size={12} /> New customer</button>
             </div>
-            <select value={form.customer_id} onChange={handleCustomerChange}
-              style={{ width: '100%', padding: '9px 12px', border: `1px solid ${!form.customer_id ? '#FAEEDA' : '#ddd'}`, borderRadius: 8, fontSize: 13, fontFamily: 'inherit', background: !form.customer_id ? '#FFFDF7' : '#fff', outline: 'none' }}>
-              <option value="">— Select a customer —</option>
-              {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
+            <SearchSelect value={form.customer_id} onChange={handleCustomerChange} options={customerOptions}
+              placeholder="— Select a customer —" invalid={!form.customer_id} />
             {!form.customer_id && <div style={{ fontSize: 11, color: '#FFA500', marginTop: 3 }}>A customer must be selected to create an order.</div>}
           </div>
 
@@ -1267,11 +1279,8 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
               return (
                 <div key={idx} style={{ border: '1px solid #eee', borderRadius: 10, padding: '12px', marginBottom: 8, background: '#fafafa' }}>
                   <div style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
-                    <select value={item.product_id} onChange={e => handleProductChange(e, idx)}
-                      style={{ flex: 1, minWidth: 0, padding: '8px 10px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', background: '#fff', outline: 'none' }}>
-                      <option value="">— Select product —</option>
-                      {products.map(p => <option key={p.id} value={p.id}>{p.name} ({p.stock_qty} in stock)</option>)}
-                    </select>
+                    <SearchSelect value={item.product_id} onChange={v => handleProductChange(v, idx)} options={productOptions}
+                      placeholder="— Select product —" style={{ flex: 1, minWidth: 0 }} />
                     <button onClick={() => setScanning(scanning === idx ? null : idx)}
                       style={{ flexShrink: 0, padding: '8px 10px', background: scanning === idx ? '#c62828' : '#FFA500', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
                       <Camera size={13} />
