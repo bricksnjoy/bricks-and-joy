@@ -8,6 +8,10 @@ import { getSettings } from '../lib/settings'
 import { localToday } from '../lib/dates'
 import { logAudit } from '../lib/audit'
 
+// Bank account shown in the "Payment" SMS template
+const BANK_ACCOUNT_NO = '7730000819195'
+const BANK_ACCOUNT_NAME = 'BRICKS & JOY'
+
 const CHANNELS = ['Website','Instagram','Facebook','Retail shop','Pop-up shop','Call']
 const STATUSES = [{ value: 'created', label: 'Order created' },{ value: 'transit', label: 'Dispatched' },{ value: 'delivered', label: 'Delivered' },{ value: 'cancelled', label: 'Cancelled' }]
 const PAY_METHODS = ['Cash','BML Transfer','Bank Transfer','Card','Other']
@@ -540,6 +544,9 @@ export default function Orders() {
   function customerMsg(o) {
     return `Hi ${o.customer_name || 'there'}, your order ${o.invoice_number || ''} (${o.product_name} ×${o.qty}) total MVR ${Number(o.total_price || 0).toFixed(2)} is ${o.status}. Thank you! — Brick's & Joy`
   }
+  function paymentMsg(o) {
+    return `Hi ${o.customer_name || 'there'}, thank you for your purchase!\n${o.product_name} ×${o.qty} — MVR ${Number(o.total_price || 0).toFixed(2)}\nPlease transfer to:\n${BANK_ACCOUNT_NO}\n${BANK_ACCOUNT_NAME}\nThank you — Brick's & Joy`
+  }
   function deliveryMsg(o, cust) {
     return `DELIVERY — ${o.customer_name || 'Walk-in'}\nPhone: ${cust?.phone || '—'}\nAddress: ${cust?.address || '—'}\nOrder ${o.invoice_number || ''}: ${o.product_name} ×${o.qty}\nTotal: MVR ${Number(o.total_price || 0).toFixed(2)} (${o.payment_status || 'unpaid'})`
   }
@@ -551,6 +558,7 @@ export default function Orders() {
   function smsModeSwitch(mode) {
     const o = smsModal
     if (mode === 'customer') setSmsForm({ mode, to: o._cust?.phone || '', contactId: '', message: customerMsg(o) })
+    else if (mode === 'payment') setSmsForm({ mode, to: o._cust?.phone || '', contactId: '', message: paymentMsg(o) })
     else setSmsForm({ mode, to: '', contactId: '', message: deliveryMsg(o, o._cust) })
   }
   function pickContact(id) {
@@ -1405,7 +1413,7 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
       {smsModal && (
         <Modal title={`Send SMS — ${smsModal.invoice_number || smsModal.customer_name || 'Order'}`} onClose={() => setSmsModal(null)} width={480}>
           <div style={{ display: 'flex', background: '#f5f5f5', borderRadius: 10, padding: 3, gap: 2, marginBottom: 14 }}>
-            {[{ k: 'customer', label: 'Notify customer' }, { k: 'delivery', label: 'Delivery / staff' }].map(m => (
+            {[{ k: 'customer', label: 'Notify customer' }, { k: 'payment', label: 'Payment' }, { k: 'delivery', label: 'Delivery / staff' }].map(m => (
               <button key={m.k} onClick={() => smsModeSwitch(m.k)} style={{
                 flex: 1, padding: '7px 12px', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'inherit',
                 fontSize: 12.5, fontWeight: smsForm.mode === m.k ? 700 : 500,
