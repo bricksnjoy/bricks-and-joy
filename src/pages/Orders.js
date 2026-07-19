@@ -560,7 +560,15 @@ export default function Orders() {
   function paymentMsg(o) {
     // Plain "x" and "-" keep the message GSM-7 encoded (160 chars/SMS); the
     // fancy × and — glyphs would silently switch it to Unicode (70 chars/SMS).
-    return `Hi ${o.customer_name || 'there'}, thank you for your purchase!\n${o.product_name} x${o.qty}, MVR ${Number(o.total_price || 0).toFixed(2)}\nPlease transfer to:\n${BANK_ACCOUNT_NO}\n${BANK_ACCOUNT_NAME}\nThank you - Brick's & Joy`
+    // Covers the whole invoice: every product row sharing the invoice number is
+    // listed and the total is the invoice's grand total. The emoji charge rows
+    // become short plain-text labels (emoji would force Unicode encoding).
+    const siblings = o.invoice_number ? orders.filter(x => x.invoice_number === o.invoice_number) : [o]
+    const items = siblings.length ? siblings : [o]
+    const nameOf = r => isGiftRow(r) ? 'Gift' : isFeeRow(r) ? 'Delivery fee' : `${r.product_name} x${r.qty}`
+    const list = items.map(nameOf).join(', ')
+    const total = items.reduce((s, r) => s + Number(r.total_price || 0), 0)
+    return `Hi ${o.customer_name || 'there'}, thank you for your purchase!\n${list}\nTotal: MVR ${total.toFixed(2)}\nPlease transfer to:\n${BANK_ACCOUNT_NO}\n${BANK_ACCOUNT_NAME}\nThank you - Brick's & Joy`
   }
   function deliveryMsg(o, cust) {
     return `DELIVERY - ${o.customer_name || 'Walk-in'}\nPhone: ${cust?.phone || '-'}\nAddress: ${cust?.address || '-'}\nOrder ${o.invoice_number || ''}: ${o.product_name} x${o.qty}\nTotal: MVR ${Number(o.total_price || 0).toFixed(2)} (${o.payment_status || 'unpaid'})`
