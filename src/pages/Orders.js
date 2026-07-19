@@ -554,21 +554,38 @@ export default function Orders() {
     toast.success('Deleted'); load()
   }
 
-  function customerMsg(o) {
-    return `Hi ${o.customer_name || 'there'}, your order ${o.invoice_number || ''} (${o.product_name} x${o.qty}) total MVR ${Number(o.total_price || 0).toFixed(2)} is ${o.status}. Thank you! - Brick's & Joy`
-  }
-  function paymentMsg(o) {
-    // Plain "x" and "-" keep the message GSM-7 encoded (160 chars/SMS); the
-    // fancy × and — glyphs would silently switch it to Unicode (70 chars/SMS).
-    // Covers the whole invoice: every product row sharing the invoice number is
-    // listed and the total is the invoice's grand total. The emoji charge rows
-    // become short plain-text labels (emoji would force Unicode encoding).
+  // Whole numbers show without decimals (MVR 385); cents keep 2 (MVR 1,015.50)
+  const money = n => n % 1 === 0 ? n.toLocaleString('en-US') : n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  // Every product row sharing the invoice number, as "Name x2, ..." plus the
+  // invoice grand total. Emoji charge rows become short plain-text labels
+  // (emoji would force expensive Unicode SMS encoding).
+  function invoiceSummary(o) {
     const siblings = o.invoice_number ? orders.filter(x => x.invoice_number === o.invoice_number) : [o]
     const items = siblings.length ? siblings : [o]
     const nameOf = r => isGiftRow(r) ? 'Gift' : isFeeRow(r) ? 'Delivery fee' : `${r.product_name} x${r.qty}`
-    const total = items.reduce((s, r) => s + Number(r.total_price || 0), 0)
-    // Whole numbers show without decimals (MVR 385); cents keep 2 (MVR 1,015.50)
-    const money = n => n % 1 === 0 ? n.toLocaleString('en-US') : n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    return { items, list: items.map(nameOf).join(', '), total: items.reduce((s, r) => s + Number(r.total_price || 0), 0) }
+  }
+  // Status update to the customer. Plain "x" and "-" keep every template GSM-7
+  // encoded (160 chars/SMS); × and — would silently switch to Unicode (70/SMS).
+  function customerMsg(o) {
+    const { list, total } = invoiceSummary(o)
+    const greet = `Hi ${(o.customer_name || 'there').trim().split(/\s+/)[0]}`
+    const inv = o.invoice_number ? ` ${o.invoice_number}` : ''
+    const order = `${list} - MVR ${money(total)}`
+    switch (o.status) {
+      case 'transit':
+        return `${greet}, good news! Your order${inv} (${order}) is on its way to you. Thank you for shopping with us - Brick's & Joy`
+      case 'delivered':
+        return `${greet}, your order${inv} (${order}) has been delivered. We hope you love it! Thank you for choosing Brick's & Joy`
+      case 'cancelled':
+        return `${greet}, your order${inv} has been cancelled. If this is unexpected, please contact us. - Brick's & Joy`
+      default:
+        return `${greet}, thank you for your order! We received${inv ? ` order${inv}` : ' it'}: ${order}. We'll message you when it's on the way. - Brick's & Joy`
+    }
+  }
+  function paymentMsg(o) {
+    const { items, total } = invoiceSummary(o)
+    const nameOf = r => isGiftRow(r) ? 'Gift' : isFeeRow(r) ? 'Delivery fee' : `${r.product_name} x${r.qty}`
     const greet = `Hi ${o.customer_name || 'there'},`
     const tail = `Please transfer to:\n${BANK_ACCOUNT_NO}\n${BANK_ACCOUNT_NAME}\nThank you - Brick's & Joy`
     if (items.length > 1) {
