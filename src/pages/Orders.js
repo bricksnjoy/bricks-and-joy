@@ -566,9 +566,15 @@ export default function Orders() {
     const siblings = o.invoice_number ? orders.filter(x => x.invoice_number === o.invoice_number) : [o]
     const items = siblings.length ? siblings : [o]
     const nameOf = r => isGiftRow(r) ? 'Gift' : isFeeRow(r) ? 'Delivery fee' : `${r.product_name} x${r.qty}`
-    const list = items.map(nameOf).join(', ')
     const total = items.reduce((s, r) => s + Number(r.total_price || 0), 0)
-    return `Hi ${o.customer_name || 'there'}, thank you for your purchase!\n${list}\nTotal: MVR ${total.toFixed(2)}\nPlease transfer to:\n${BANK_ACCOUNT_NO}\n${BANK_ACCOUNT_NAME}\nThank you - Brick's & Joy`
+    // Whole numbers show without decimals (MVR 385); cents keep 2 (MVR 1,015.50)
+    const money = n => n % 1 === 0 ? n.toLocaleString('en-US') : n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    const greet = `Hi ${o.customer_name || 'there'},`
+    const tail = `Please transfer to:\n${BANK_ACCOUNT_NO}\n${BANK_ACCOUNT_NAME}\nThank you - Brick's & Joy`
+    if (items.length > 1) {
+      return `${greet}\n${items.map(nameOf).join(', ')},\nTotal: MVR ${money(total)}\n${tail}`
+    }
+    return `${greet}\n${nameOf(items[0])}, MVR ${money(total)}\n${tail}`
   }
   function deliveryMsg(o, cust) {
     return `DELIVERY - ${o.customer_name || 'Walk-in'}\nPhone: ${cust?.phone || '-'}\nAddress: ${cust?.address || '-'}\nOrder ${o.invoice_number || ''}: ${o.product_name} x${o.qty}\nTotal: MVR ${Number(o.total_price || 0).toFixed(2)} (${o.payment_status || 'unpaid'})`
