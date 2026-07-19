@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { X, AlertTriangle, CheckCircle, Info, Inbox } from 'lucide-react'
+import { X, AlertTriangle, CheckCircle, Info, Inbox, Search, ChevronDown, Check } from 'lucide-react'
 
 // ─── Image tile that auto-matches its background to the photo's edge color ──────
 // Renders a container whose background blends with the product image's own
@@ -130,6 +130,80 @@ export function Input({ label, error, style = {}, ...props }) {
 }
 
 // ─── Select ───────────────────────────────────────────────────────────────────
+// ─── SearchSelect: dropdown with a type-to-filter search box ──────────────────
+// A drop-in alternative to <Select> for long lists (customers, products).
+// options: [{ value, label, hint? }] — hint renders dimmed on the right and is
+// also searchable. onChange receives the picked value directly (not an event).
+export function SearchSelect({ value, onChange, options = [], placeholder = '— Select —', label, style = {}, invalid = false, disabled = false }) {
+  const [open, setOpen] = useState(false)
+  const [q, setQ] = useState('')
+  const wrapRef = useRef(null)
+  const inputRef = useRef(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDoc = e => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false) }
+    const onKey = e => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', onDoc)
+    document.addEventListener('touchstart', onDoc)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDoc)
+      document.removeEventListener('touchstart', onDoc)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+  useEffect(() => { if (open) { setQ(''); setTimeout(() => inputRef.current?.focus(), 30) } }, [open])
+
+  const selected = options.find(o => String(o.value) === String(value))
+  const norm = s => String(s || '').toLowerCase()
+  const filtered = q ? options.filter(o => (norm(o.label) + ' ' + norm(o.hint)).includes(norm(q))) : options
+
+  return (
+    <div ref={wrapRef} style={{ position: 'relative', ...style }}>
+      {label && <label style={{ fontSize: 11, color: '#888', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: 5 }}>{label}</label>}
+      <button type="button" disabled={disabled} onClick={() => setOpen(o => !o)}
+        style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', boxSizing: 'border-box', textAlign: 'left',
+          border: `1px solid ${invalid ? '#FAEEDA' : '#ddd'}`, borderRadius: 8, fontSize: 13, fontFamily: 'inherit', cursor: disabled ? 'default' : 'pointer',
+          background: invalid ? '#FFFDF7' : '#fff', color: selected ? '#0d1b2a' : '#999', outline: 'none' }}>
+        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {selected ? selected.label : placeholder}
+          {selected?.hint && <span style={{ color: '#aaa', fontSize: 12 }}> · {selected.hint}</span>}
+        </span>
+        <ChevronDown size={14} color="#bbb" style={{ flexShrink: 0, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} />
+      </button>
+      {open && (
+        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 60, marginTop: 4, background: '#fff', border: '1px solid #eee',
+          borderRadius: 10, boxShadow: '0 10px 30px rgba(13,27,42,0.14)', overflow: 'hidden' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '8px 11px', borderBottom: '1px solid #f2f2f2' }}>
+            <Search size={13} color="#bbb" style={{ flexShrink: 0 }} />
+            <input ref={inputRef} value={q} onChange={e => setQ(e.target.value)} placeholder="Type to search…"
+              style={{ flex: 1, border: 'none', outline: 'none', fontSize: 13, fontFamily: 'inherit', background: 'transparent', minWidth: 0 }} />
+            {q && <button type="button" onClick={() => { setQ(''); inputRef.current?.focus() }} style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 2, display: 'flex' }}><X size={12} color="#bbb" /></button>}
+          </div>
+          <div style={{ maxHeight: 228, overflowY: 'auto', overscrollBehavior: 'contain' }}>
+            {filtered.length === 0 && <div style={{ padding: '14px 12px', fontSize: 12.5, color: '#bbb', textAlign: 'center' }}>No matches for “{q}”</div>}
+            {filtered.map(o => {
+              const isSel = String(o.value) === String(value)
+              return (
+                <button key={o.value} type="button" onClick={() => { onChange(o.value); setOpen(false) }}
+                  style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', border: 'none', textAlign: 'left', cursor: 'pointer',
+                    background: isSel ? '#FFF8E1' : '#fff', fontSize: 13, fontFamily: 'inherit', color: '#0d1b2a', borderBottom: '1px solid #f7f7f7' }}
+                  onMouseEnter={e => { if (!isSel) e.currentTarget.style.background = '#faf9f6' }}
+                  onMouseLeave={e => { if (!isSel) e.currentTarget.style.background = '#fff' }}>
+                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.label}</span>
+                  {o.hint && <span style={{ flexShrink: 0, fontSize: 11.5, color: '#aaa' }}>{o.hint}</span>}
+                  {isSel && <Check size={13} color="#FFA500" style={{ flexShrink: 0 }} />}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function Select({ label, options = [], style = {}, ...props }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 5, ...style }}>
