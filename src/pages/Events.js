@@ -1,12 +1,12 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { localToday, toLocalISO } from '../lib/dates'
+import { localToday } from '../lib/dates'
 import { logAudit } from '../lib/audit'
-import { PageHeader, Card, Button, Input, Select, Modal, Spinner, FormRow, useToast, Toasts, Badge, MetricCard, SearchSelect } from '../components/UI'
+import { PageHeader, Card, Button, Input, Select, Modal, Spinner, FormRow, useToast, Toasts, MetricCard, SearchSelect } from '../components/UI'
 import {
   PartyPopper, Plus, Trash2, Edit2, Gift, Lightbulb, CalendarClock, CheckCircle2,
-  Eye, Radio, Heart, MessageCircle, Share2, Bookmark, TrendingUp, Wallet, Package,
-  Calendar, Sparkles, Megaphone
+  Eye, Radio, Heart, MessageCircle, Share2, Bookmark, TrendingUp, Wallet, UserPlus,
+  Calendar, Sparkles, ImagePlus, X
 } from 'lucide-react'
 
 // idea → planned → done
@@ -28,13 +28,14 @@ const METRICS = [
   { key: 'comments',    label: 'Comments',    icon: MessageCircle },
   { key: 'shares',      label: 'Shares',      icon: Share2 },
   { key: 'saves',       label: 'Saves',       icon: Bookmark },
+  { key: 'followers',   label: 'Followers',   icon: UserPlus },
 ]
 
 const EMPTY_GA_ROW = { id: null, product_id: '', qty: 1, unit_cost: '', expense_id: null }
+const EMPTY_CASH_ROW = { label: '', amount: '', category: 'Promotions', expense_id: null }
 const EMPTY_EVENT = {
   name: '', status: 'idea', platform: '', event_date: '', prep_date: '', description: '',
-  impressions: '', reach: '', likes: '', comments: '', shares: '', saves: '', results_notes: '',
-  cash_amount: '', cash_category: 'Promotions',
+  impressions: '', reach: '', likes: '', comments: '', shares: '', saves: '', followers: '', results_notes: '',
 }
 
 const num = v => { const n = parseFloat(v); return isNaN(n) ? 0 : n }
@@ -65,6 +66,12 @@ export default function Events() {
   const [form, setForm] = useState(EMPTY_EVENT)
   const [gaRows, setGaRows] = useState([])
   const [gaOriginal, setGaOriginal] = useState([]) // committed giveaways as loaded, for reconciliation
+  const [cashRows, setCashRows] = useState([])
+  const [cashOriginal, setCashOriginal] = useState([]) // cash lines as loaded, for reconciliation
+  const [images, setImages] = useState([])
+  const [uploading, setUploading] = useState(false)
+  const [lightbox, setLightbox] = useState(null)
+  const fileRef = useRef(null)
   const [saving, setSaving] = useState(false)
   const toast = useToast()
 
@@ -90,9 +97,10 @@ export default function Events() {
   }
 
   function openAdd() {
-    setForm({ ...EMPTY_EVENT, prep_date: '', event_date: '' })
-    setGaRows([])
-    setGaOriginal([])
+    setForm({ ...EMPTY_EVENT })
+    setGaRows([]); setGaOriginal([])
+    setCashRows([]); setCashOriginal([])
+    setImages([])
     setEditItem(null)
     setModal(true)
   }
@@ -102,10 +110,19 @@ export default function Events() {
       name: ev.name || '', status: ev.status || 'idea', platform: ev.platform || '',
       event_date: ev.event_date || '', prep_date: ev.prep_date || '', description: ev.description || '',
       impressions: ev.impressions || '', reach: ev.reach || '', likes: ev.likes || '',
-      comments: ev.comments || '', shares: ev.shares || '', saves: ev.saves || '',
+      comments: ev.comments || '', shares: ev.shares || '', saves: ev.saves || '', followers: ev.followers || '',
       results_notes: ev.results_notes || '',
-      cash_amount: ev.cash_amount || '', cash_category: ev.cash_category || 'Promotions',
     })
+    setImages(Array.isArray(ev.images) ? ev.images : [])
+    // Cash lines: use the new cash_items list, or fold a legacy single cash amount into one row
+    let cashLines = []
+    if (Array.isArray(ev.cash_items) && ev.cash_items.length) {
+      cashLines = ev.cash_items.map(c => ({ label: c.label || '', amount: c.amount ?? '', category: c.category || 'Promotions', expense_id: c.expense_id || null }))
+    } else if (num(ev.cash_amount) > 0) {
+      cashLines = [{ label: '', amount: ev.cash_amount, category: ev.cash_category || 'Promotions', expense_id: ev.cash_expense_id || null }]
+    }
+    setCashRows(cashLines)
+    setCashOriginal(cashLines.map(r => ({ ...r })))
     setEditItem(ev)
     setModal(true)
     // Load this event's committed giveaways
@@ -117,6 +134,28 @@ export default function Events() {
 
   const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
 
+  // ── images ───────────────────────────────────────────────────────────────────
+  async function uploadImages(e) {
+    const files = Array.from(e.target.files || [])
+    if (!files.length) return
+    setUploading(true)
+    for (const file of files) {
+      const ext = (file.name.split('.').pop() || 'jpg').toLowerCase()
+      const fileName = `event-${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${ext}`
+      const { error } = await supabase.storage.from('uploads').upload(fileName, file, { upsert: true })
+      if (error) {
+        // Storage failed — fall back to an inline data URL so it still works
+        await new Promise(res => { const r = new FileReader(); r.onload = ev => { setImages(im => [...im, ev.target.result]); res() }; r.readAsDataURL(file) })
+      } else {
+        const { data: { publicUrl } } = supabase.storage.from('uploads').getPublicUrl(fileName)
+        setImages(im => [...im, publicUrl])
+      }
+    }
+    setUploading(false)
+    if (fileRef.current) fileRef.current.value = ''
+  }
+  function removeImage(idx) { setImages(im => im.filter((_, i) => i !== idx)) }
+
   // ── giveaway rows ────────────────────────────────────────────────────────────
   function setGaRow(idx, patch) { setGaRows(rows => rows.map((r, i) => i === idx ? { ...r, ...patch } : r)) }
   function pickGaProduct(idx, productId) {
@@ -126,9 +165,15 @@ export default function Events() {
   function addGaRow() { setGaRows(rows => [...rows, { ...EMPTY_GA_ROW }]) }
   function removeGaRow(idx) { setGaRows(rows => rows.filter((_, i) => i !== idx)) }
 
+  // ── cash cost lines ──────────────────────────────────────────────────────────
+  function setCashRow(idx, patch) { setCashRows(rows => rows.map((r, i) => i === idx ? { ...r, ...patch } : r)) }
+  function addCashRow() { setCashRows(rows => [...rows, { ...EMPTY_CASH_ROW }]) }
+  function removeCashRow(idx) { setCashRows(rows => rows.filter((_, i) => i !== idx)) }
+
   const gaValid = gaRows.filter(r => r.product_id && int(r.qty) > 0)
   const gaTotal = gaValid.reduce((s, r) => s + int(r.qty) * num(r.unit_cost), 0)
-  const cashTotal = num(form.cash_amount)
+  const cashValid = cashRows.filter(r => num(r.amount) > 0)
+  const cashTotal = cashValid.reduce((s, r) => s + num(r.amount), 0)
   const grandTotal = cashTotal + gaTotal
 
   // Adjust one product's stock by delta (positive = give back, negative = take out)
@@ -155,14 +200,14 @@ export default function Events() {
         description: form.description || null,
         impressions: int(form.impressions), reach: int(form.reach), likes: int(form.likes),
         comments: int(form.comments), shares: int(form.shares), saves: int(form.saves),
+        followers: int(form.followers),
         results_notes: form.results_notes || null,
-        cash_amount: cashTotal, cash_category: form.cash_category,
-        product_cost: gaTotal,
+        cash_amount: cashTotal, product_cost: gaTotal,
+        images: images.length ? images : null,
       }
 
       // 1. Upsert the event so we have an id to hang costs off
       let eventId = editItem?.id
-      let cashExpenseId = editItem?.cash_expense_id || null
       if (editItem) {
         const { error } = await supabase.from('events').update(base).eq('id', eventId)
         if (error) throw error
@@ -222,26 +267,33 @@ export default function Events() {
         await adjustStock(row.product_id, -qty, 'given away')
       }
 
-      // 3. Reconcile the cash cost (one expense row) ----------------------------
-      if (cashTotal > 0) {
-        const payload = {
-          description: `${eventLabel} (cash)`, category: form.cash_category,
-          amount: +cashTotal.toFixed(2), expense_date: base.event_date || localToday(),
+      // 3. Reconcile the cash cost lines (each = one expense row) ----------------
+      const expDate = base.event_date || localToday()
+      const keptIds = new Set(cashValid.map(r => r.expense_id).filter(Boolean))
+      // removed cash lines → delete their expense
+      for (const orig of cashOriginal) {
+        if (orig.expense_id && !keptIds.has(orig.expense_id)) {
+          await supabase.from('expenses').delete().eq('id', orig.expense_id)
         }
-        if (cashExpenseId) {
-          await supabase.from('expenses').update(payload).eq('id', cashExpenseId)
+      }
+      // add / update each current cash line, capturing its expense id
+      const finalCashItems = []
+      for (const row of cashValid) {
+        const amt = +num(row.amount).toFixed(2)
+        const payload = {
+          description: `${eventLabel}${row.label ? ` — ${row.label}` : ' (cash)'}`,
+          category: row.category || 'Promotions', amount: amt, expense_date: expDate,
+        }
+        let expId = row.expense_id
+        if (expId) {
+          await supabase.from('expenses').update(payload).eq('id', expId)
         } else {
           const { data: exp } = await supabase.from('expenses').insert(payload).select('id').single()
-          cashExpenseId = exp?.id || null
+          expId = exp?.id || null
         }
-      } else if (cashExpenseId) {
-        await supabase.from('expenses').delete().eq('id', cashExpenseId)
-        cashExpenseId = null
+        finalCashItems.push({ label: row.label || '', amount: amt, category: row.category || 'Promotions', expense_id: expId })
       }
-      // persist the cash expense link if it changed
-      if ((editItem?.cash_expense_id || null) !== cashExpenseId) {
-        await supabase.from('events').update({ cash_expense_id: cashExpenseId }).eq('id', eventId)
-      }
+      await supabase.from('events').update({ cash_items: finalCashItems.length ? finalCashItems : null, cash_expense_id: null }).eq('id', eventId)
 
       logAudit(editItem ? 'update' : 'create', 'event', base.name, { total: grandTotal, giveaways: gaValid.length })
       toast.success(editItem ? 'Event updated!' : 'Event saved!')
@@ -261,7 +313,8 @@ export default function Events() {
       await adjustStock(g.product_id, int(g.qty), 'event deleted')
       if (g.expense_id) await supabase.from('expenses').delete().eq('id', g.expense_id)
     }
-    if (ev.cash_expense_id) await supabase.from('expenses').delete().eq('id', ev.cash_expense_id)
+    const cashExpIds = [...(Array.isArray(ev.cash_items) ? ev.cash_items.map(c => c.expense_id) : []), ev.cash_expense_id].filter(Boolean)
+    for (const id of cashExpIds) await supabase.from('expenses').delete().eq('id', id)
     await supabase.from('events').delete().eq('id', ev.id)
     logAudit('delete', 'event', ev.name)
     toast.success('Event deleted')
@@ -373,6 +426,15 @@ export default function Events() {
                       </span>
                       {ev.platform && <span style={{ fontSize: 11.5, fontWeight: 600, color: st.ink, opacity: 0.85 }}>{ev.platform}</span>}
                     </div>
+
+                    {Array.isArray(ev.images) && ev.images.length > 0 && (
+                      <div style={{ display: 'flex', gap: 6, padding: '10px 12px 0', overflowX: 'auto' }}>
+                        {ev.images.map((src, i) => (
+                          <img key={i} src={src} alt="" onClick={() => setLightbox(src)}
+                            style={{ width: 66, height: 66, objectFit: 'cover', borderRadius: 9, flexShrink: 0, cursor: 'zoom-in', border: '1px solid #eee' }} />
+                        ))}
+                      </div>
+                    )}
 
                     <div style={{ padding: '14px 16px', flex: 1, display: 'flex', flexDirection: 'column', gap: 10 }}>
                       <div>
@@ -499,6 +561,27 @@ export default function Events() {
             </div>
           </div>
 
+          {/* Photos — story screenshots, the giveaway post, etc. */}
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ fontSize: 11, color: '#888', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: 8 }}>Photos</label>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              {images.map((src, i) => (
+                <div key={i} style={{ position: 'relative', width: 78, height: 78 }}>
+                  <img src={src} alt="" onClick={() => setLightbox(src)} style={{ width: 78, height: 78, objectFit: 'cover', borderRadius: 10, border: '1px solid #eee', cursor: 'zoom-in' }} />
+                  <button onClick={() => removeImage(i)} title="Remove"
+                    style={{ position: 'absolute', top: -7, right: -7, width: 20, height: 20, borderRadius: '50%', background: '#E24B4A', border: '2px solid #fff', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>
+                    <X size={11} />
+                  </button>
+                </div>
+              ))}
+              <button onClick={() => fileRef.current?.click()} disabled={uploading}
+                style={{ width: 78, height: 78, borderRadius: 10, border: '1.5px dashed #d8cdbb', background: '#faf9f6', color: '#b8a888', cursor: uploading ? 'default' : 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, fontFamily: 'inherit', fontSize: 11, fontWeight: 600 }}>
+                {uploading ? '…' : <><ImagePlus size={18} /> Add</>}
+              </button>
+              <input ref={fileRef} type="file" accept="image/*" multiple onChange={uploadImages} style={{ display: 'none' }} />
+            </div>
+          </div>
+
           {/* Cost: cash + product giveaways */}
           <div style={{ border: '1px solid #f0ece6', borderRadius: 12, padding: '14px 16px', marginBottom: 18 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 12 }}>
@@ -506,10 +589,19 @@ export default function Events() {
               <span style={{ fontSize: 13, fontWeight: 700, color: '#0d1b2a' }}>Cost of this event</span>
             </div>
 
-            <FormRow>
-              <Input label="Cash spent (MVR)" type="number" step="0.01" min="0" value={form.cash_amount} onChange={f('cash_amount')} placeholder="0.00" />
-              <Select label="Cash goes under" value={form.cash_category} onChange={f('cash_category')} options={CASH_CATEGORIES.map(c => ({ value: c, label: c }))} />
-            </FormRow>
+            <div style={{ fontSize: 11, color: '#888', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.4px', margin: '2px 0 8px', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Wallet size={13} color="#E24B4A" /> Cash costs
+            </div>
+            {cashRows.length === 0 && <div style={{ fontSize: 12.5, color: '#aaa', marginBottom: 8 }}>No cash costs yet. Add one for each thing you paid for — e.g. winner prize, ad boost, printing.</div>}
+            {cashRows.map((r, idx) => (
+              <div key={idx} style={{ display: 'flex', gap: 8, alignItems: 'flex-end', marginBottom: 10 }}>
+                <Input label={idx === 0 ? 'What for?' : undefined} value={r.label} onChange={e => setCashRow(idx, { label: e.target.value })} placeholder="e.g. Winner prize" style={{ flex: 1, minWidth: 0 }} />
+                <Input label={idx === 0 ? 'Amount' : undefined} type="number" step="0.01" min="0" value={r.amount} onChange={e => setCashRow(idx, { amount: e.target.value })} placeholder="0.00" style={{ width: 96, flexShrink: 0 }} />
+                <Select label={idx === 0 ? 'Category' : undefined} value={r.category} onChange={e => setCashRow(idx, { category: e.target.value })} options={CASH_CATEGORIES.map(c => ({ value: c, label: c }))} style={{ width: 128, flexShrink: 0 }} />
+                <Button variant="ghost" onClick={() => removeCashRow(idx)} style={{ flexShrink: 0, padding: '10px 10px' }}><Trash2 size={14} color="#E24B4A" /></Button>
+              </div>
+            ))}
+            <Button variant="ghost" size="sm" onClick={addCashRow} style={{ marginBottom: 14 }}><Plus size={13} /> Add cash cost</Button>
 
             <div style={{ fontSize: 11, color: '#888', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.4px', margin: '6px 0 8px', display: 'flex', alignItems: 'center', gap: 6 }}>
               <Gift size={13} color="#6a1b9a" /> Products given away
@@ -551,6 +643,14 @@ export default function Events() {
             <Button onClick={saveEvent} disabled={saving || !form.name.trim()}>{saving ? 'Saving…' : editItem ? 'Save changes' : 'Save event'}</Button>
           </div>
         </Modal>
+      )}
+
+      {lightbox && (
+        <div onClick={() => setLightbox(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(13,27,42,0.85)', zIndex: 3000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, cursor: 'zoom-out' }}>
+          <img src={lightbox} alt="" style={{ maxWidth: '100%', maxHeight: '100%', borderRadius: 12, boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }} />
+          <button onClick={() => setLightbox(null)} style={{ position: 'absolute', top: 18, right: 18, background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: '50%', width: 40, height: 40, color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={20} /></button>
+        </div>
       )}
 
       <Toasts toasts={toast.toasts} />

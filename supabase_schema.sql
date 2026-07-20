@@ -172,14 +172,21 @@ create table if not exists events (
   comments int default 0,
   shares int default 0,
   saves int default 0,
+  followers int default 0,               -- new followers gained
   results_notes text,
-  cash_amount numeric(10,2) default 0,   -- cash portion of the cost
-  cash_category text default 'Promotions',
-  cash_expense_id uuid,                  -- linked expenses row for the cash cost
+  cash_amount numeric(10,2) default 0,   -- cached sum of the cash cost lines
+  cash_items jsonb,                      -- [{ label, amount, category, expense_id }]
+  cash_category text default 'Promotions', -- (legacy, kept for old rows)
+  cash_expense_id uuid,                  -- (legacy, kept for old rows)
   product_cost numeric(10,2) default 0,  -- cached sum of giveaway product costs
+  images jsonb,                          -- array of image URLs (story screenshots, etc.)
   created_at timestamptz default now(),
   created_by uuid references auth.users(id)
 );
+-- For existing databases:
+-- alter table events add column if not exists followers int default 0;
+-- alter table events add column if not exists cash_items jsonb;
+-- alter table events add column if not exists images jsonb;
 
 -- Products handed out as part of an event. Each row is one committed stock
 -- movement; expense_id links it to the accounting entry it created.
