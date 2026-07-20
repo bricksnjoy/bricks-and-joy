@@ -17,6 +17,7 @@ import MessageCenter from './pages/MessageCenter'
 import Deliveries from './pages/Deliveries'
 import Invoices from './pages/Invoices'
 import Planning from './pages/Planning'
+import Events from './pages/Events'
 import FuturePlans from './pages/FuturePlans'
 import Reconciliation from './pages/Reconciliation'
 import Budget from './pages/Budget'
@@ -28,7 +29,7 @@ import {
   LayoutDashboard, ShoppingCart, Package, Users,
   DollarSign, BarChart2, Truck, ChevronDown, ChevronRight,
   LogOut, Building2, FileText, Menu, CalendarDays, Tag, BookOpen,
-  GripVertical, Check, Settings2, MoreVertical, Sparkles, MessageSquare, LifeBuoy, TrendingUp, Scale, ClipboardList, Target, Settings as SettingsIcon, History
+  GripVertical, Check, Settings2, MoreVertical, Sparkles, MessageSquare, LifeBuoy, TrendingUp, Scale, ClipboardList, Target, Settings as SettingsIcon, History, PartyPopper
 } from 'lucide-react'
 
 // Catalog of every page. The sidebar layout (sections + order) is built from
@@ -42,6 +43,7 @@ const ITEMS = {
   tasks:              { label: 'Tasks & Calendar',  icon: CalendarDays,    render: <TasksCalendar /> },
   messages:           { label: 'Message Center',    icon: MessageSquare,   render: <MessageCenter /> },
   planning:           { label: 'Planning',          icon: Sparkles,        render: <Planning /> },
+  events:             { label: 'Events',            icon: PartyPopper,     render: <Events /> },
   inventory:          { label: 'Inventory',         icon: Package,         render: <Inventory /> },
   categories:         { label: 'Categories',        icon: Tag,             render: <Categories /> },
   'purchase-orders':  { label: 'Batch Orders',      icon: Truck,           render: <PurchaseOrders /> },
@@ -59,7 +61,7 @@ const ITEMS = {
 
 const DEFAULT_NAV = [
   { id: 'main',       section: null,             items: ['dashboard'] },
-  { id: 'pos',        section: 'Point of Sale',  items: ['orders', 'invoices', 'customers', 'deliveries', 'tasks', 'messages', 'planning'] },
+  { id: 'pos',        section: 'Point of Sale',  items: ['orders', 'invoices', 'customers', 'deliveries', 'tasks', 'messages', 'planning', 'events'] },
   { id: 'inventory',  section: 'Inventory',      items: ['inventory', 'categories', 'purchase-orders', 'supplier-catalog', 'stock-report'] },
   { id: 'accounting', section: 'Accounting',     items: ['future-plans', 'profit-loss', 'reconciliation', 'budget', 'costs', 'vendors', 'statistics', 'audit-log'] },
 ]

@@ -157,6 +157,43 @@ create table campaigns (
 );
 -- For existing databases: alter table campaigns add column if not exists notified_30_year int;
 
+-- EVENTS & GIVEAWAYS (Events tab: ideas → planned → done, with results + cost)
+create table if not exists events (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  status text default 'idea',            -- idea | planned | done
+  platform text,                         -- Instagram, TikTok, In-store, …
+  event_date date,                       -- when it runs / ran
+  prep_date date,                        -- when to start preparing
+  description text,                      -- the idea / notes
+  impressions int default 0,             -- results (for executed events)
+  reach int default 0,
+  likes int default 0,
+  comments int default 0,
+  shares int default 0,
+  saves int default 0,
+  results_notes text,
+  cash_amount numeric(10,2) default 0,   -- cash portion of the cost
+  cash_category text default 'Promotions',
+  cash_expense_id uuid,                  -- linked expenses row for the cash cost
+  product_cost numeric(10,2) default 0,  -- cached sum of giveaway product costs
+  created_at timestamptz default now(),
+  created_by uuid references auth.users(id)
+);
+
+-- Products handed out as part of an event. Each row is one committed stock
+-- movement; expense_id links it to the accounting entry it created.
+create table if not exists event_giveaways (
+  id uuid primary key default gen_random_uuid(),
+  event_id uuid references events(id) on delete cascade,
+  product_id uuid references products(id) on delete set null,
+  product_name text,
+  qty int not null default 1,
+  unit_cost numeric(10,2) default 0,
+  expense_id uuid,
+  created_at timestamptz default now()
+);
+
 -- SUPPLIER PAYMENTS
 create table supplier_payments (
   id uuid primary key default gen_random_uuid(),
@@ -211,6 +248,8 @@ alter table email_contacts enable row level security;
 alter table supplier_products enable row level security;
 alter table categories enable row level security;
 alter table supplier_payments enable row level security;
+alter table events enable row level security;
+alter table event_giveaways enable row level security;
 alter table profiles enable row level security;
 
 -- Policies: any logged-in user can read/write everything
@@ -224,5 +263,7 @@ create policy "Authenticated users can do everything" on email_contacts for all 
 create policy "Authenticated users can do everything" on supplier_products for all using (auth.role() = 'authenticated');
 create policy "Authenticated users can do everything" on categories for all using (auth.role() = 'authenticated');
 create policy "Authenticated users can do everything" on supplier_payments for all using (auth.role() = 'authenticated');
+create policy "Authenticated users can do everything" on events for all using (auth.role() = 'authenticated');
+create policy "Authenticated users can do everything" on event_giveaways for all using (auth.role() = 'authenticated');
 create policy "Users can view all profiles" on profiles for select using (auth.role() = 'authenticated');
 create policy "Users can update own profile" on profiles for update using (auth.uid() = id);
