@@ -303,6 +303,8 @@ create table if not exists product_reviews (
   created_at timestamptz default now()
 );
 alter table product_reviews enable row level security;
+drop policy if exists "Anyone can read reviews" on product_reviews;
+drop policy if exists "Signed-in can write reviews" on product_reviews;
 create policy "Anyone can read reviews"      on product_reviews for select using (true);
 create policy "Signed-in can write reviews"  on product_reviews for insert to authenticated with check (true);
 grant select on product_reviews to anon, authenticated;
@@ -323,7 +325,9 @@ create table if not exists coupons (
 
 -- Safe, public view of products. cost_price is deliberately NOT selected, so it
 -- is never exposed. Includes review aggregates for "top rated" sorting.
-create or replace view shop_products as
+-- DROP first: the column list changed, and create-or-replace can't reorder columns.
+drop view if exists shop_products;
+create view shop_products as
   select p.id, p.name, p.category, p.age_range, p.brand, p.sku, p.stock_qty, p.sell_price,
          p.description, p.photo_url, p.safety_warnings, p.battery, p.materials, p.video_url,
          p.featured, p.badge, p.created_at,
@@ -357,5 +361,7 @@ grant execute on function validate_coupon(text, numeric) to anon, authenticated;
 
 -- Let anonymous website visitors create their customer record and place an order.
 -- INSERT only — anon still cannot select, update, or delete anything.
+drop policy if exists "Public can create customers" on customers;
+drop policy if exists "Public can place orders" on orders;
 create policy "Public can create customers" on customers for insert to anon with check (true);
 create policy "Public can place orders"     on orders    for insert to anon with check (true);
