@@ -25,17 +25,19 @@ import StockReport from './pages/StockReport'
 import HelpGuide from './pages/HelpGuide'
 import Settings from './pages/Settings'
 import AuditLog from './pages/AuditLog'
+import Storefront from './pages/Storefront'
 import {
   LayoutDashboard, ShoppingCart, Package, Users,
   DollarSign, BarChart2, Truck, ChevronDown, ChevronRight,
   LogOut, Building2, FileText, Menu, CalendarDays, Tag, BookOpen,
-  GripVertical, Check, Settings2, MoreVertical, Sparkles, MessageSquare, LifeBuoy, TrendingUp, Scale, ClipboardList, Target, Settings as SettingsIcon, History, PartyPopper
+  GripVertical, Check, Settings2, MoreVertical, Sparkles, MessageSquare, LifeBuoy, TrendingUp, Scale, ClipboardList, Target, Settings as SettingsIcon, History, PartyPopper, Globe
 } from 'lucide-react'
 
 // Catalog of every page. The sidebar layout (sections + order) is built from
 // DEFAULT_NAV but can be reorganized by the user and is persisted to localStorage.
 const ITEMS = {
   dashboard:          { label: 'Dashboard',         icon: LayoutDashboard, render: <Dashboard /> },
+  website:            { label: 'Website',           icon: Globe,           render: <Storefront /> },
   orders:             { label: 'Orders',            icon: ShoppingCart,    render: <Orders /> },
   invoices:           { label: 'Invoices',          icon: FileText,        render: <Invoices /> },
   customers:          { label: 'Customers',         icon: Users,           render: <Customers /> },
@@ -60,7 +62,7 @@ const ITEMS = {
 }
 
 const DEFAULT_NAV = [
-  { id: 'main',       section: null,             items: ['dashboard'] },
+  { id: 'main',       section: null,             items: ['dashboard', 'website'] },
   { id: 'pos',        section: 'Point of Sale',  items: ['orders', 'invoices', 'customers', 'deliveries', 'tasks', 'messages', 'planning', 'events'] },
   { id: 'inventory',  section: 'Inventory',      items: ['inventory', 'categories', 'purchase-orders', 'supplier-catalog', 'stock-report'] },
   { id: 'accounting', section: 'Accounting',     items: ['future-plans', 'profit-loss', 'reconciliation', 'budget', 'costs', 'vendors', 'statistics', 'audit-log'] },

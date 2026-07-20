@@ -27,7 +27,7 @@ import { restockPredictions, costHistoryByProduct } from '../lib/insights'
 
 const CATEGORIES = ['Building & Blocks','Action Figures','Dolls & Plush','Board Games','Outdoor & Sports','Educational','Vehicles & RC','Arts & Crafts','Puzzles','Other']
 const AGE_RANGES = ['0–2','3–5','6–8','9–12','12+','All ages']
-const EMPTY = { name:'', category:'Building & Blocks', age_range:'3–5', brand:'', sku:'', barcode:'', pieces:'', stock_qty:0, low_stock_threshold:10, cost_price:0, sell_price:0, description:'', sizes:'', weight:'', dimensions:'', tags:'', photo_url:'', discontinued:false }
+const EMPTY = { name:'', category:'Building & Blocks', age_range:'3–5', brand:'', sku:'', barcode:'', pieces:'', stock_qty:0, low_stock_threshold:10, cost_price:0, sell_price:0, description:'', sizes:'', weight:'', dimensions:'', tags:'', photo_url:'', discontinued:false, featured:false, badge:'', video_url:'', battery:'', materials:'', safety_warnings:'' }
 
 // Generate a unique barcode number
 function genBarcode(name, id) {
@@ -167,12 +167,16 @@ export default function Inventory() {
       ? supabase.from('products').insert(pl)
       : supabase.from('products').update(pl).eq('id', form.id)
     let { error } = await doSave(payload)
-    // Gracefully handle DBs that don't yet have the optional `pieces` column
-    if (error && /pieces/i.test(error.message || '')) {
-      const { pieces: _drop, ...noPieces } = payload
-      const retry = await doSave(noPieces)
-      error = retry.error
-      if (!error) toast.info('Saved. Add a "pieces" column in Supabase to store piece counts.')
+    // Gracefully handle DBs that don't yet have some optional columns (pieces,
+    // and the website fields featured/badge/video_url/battery/materials/…).
+    let notified = false
+    while (error) {
+      const m = (error.message || '').match(/'([a-z_]+)' column/i) || (error.message || '').match(/column "?([a-z_]+)"?/i)
+      const col = m && m[1]
+      if (!col || !(col in payload)) break
+      delete payload[col]
+      if (!notified) { toast.info('Saved. Run the latest supabase_schema.sql to enable all website fields.'); notified = true }
+      error = (await doSave(payload)).error
     }
     setSaving(false)
     if (error) { toast.error('Failed to save: ' + error.message); return }
@@ -1016,6 +1020,29 @@ export default function Inventory() {
               style={{ width: '100%', padding: '9px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', resize: 'vertical', minHeight: 70, boxSizing: 'border-box', outline: 'none' }} />
           </div>
           <Input label="Tags (comma separated)" value={form.tags} onChange={f('tags')} placeholder="e.g. popular, new arrival, sale" style={{ marginBottom: 16 }} />
+
+          {/* ── Website / shop page details ─────────────────────────────── */}
+          <div style={{ borderTop: '1px dashed #e6e0d6', margin: '4px 0 14px', paddingTop: 14 }}>
+            <div style={{ fontSize: 12, color: '#b8740a', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>🌐 Website / shop page</div>
+            <div style={{ display: 'flex', gap: 16, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: '#0d1b2a' }}>
+                <input type="checkbox" checked={!!form.featured} onChange={e => setForm(p => ({ ...p, featured: e.target.checked }))} style={{ width: 16, height: 16, accentColor: '#FFA500' }} />
+                Feature on homepage
+              </label>
+              <Input label="Badge" value={form.badge} onChange={f('badge')} placeholder="New / Sale / Seasonal" style={{ flex: 1, minWidth: 140 }} />
+            </div>
+            <FormRow>
+              <Input label="Batteries" value={form.battery} onChange={f('battery')} placeholder="e.g. 2 × AA (not included)" />
+              <Input label="Materials" value={form.materials} onChange={f('materials')} placeholder="e.g. ABS plastic, BPA-free" />
+            </FormRow>
+            <Input label="Demo video link" value={form.video_url} onChange={f('video_url')} placeholder="YouTube link or .mp4 URL" style={{ marginBottom: 12 }} />
+            <div>
+              <label style={{ fontSize: 12, color: '#666', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.4px', display: 'block', marginBottom: 5 }}>Safety warnings</label>
+              <textarea value={form.safety_warnings} onChange={f('safety_warnings')} placeholder="e.g. Choking hazard — small parts. Not for children under 3."
+                style={{ width: '100%', padding: '9px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', resize: 'vertical', minHeight: 54, boxSizing: 'border-box', outline: 'none' }} />
+            </div>
+          </div>
+
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <Button variant="ghost" onClick={() => setModal(null)}>Cancel</Button>
             <Button onClick={save} disabled={saving}>{saving ? 'Saving…' : modal === 'add' ? 'Add product' : 'Save changes'}</Button>

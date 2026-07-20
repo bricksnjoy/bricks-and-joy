@@ -276,21 +276,84 @@ create policy "Users can view all profiles" on profiles for select using (auth.r
 create policy "Users can update own profile" on profiles for update using (auth.uid() = id);
 
 -- ============================================================
--- PUBLIC STOREFRONT (/shop)
--- Anonymous visitors can browse safe product fields and place an
--- order — they can never read the customer list, other orders, or
--- your cost prices.
+-- PUBLIC WEBSITE / STOREFRONT
+-- Homepage is at the site root; the admin back office moves to
+-- /backoffice. Anonymous visitors can browse safe product fields,
+-- read reviews, validate coupon codes, and place an order — they
+-- can never read the customer list, other orders, or cost prices.
 -- ============================================================
 
--- Safe, public view of products. NOTE: cost_price is deliberately NOT selected,
--- so it is never exposed to the public. Discontinued products are hidden.
+-- Extra product fields shown on the website (fill these in from Inventory).
+alter table products add column if not exists safety_warnings text;
+alter table products add column if not exists battery text;          -- e.g. "2 × AA (not included)"
+alter table products add column if not exists materials text;        -- e.g. "ABS plastic, BPA-free"
+alter table products add column if not exists video_url text;        -- demo video (YouTube link or mp4)
+alter table products add column if not exists featured boolean default false;  -- show on the homepage
+alter table products add column if not exists badge text;            -- e.g. "New", "Sale", "Seasonal"
+
+-- Customer product reviews
+create table if not exists product_reviews (
+  id uuid primary key default gen_random_uuid(),
+  product_id uuid references products(id) on delete cascade,
+  author_id uuid,                       -- auth.users id when signed in
+  author_name text,
+  rating int not null check (rating between 1 and 5),
+  comment text,
+  approved boolean default true,
+  created_at timestamptz default now()
+);
+alter table product_reviews enable row level security;
+create policy "Anyone can read reviews"      on product_reviews for select using (true);
+create policy "Signed-in can write reviews"  on product_reviews for insert to authenticated with check (true);
+grant select on product_reviews to anon, authenticated;
+grant insert on product_reviews to authenticated;
+
+-- Coupon codes
+create table if not exists coupons (
+  id uuid primary key default gen_random_uuid(),
+  code text unique not null,
+  discount_type text default 'percent', -- percent | amount
+  discount_value numeric(10,2) not null default 0,
+  min_order numeric(10,2) default 0,
+  active boolean default true,
+  expires_on date,
+  created_at timestamptz default now()
+);
+-- Example: insert into coupons (code, discount_type, discount_value) values ('WELCOME10','percent',10);
+
+-- Safe, public view of products. cost_price is deliberately NOT selected, so it
+-- is never exposed. Includes review aggregates for "top rated" sorting.
 create or replace view shop_products as
-  select id, name, category, age_range, brand, sku, stock_qty, sell_price,
-         description, photo_url, created_at
-  from products
-  where coalesce(discontinued, false) = false;
+  select p.id, p.name, p.category, p.age_range, p.brand, p.sku, p.stock_qty, p.sell_price,
+         p.description, p.photo_url, p.safety_warnings, p.battery, p.materials, p.video_url,
+         p.featured, p.badge, p.created_at,
+         coalesce(r.avg_rating, 0) as avg_rating,
+         coalesce(r.review_count, 0) as review_count
+  from products p
+  left join (
+    select product_id, round(avg(rating)::numeric, 2) as avg_rating, count(*) as review_count
+    from product_reviews where approved group by product_id
+  ) r on r.product_id = p.id
+  where coalesce(p.discontinued, false) = false;
 
 grant select on shop_products to anon, authenticated;
+
+-- Validate a coupon without exposing the whole coupon list to the public.
+create or replace function validate_coupon(p_code text, p_subtotal numeric)
+returns table(valid boolean, discount_type text, discount_value numeric, message text)
+language plpgsql security definer set search_path = public as $$
+declare c coupons;
+begin
+  select * into c from coupons where lower(code) = lower(trim(p_code)) limit 1;
+  if not found then return query select false, null::text, 0::numeric, 'Invalid code'; return; end if;
+  if not c.active then return query select false, null::text, 0::numeric, 'This code is no longer active'; return; end if;
+  if c.expires_on is not null and c.expires_on < current_date then
+    return query select false, null::text, 0::numeric, 'This code has expired'; return; end if;
+  if p_subtotal < coalesce(c.min_order, 0) then
+    return query select false, null::text, 0::numeric, 'Order total is below this code''s minimum'; return; end if;
+  return query select true, c.discount_type, c.discount_value, 'Applied';
+end $$;
+grant execute on function validate_coupon(text, numeric) to anon, authenticated;
 
 -- Let anonymous website visitors create their customer record and place an order.
 -- INSERT only — anon still cannot select, update, or delete anything.

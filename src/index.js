@@ -3,9 +3,11 @@ import ReactDOM from 'react-dom/client'
 import App from './App'
 import Shop from './shop/Shop'
 
-// The public storefront lives at /shop and needs no login; every other path is
-// the admin app.
-const isShop = window.location.pathname.replace(/\/+$/, '').toLowerCase().startsWith('/shop')
+// Routing:
+//   bricksandjoy.com/backoffice…  → the admin back office (login required)
+//   everything else               → the public website / shop
+const path = window.location.pathname.replace(/\/+$/, '').toLowerCase()
+const isBackoffice = path === '/backoffice' || path.startsWith('/backoffice/')
 
 const root = ReactDOM.createRoot(document.getElementById('root'))
-root.render(<React.StrictMode>{isShop ? <Shop /> : <App />}</React.StrictMode>)
+root.render(<React.StrictMode>{isBackoffice ? <App /> : <Shop />}</React.StrictMode>)
