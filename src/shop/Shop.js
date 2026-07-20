@@ -10,6 +10,21 @@ const BRAND = "Brick's & Joy"
 const BANK = { name: 'BRICKS & JOY', account: '7730000819195' }
 const WHATSAPP = '' // e.g. '9607xxxxxx' — leave blank to hide the WhatsApp button
 
+// ── Launch switch ─────────────────────────────────────────────────────────────
+// While false, the public sees a "coming soon" page. You can still preview the
+// real shop by visiting /shop?preview=on once (it's remembered on your device);
+// /shop?preview=off turns your preview back off. Flip this to true to go live.
+const SHOP_LIVE = false
+const PREVIEW_KEY = 'bnj_shop_preview'
+function previewAllowed() {
+  try {
+    const p = new URLSearchParams(window.location.search).get('preview')
+    if (p === 'on' || p === '1') { localStorage.setItem(PREVIEW_KEY, '1'); return true }
+    if (p === 'off') { localStorage.removeItem(PREVIEW_KEY); return false }
+    return localStorage.getItem(PREVIEW_KEY) === '1'
+  } catch { return false }
+}
+
 const CART_KEY = 'bnj_shop_cart'
 const readCart = () => { try { const v = JSON.parse(localStorage.getItem(CART_KEY)); return Array.isArray(v) ? v : [] } catch { return [] } }
 const writeCart = c => { try { localStorage.setItem(CART_KEY, JSON.stringify(c)) } catch {} }
@@ -54,8 +69,9 @@ export default function Shop() {
   const [order, setOrder] = useState(null)      // { invoice, total, items }
   const [copied, setCopied] = useState(false)
   const [ship, setShip] = useState({ name: '', phone: '', island: '', address: '', notes: '' })
+  const [gated] = useState(() => !SHOP_LIVE && !previewAllowed())
 
-  useEffect(() => { document.title = `${BRAND} — Shop`; load() }, [])
+  useEffect(() => { document.title = `${BRAND} — Shop`; if (!gated) load() }, [gated])
   useEffect(() => { writeCart(cart) }, [cart])
 
   async function load() {
@@ -208,6 +224,23 @@ export default function Shop() {
     .sh-sheet { background:#fff; border-radius:22px; width:100%; max-width:560px; max-height:92vh; overflow-y:auto; box-shadow:0 30px 80px rgba(0,0,0,0.3); }
     .sh-foot { text-align:center; color:#bbb; font-size:12px; padding:30px 0 6px; }
   `
+
+  // ── hidden while we build (public sees "coming soon") ─────────────────────────
+  if (gated) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, textAlign: 'center', fontFamily: "'Poppins',sans-serif", background: 'linear-gradient(160deg,#FFA500,#ff7a00)' }}>
+        <style>{`@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;800;900&display=swap');@keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}`}</style>
+        <div style={{ color: '#fff', maxWidth: 460 }}>
+          <div style={{ fontSize: 60, marginBottom: 10, animation: 'bob 2s ease-in-out infinite' }}>🧸</div>
+          <h1 style={{ fontSize: 34, fontWeight: 900, margin: '0 0 12px', letterSpacing: '-0.8px' }}>{BRAND}</h1>
+          <p style={{ fontSize: 17, fontWeight: 600, margin: '0 0 6px' }}>Our online shop is opening soon ✨</p>
+          <p style={{ fontSize: 14.5, opacity: 0.92, lineHeight: 1.6, margin: 0 }}>
+            We're putting the finishing touches on something joyful. In the meantime, find us on Instagram to shop our toys, sets & gifts.
+          </p>
+        </div>
+      </div>
+    )
+  }
 
   // ── setup gate (owner only sees this until the SQL is run) ────────────────────
   if (needsSetup) {
