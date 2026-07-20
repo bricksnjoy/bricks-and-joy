@@ -274,3 +274,25 @@ create policy "Authenticated users can do everything" on events for all using (a
 create policy "Authenticated users can do everything" on event_giveaways for all using (auth.role() = 'authenticated');
 create policy "Users can view all profiles" on profiles for select using (auth.role() = 'authenticated');
 create policy "Users can update own profile" on profiles for update using (auth.uid() = id);
+
+-- ============================================================
+-- PUBLIC STOREFRONT (/shop)
+-- Anonymous visitors can browse safe product fields and place an
+-- order — they can never read the customer list, other orders, or
+-- your cost prices.
+-- ============================================================
+
+-- Safe, public view of products. NOTE: cost_price is deliberately NOT selected,
+-- so it is never exposed to the public. Discontinued products are hidden.
+create or replace view shop_products as
+  select id, name, category, age_range, brand, sku, stock_qty, sell_price,
+         description, photo_url, created_at
+  from products
+  where coalesce(discontinued, false) = false;
+
+grant select on shop_products to anon, authenticated;
+
+-- Let anonymous website visitors create their customer record and place an order.
+-- INSERT only — anon still cannot select, update, or delete anything.
+create policy "Public can create customers" on customers for insert to anon with check (true);
+create policy "Public can place orders"     on orders    for insert to anon with check (true);
