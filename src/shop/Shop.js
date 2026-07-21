@@ -3,9 +3,9 @@ import { supabase } from '../lib/supabase'
 import { ShoppingBag } from 'lucide-react'
 import {
   BRAND, previewAllowed, num, effPrice, DEFAULT_SETTINGS, mergeSettings,
-  ShopContext, Header, Footer, ShopStyles, CartDrawer, readCart, writeCart,
+  ShopContext, Header, Footer, ShopStyles, CartDrawer, readCart, writeCart, readWish, writeWish,
 } from './core'
-import { Home, ByAge, Listing, ProductPage, CartPage, CheckoutPage, OrderConfirmed, AccountPage } from './pages'
+import { Home, ByAge, Listing, ProductPage, CartPage, CheckoutPage, OrderConfirmed, AccountPage, Wishlist } from './pages'
 
 const parseLoc = () => ({ path: (window.location.pathname.replace(/\/+$/, '') || '/'), search: window.location.search })
 
@@ -19,6 +19,7 @@ export default function Shop() {
   const [giftWrap, setGiftWrap] = useState(false)
   const [shipIdx, setShipIdx] = useState(0)
   const [cartOpen, setCartOpen] = useState(false)
+  const [wishlist, setWishlist] = useState(readWish)
   const [lastOrder, setLastOrder] = useState(null)
   const [settings, setSettings] = useState(DEFAULT_SETTINGS)
   const [settingsLoaded, setSettingsLoaded] = useState(false)
@@ -53,6 +54,8 @@ export default function Shop() {
   }, [settingsLoaded, gated])
 
   useEffect(() => { writeCart(cart) }, [cart])
+  useEffect(() => { writeWish(wishlist) }, [wishlist])
+  const toggleWish = useCallback(id => setWishlist(w => w.includes(id) ? w.filter(x => x !== id) : [...w, id]), [])
 
   async function load() {
     setLoading(true)
@@ -139,13 +142,15 @@ export default function Shop() {
   else if (loc.path === '/cart') Page = CartPage
   else if (loc.path === '/checkout') Page = CheckoutPage
   else if (loc.path === '/order-confirmed') Page = OrderConfirmed
+  else if (loc.path === '/wishlist') Page = Wishlist
   else if (loc.path === '/account') Page = AccountPage
 
   const ctx = {
     loc, navigate, products, loading, needsSetup, reload: load, settings,
     user, signIn, signOut,
     cart, cartCount, cartSubtotal, addToCart, setQty, removeItem, clearCart,
-    giftWrap, setGiftWrap, shipIdx, setShipIdx, cartOpen, setCartOpen, lastOrder, setLastOrder,
+    giftWrap, setGiftWrap, shipIdx, setShipIdx, cartOpen, setCartOpen,
+    wishlist, toggleWish, lastOrder, setLastOrder,
   }
 
   // The account sign-up / log-in screen is a full-page takeover (no shop header

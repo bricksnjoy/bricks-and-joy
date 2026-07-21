@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState } from 'react'
 import {
-  ShoppingBag, ShoppingCart, Search, User, Menu, X, Star, Package, Plus, Minus, Trash2, Lock
+  ShoppingBag, ShoppingCart, Search, User, Menu, X, Star, Package, Plus, Minus, Trash2, Lock, Heart
 } from 'lucide-react'
 
 // ── Brand / config ────────────────────────────────────────────────────────────
@@ -61,6 +61,10 @@ export const CART_KEY = 'bnj_shop_cart'
 export const readCart = () => { try { const v = JSON.parse(localStorage.getItem(CART_KEY)); return Array.isArray(v) ? v : [] } catch { return [] } }
 export const writeCart = c => { try { localStorage.setItem(CART_KEY, JSON.stringify(c)) } catch {} }
 
+export const WISH_KEY = 'bnj_shop_wishlist'
+export const readWish = () => { try { const v = JSON.parse(localStorage.getItem(WISH_KEY)); return Array.isArray(v) ? v : [] } catch { return [] } }
+export const writeWish = w => { try { localStorage.setItem(WISH_KEY, JSON.stringify(w)) } catch {} }
+
 // Drop an unknown column and retry — keeps checkout working across schema drift.
 export function dropMissingCol(error, payload) {
   const m = (error?.message || '').match(/'([a-z_]+)' column/i) || (error?.message || '').match(/column "?([a-z_]+)"?/i)
@@ -112,15 +116,19 @@ export function VideoEmbed({ url }) {
 }
 
 export function ProductCard({ p }) {
-  const { navigate, addToCart } = useShop()
+  const { navigate, addToCart, wishlist, toggleWish } = useShop()
   const low = Number(p.stock_qty) > 0 && Number(p.stock_qty) <= 3
   const sale = onSale(p)
+  const wished = wishlist?.includes(p.id)
   const tag = p.badge || (sale ? `Save ${Math.round((1 - num(p.sale_price) / num(p.sell_price)) * 100)}%` : null)
   return (
     <div className="sh-card" onClick={() => navigate(`/product/${p.id}`)}>
       <div style={{ position: 'relative' }}>
         <ProductImage src={p.photo_url} name={p.name} style={{ width: '100%', aspectRatio: '1/1' }} />
         {tag && <span className="sh-tag" style={sale && !p.badge ? { background: '#E24B4A' } : undefined}>{tag}</span>}
+        <button className="sh-heart" title={wished ? 'Remove from wishlist' : 'Save to wishlist'} onClick={e => { e.stopPropagation(); toggleWish(p.id) }}>
+          <Heart size={17} color={wished ? '#E24B4A' : '#9a9186'} fill={wished ? '#E24B4A' : 'none'} />
+        </button>
       </div>
       <div className="bd">
         {p.category && <span className="sh-cat">{p.category}</span>}
@@ -155,7 +163,7 @@ export function Field({ label, children, required }) {
 
 // ── header / footer ────────────────────────────────────────────────────────────
 export function Header() {
-  const { navigate, loc, cartCount, user, setCartOpen } = useShop()
+  const { navigate, loc, cartCount, user, setCartOpen, wishlist } = useShop()
   const [term, setTerm] = useState('')
   const [menu, setMenu] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
@@ -186,6 +194,10 @@ export function Header() {
         {/* right: icons */}
         <div className="sh-right">
           <button className="sh-icon" title="Search" onClick={() => setSearchOpen(o => !o)}><Search size={19} /></button>
+          <button className="sh-icon" title="Wishlist" onClick={() => go('/wishlist')}>
+            <Heart size={19} />
+            {wishlist?.length > 0 && <span className="sh-badge">{wishlist.length}</span>}
+          </button>
           <button className="sh-icon" title={user ? 'My account' : 'Sign in / account'} onClick={() => go('/account')}>
             {user?.user_metadata?.avatar_url
               ? <img src={user.user_metadata.avatar_url} alt="" style={{ width: 24, height: 24, borderRadius: '50%' }} />
@@ -432,6 +444,8 @@ export function ShopStyles() {
     .sh-add{ margin-top:8px; border:none; background:#FFF1D6; color:#b8740a; font-weight:700; font-size:12.5px; padding:9px; border-radius:10px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:6px; }
     .sh-add:hover{ background:#ffe6b8; }
     .sh-tag{ position:absolute; top:10px; left:10px; background:#0d1b2a; color:#fff; font-size:10.5px; font-weight:800; padding:4px 9px; border-radius:99px; text-transform:uppercase; letter-spacing:0.4px; }
+    .sh-heart{ position:absolute; top:8px; right:8px; width:32px; height:32px; border-radius:50%; background:rgba(255,255,255,0.9); border:none; cursor:pointer; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 6px rgba(0,0,0,0.08); }
+    .sh-heart:hover{ background:#fff; }
 
     /* tiles (age / category) */
     .sh-tiles{ display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:14px; }

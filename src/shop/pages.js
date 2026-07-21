@@ -215,7 +215,7 @@ export function Listing() {
 
 // ── Product detail ──────────────────────────────────────────────────────────────
 export function ProductPage() {
-  const { products, loc, navigate, addToCart, user, signIn } = useShop()
+  const { products, loc, navigate, addToCart, user, signIn, wishlist, toggleWish } = useShop()
   const id = loc.path.split('/').pop()
   const [fetched, setFetched] = useState(null)
   const [qty, setQty] = useState(1)
@@ -291,6 +291,10 @@ export function ProductPage() {
             <QtyStepper qty={qty} onChange={setQty} max={Number(p.stock_qty) || 99} />
             <button className="sh-btn sh-btn-o" style={{ flex: 1, justifyContent: 'center' }} onClick={() => addToCart(p, qty)}>
               Add to cart · {money(effPrice(p) * qty)}
+            </button>
+            <button className="sh-btn" title="Save to wishlist" onClick={() => toggleWish(p.id)}
+              style={{ border: '1px solid #e6e0d6', background: '#fff', padding: '13px 15px' }}>
+              <Heart size={18} color={wishlist?.includes(p.id) ? '#E24B4A' : '#77706a'} fill={wishlist?.includes(p.id) ? '#E24B4A' : 'none'} />
             </button>
           </div>
 
@@ -611,6 +615,25 @@ export function OrderConfirmed() {
         </div>
         <button className="sh-btn sh-btn-o" style={{ marginTop: 20 }} onClick={() => navigate('/')}>Continue shopping</button>
       </div>
+    </div>
+  )
+}
+
+// ── Wishlist ────────────────────────────────────────────────────────────────────
+export function Wishlist() {
+  const { products, wishlist, loading, navigate } = useShop()
+  const items = products.filter(p => wishlist.includes(p.id))
+  if (loading) return <Loading />
+  return (
+    <div className="sh-wrap">
+      <h1 className="sh-h2" style={{ display: 'flex', alignItems: 'center', gap: 9 }}><Star size={20} color="#E24B4A" fill="#E24B4A" /> Your wishlist</h1>
+      {items.length === 0 ? (
+        <div className="sh-empty">
+          <Package size={40} color="#e5dcc9" />
+          <div style={{ marginTop: 10, fontWeight: 600, color: '#8a8278' }}>Nothing saved yet — tap the ♥ on any toy to save it here.</div>
+          <button className="sh-btn sh-btn-o" style={{ marginTop: 16 }} onClick={() => navigate('/products')}>Browse toys</button>
+        </div>
+      ) : <div className="sh-grid">{items.map(p => <ProductCard key={p.id} p={p} />)}</div>}
     </div>
   )
 }
