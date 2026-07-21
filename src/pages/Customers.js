@@ -275,7 +275,7 @@ export default function Customers() {
               {r.name}
               {p.atRisk && <span style={{ fontSize: 10, fontWeight: 700, color: '#E24B4A', background: '#FDECEA', padding: '1px 7px', borderRadius: 99 }}>⚠️ At risk</span>}
             </div>
-            <div style={{ fontSize: 11, color: '#aaa' }}>{r.email || r.phone || '—'}</div>
+            <div style={{ fontSize: 11, color: '#aaa' }}>{[r.phone, r.email].filter(Boolean).join(' · ') || '—'}</div>
           </div>
         </div>
       )

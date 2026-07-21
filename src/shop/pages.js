@@ -443,7 +443,9 @@ export function CheckoutPage() {
     setPlacing(true)
     try {
       const invoice = genInvoice()
-      const customerId = (crypto?.randomUUID && crypto.randomUUID()) || null
+      // Signed-in shoppers reuse their account id so orders link to one customer
+      // record (with their Google email); guests get a fresh id each time.
+      const customerId = user?.id || (crypto?.randomUUID && crypto.randomUUID()) || null
       const addr = [form.address, form.island].filter(Boolean).join(', ')
       const extras = [
         `Website order · ${form.island}`,
@@ -455,10 +457,11 @@ export function CheckoutPage() {
       ].filter(Boolean).join(' · ')
 
       if (customerId) {
-        const cp = { id: customerId, name: form.name.trim(), phone: form.phone.trim(), email: form.email || null, address: addr, notes: `Website order ${invoice}` }
-        let { error } = await supabase.from('customers').insert(cp)
-        while (error && dropMissingCol(error, cp)) { error = (await supabase.from('customers').insert(cp)).error }
-        if (error) { /* place order even if customer insert fails */ }
+        const cp = { id: customerId, name: form.name.trim(), phone: form.phone.trim(), email: user?.email || form.email || null, address: addr }
+        if (!user) cp.notes = `Website order ${invoice}`   // keep existing notes for known accounts
+        let { error } = await supabase.from('customers').upsert(cp, { onConflict: 'id' })
+        while (error && dropMissingCol(error, cp)) { error = (await supabase.from('customers').upsert(cp, { onConflict: 'id' })).error }
+        if (error) { /* place order even if the customer record fails */ }
       }
       const orderDate = new Date().toISOString().slice(0, 10)
       for (let i = 0; i < cart.length; i++) {
@@ -610,6 +613,11 @@ export function AccountPage() {
     const { error } = await supabase.from('customer_profiles').upsert({
       id: user.id, email: user.email, ...profile, updated_at: new Date().toISOString(),
     }, { onConflict: 'id' })
+    // also mirror into the back-office Customers list so staff can see & message them
+    const addr = [profile.address, profile.island].filter(Boolean).join(', ')
+    const cust = { id: user.id, name: profile.full_name || user.user_metadata?.full_name || 'Customer', phone: profile.phone || null, email: user.email, address: addr || null }
+    let { error: cErr } = await supabase.from('customers').upsert(cust, { onConflict: 'id' })
+    while (cErr && dropMissingCol(cErr, cust)) { cErr = (await supabase.from('customers').upsert(cust, { onConflict: 'id' })).error }
     setSaving(false)
     setSavedMsg(error ? 'Could not save: ' + error.message : 'Saved ✓')
   }
