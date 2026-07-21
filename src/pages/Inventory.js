@@ -27,7 +27,7 @@ import { restockPredictions, costHistoryByProduct } from '../lib/insights'
 
 const CATEGORIES = ['Building & Blocks','Action Figures','Dolls & Plush','Board Games','Outdoor & Sports','Educational','Vehicles & RC','Arts & Crafts','Puzzles','Other']
 const AGE_RANGES = ['0–2','3–5','6–8','9–12','12+','All ages']
-const EMPTY = { name:'', category:'Building & Blocks', age_range:'3–5', brand:'', sku:'', barcode:'', pieces:'', stock_qty:0, low_stock_threshold:10, cost_price:0, sell_price:0, description:'', sizes:'', weight:'', dimensions:'', tags:'', photo_url:'', discontinued:false, featured:false, badge:'', sale_price:'', video_url:'', battery:'', materials:'', safety_warnings:'' }
+const EMPTY = { name:'', category:'Building & Blocks', age_range:'3–5', brand:'', sku:'', barcode:'', pieces:'', stock_qty:0, low_stock_threshold:10, cost_price:0, sell_price:0, description:'', sizes:'', weight:'', dimensions:'', tags:'', photo_url:'', discontinued:false, featured:false, badge:'', sale_price:'', video_url:'', battery:'', materials:'', safety_warnings:'', images:[] }
 
 // Generate a unique barcode number
 function genBarcode(name, id) {
@@ -117,7 +117,7 @@ export default function Inventory() {
     setForm({ ...EMPTY, barcode: bc })
     setModal('add') 
   }
-  function openEdit(p) { setForm({ ...EMPTY, ...p, sizes: p.sizes || '', tags: p.tags || '', _origStock: p.stock_qty }); setModal('edit') }
+  function openEdit(p) { setForm({ ...EMPTY, ...p, sizes: p.sizes || '', tags: p.tags || '', images: Array.isArray(p.images) && p.images.length ? p.images : (p.photo_url ? [p.photo_url] : []), _origStock: p.stock_qty }); setModal('edit') }
   function openView(p) { setViewModal(p) }
   function startScanner() { setScanModal(true); setScanResult(null) }
   function openBarcode(p) {
@@ -133,23 +133,46 @@ export default function Inventory() {
     }
   }
 
+  // Add an image URL to the gallery; first image is the main one (photo_url).
+  function addImage(url) {
+    setForm(p => {
+      const images = [...(p.images || []), url]
+      return { ...p, images, photo_url: p.photo_url || images[0] }
+    })
+  }
+  function removeImage(idx) {
+    setForm(p => {
+      const images = (p.images || []).filter((_, i) => i !== idx)
+      return { ...p, images, photo_url: images.includes(p.photo_url) ? p.photo_url : (images[0] || '') }
+    })
+  }
+  function makeMainImage(idx) {
+    setForm(p => {
+      const images = [...(p.images || [])]
+      const [pick] = images.splice(idx, 1)
+      images.unshift(pick)
+      return { ...p, images, photo_url: pick }
+    })
+  }
+
   async function uploadPhoto(e) {
-    const file = e.target.files[0]
-    if (!file) return
+    const files = Array.from(e.target.files || [])
+    if (!files.length) return
     setUploading(true)
-    const ext = file.name.split('.').pop()
-    const fileName = `product-${Date.now()}.${ext}`
-    const { error } = await supabase.storage.from('uploads').upload(fileName, file, { upsert: true })
-    if (error) {
-      const reader = new FileReader()
-      reader.onload = ev => { setForm(p => ({ ...p, photo_url: ev.target.result })); setUploading(false) }
-      reader.readAsDataURL(file)
-      return
+    for (const file of files) {
+      const ext = (file.name.split('.').pop() || 'jpg')
+      const fileName = `product-${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${ext}`
+      const { error } = await supabase.storage.from('uploads').upload(fileName, file, { upsert: true })
+      if (error) {
+        await new Promise(res => { const r = new FileReader(); r.onload = ev => { addImage(ev.target.result); res() }; r.readAsDataURL(file) })
+      } else {
+        const { data: { publicUrl } } = supabase.storage.from('uploads').getPublicUrl(fileName)
+        addImage(publicUrl)
+      }
     }
-    const { data: { publicUrl } } = supabase.storage.from('uploads').getPublicUrl(fileName)
-    setForm(p => ({ ...p, photo_url: publicUrl }))
     setUploading(false)
-    toast.success('Photo uploaded!')
+    e.target.value = ''
+    toast.success('Photo(s) uploaded!')
   }
 
   async function save() {
@@ -159,7 +182,7 @@ export default function Inventory() {
     const barcode = form.barcode || genBarcode(form.name, form.id || Date.now())
     // Strip nested relation data + edit-only helper that Supabase rejects on update
     const { suppliers: _s, supplier_name: _sn, _origStock, ...cleanForm } = form
-    const payload = { ...cleanForm, barcode, pieces: form.pieces === '' || form.pieces == null ? null : parseInt(form.pieces) || null, stock_qty: parseInt(form.stock_qty) || 0, cost_price: parseFloat(form.cost_price) || 0, sell_price: parseFloat(form.sell_price) || 0, sale_price: (form.sale_price === '' || form.sale_price == null) ? null : (parseFloat(form.sale_price) || null), low_stock_threshold: (form.low_stock_threshold === '' || form.low_stock_threshold == null || isNaN(parseInt(form.low_stock_threshold))) ? 10 : parseInt(form.low_stock_threshold) }
+    const payload = { ...cleanForm, barcode, pieces: form.pieces === '' || form.pieces == null ? null : parseInt(form.pieces) || null, stock_qty: parseInt(form.stock_qty) || 0, cost_price: parseFloat(form.cost_price) || 0, sell_price: parseFloat(form.sell_price) || 0, sale_price: (form.sale_price === '' || form.sale_price == null) ? null : (parseFloat(form.sale_price) || null), low_stock_threshold: (form.low_stock_threshold === '' || form.low_stock_threshold == null || isNaN(parseInt(form.low_stock_threshold))) ? 10 : parseInt(form.low_stock_threshold), photo_url: (Array.isArray(form.images) && form.images.length ? form.images[0] : (form.photo_url || null)), images: Array.isArray(form.images) ? form.images : [] }
     // On edit, don't overwrite stock if the user didn't change it — avoids clobbering
     // stock changes made by orders while the edit modal was open.
     if (modal === 'edit' && _origStock != null && (parseInt(form.stock_qty) || 0) === (Number(_origStock) || 0)) delete payload.stock_qty
@@ -957,21 +980,22 @@ export default function Inventory() {
       {/* ── ADD/EDIT MODAL ── */}
       {modal && (
         <Modal title={modal === 'add' ? 'Add product' : 'Edit product'} onClose={() => setModal(null)} width={620} noBackdropClose>
-          <div style={{ marginBottom: 16, display: 'flex', gap: 16, alignItems: 'flex-start' }}>
-            <div style={{ position: 'relative' }}>
-              {form.photo_url
-                ? <img src={form.photo_url} alt="product" style={{ width: 90, height: 90, borderRadius: 12, objectFit: 'cover', border: '1px solid #eee' }} />
-                : <div style={{ width: 90, height: 90, borderRadius: 12, background: '#f0f0f0', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4 }}><Package size={24} color="#ccc" /><span style={{ fontSize: 10, color: '#aaa' }}>No photo</span></div>
-              }
-              {form.photo_url && <button onClick={() => setForm(p => ({ ...p, photo_url: '' }))} style={{ position: 'absolute', top: -6, right: -6, background: '#c62828', border: 'none', borderRadius: '50%', width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#fff' }}><X size={11} /></button>}
-            </div>
-            <div>
-              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: '#f0f0f0', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 500, color: '#555' }}>
-                <Upload size={14} /> {uploading ? 'Uploading…' : 'Upload photo'}
-                <input type="file" accept="image/*" onChange={uploadPhoto} style={{ display: 'none' }} disabled={uploading} />
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+              {(form.images || []).map((src, idx) => (
+                <div key={idx} style={{ position: 'relative' }}>
+                  <img src={src} alt="" style={{ width: 84, height: 84, borderRadius: 12, objectFit: 'cover', border: idx === 0 ? '2px solid #FFA500' : '1px solid #eee' }} />
+                  {idx === 0 && <span style={{ position: 'absolute', bottom: 3, left: 3, background: '#FFA500', color: '#fff', fontSize: 9, fontWeight: 700, padding: '2px 5px', borderRadius: 5 }}>MAIN</span>}
+                  {idx !== 0 && <button type="button" onClick={() => makeMainImage(idx)} title="Set as main" style={{ position: 'absolute', bottom: 3, left: 3, background: 'rgba(0,0,0,0.6)', color: '#fff', fontSize: 9, fontWeight: 600, padding: '2px 5px', borderRadius: 5, border: 'none', cursor: 'pointer' }}>Set main</button>}
+                  <button type="button" onClick={() => removeImage(idx)} style={{ position: 'absolute', top: -6, right: -6, background: '#c62828', border: 'none', borderRadius: '50%', width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#fff' }}><X size={11} /></button>
+                </div>
+              ))}
+              <label style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, width: 84, height: 84, background: '#faf9f6', border: '1.5px dashed #d8cdbb', borderRadius: 12, cursor: 'pointer', fontSize: 11, fontWeight: 600, color: '#b8a888' }}>
+                <Upload size={16} /> {uploading ? '…' : 'Add'}
+                <input type="file" accept="image/*" multiple onChange={uploadPhoto} style={{ display: 'none' }} disabled={uploading} />
               </label>
-              <p style={{ fontSize: 11, color: '#aaa', margin: '6px 0 0' }}>JPG, PNG up to 5MB</p>
             </div>
+            <p style={{ fontSize: 11, color: '#aaa', margin: '8px 0 0' }}>First photo is the main one shown on cards. Add several — customers can flip through them on the product page.</p>
           </div>
           <FormRow>
             <Input label="Product name *" value={form.name} onChange={f('name')} placeholder="e.g. LEGO Classic Set" style={{ gridColumn: 'span 2' }} />

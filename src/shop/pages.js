@@ -198,6 +198,7 @@ export function ProductPage() {
   const [reviews, setReviews] = useState([])
   const [rForm, setRForm] = useState({ rating: 5, comment: '' })
   const [rSaving, setRSaving] = useState(false)
+  const [imgIdx, setImgIdx] = useState(0)
   const p = products.find(x => String(x.id) === String(id)) || fetched
 
   useEffect(() => {
@@ -230,7 +231,23 @@ export function ProductPage() {
       <button className="sh-crumb" onClick={() => navigate('/products')}><ArrowLeft size={16} /> Back to toys</button>
       <div className="sh-pd">
         <div>
-          <ProductImage src={p.photo_url} name={p.name} style={{ width: '100%', aspectRatio: '1/1', borderRadius: 20, border: '1px solid #f0ebe3' }} />
+          {(() => {
+            const gallery = (Array.isArray(p.images) && p.images.length ? p.images : (p.photo_url ? [p.photo_url] : []))
+            const main = gallery[imgIdx] || gallery[0] || p.photo_url
+            return (
+              <>
+                <ProductImage src={main} name={p.name} style={{ width: '100%', aspectRatio: '1/1', borderRadius: 20, border: '1px solid #f0ebe3' }} />
+                {gallery.length > 1 && (
+                  <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+                    {gallery.map((src, i) => (
+                      <img key={i} src={src} alt="" onClick={() => setImgIdx(i)}
+                        style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 10, cursor: 'pointer', border: i === imgIdx ? '2px solid #FFA500' : '1px solid #eee' }} />
+                    ))}
+                  </div>
+                )}
+              </>
+            )
+          })()}
           {p.video_url && <div style={{ marginTop: 14 }}><div style={{ fontSize: 12, fontWeight: 800, color: '#8a8278', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 7 }}><Sparkles size={14} color="#FFA500" /> Demo video</div><VideoEmbed url={p.video_url} /></div>}
         </div>
 

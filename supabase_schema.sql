@@ -291,6 +291,7 @@ alter table products add column if not exists video_url text;        -- demo vid
 alter table products add column if not exists featured boolean default false;  -- show on the homepage
 alter table products add column if not exists badge text;            -- e.g. "New", "Sale", "Seasonal"
 alter table products add column if not exists sale_price numeric(10,2);  -- optional sale price (shows original struck through)
+alter table products add column if not exists images jsonb;          -- extra product photos (array of URLs); photo_url stays the main one
 
 -- Customer product reviews
 create table if not exists product_reviews (
@@ -330,7 +331,7 @@ create table if not exists coupons (
 drop view if exists shop_products;
 create view shop_products as
   select p.id, p.name, p.category, p.age_range, p.brand, p.sku, p.stock_qty, p.sell_price, p.sale_price,
-         p.description, p.photo_url, p.safety_warnings, p.battery, p.materials, p.video_url,
+         p.description, p.photo_url, p.images, p.safety_warnings, p.battery, p.materials, p.video_url,
          p.featured, p.badge, p.created_at,
          coalesce(r.avg_rating, 0) as avg_rating,
          coalesce(r.review_count, 0) as review_count
