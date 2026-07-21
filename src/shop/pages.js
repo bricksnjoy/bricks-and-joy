@@ -37,6 +37,18 @@ const TILE_COLORS = ['#FFE7C2', '#D9F2E4', '#DCE9FF', '#F3E2FF', '#FFE0E0', '#E9
 
 function Loading() { return <div className="sh-wrap"><div className="sh-spin" /></div> }
 
+// Customer loyalty tiers (points = MVR spent). Perks are cosmetic/marketing.
+const TIERS = [
+  { name: 'Sprout', min: 0, emoji: '🌱', perks: ['Member prices', 'Order tracking'] },
+  { name: 'Star', min: 1000, emoji: '⭐', perks: ['Birthday treat', 'Early sale access'] },
+  { name: 'Super', min: 5000, emoji: '🚀', perks: ['Free gift wrapping', 'Priority delivery'] },
+  { name: 'Legend', min: 15000, emoji: '👑', perks: ['VIP support', 'Exclusive drops'] },
+]
+const ORDER_STATUS = {
+  created: ['Order received', '#6a1b9a'], pending: ['Pending', '#b8740a'],
+  transit: ['On the way', '#1565c0'], delivered: ['Delivered', '#1D9E75'], cancelled: ['Cancelled', '#c62828'],
+}
+
 // ── Home ───────────────────────────────────────────────────────────────────────
 const PROMO_ICONS = [Truck, Gift, ShieldCheck, Sparkles]
 export function Home() {
@@ -602,6 +614,7 @@ export function OrderConfirmed() {
 export function AccountPage() {
   const { user, signIn, signOut, navigate } = useShop()
   const [profile, setProfile] = useState({ full_name: '', phone: '', island: '', address: '', notes: '' })
+  const [orders, setOrders] = useState([])
   const [loaded, setLoaded] = useState(false)
   const [saving, setSaving] = useState(false)
   const [savedMsg, setSavedMsg] = useState('')
@@ -624,6 +637,7 @@ export function AccountPage() {
       })
       setLoaded(true)
     })
+    supabase.from('orders').select('*').eq('customer_id', user.id).order('order_date', { ascending: false }).then(({ data }) => setOrders(data || []))
   }, [user])
 
   const set = (k, v) => { setProfile(p => ({ ...p, [k]: v })); setSavedMsg('') }
@@ -723,33 +737,98 @@ export function AccountPage() {
     )
   }
 
-  // ── signed in: profile ──
+  // ── signed in: dashboard ──
+  const displayName = profile.full_name || user.user_metadata?.full_name || (user.email || '').split('@')[0]
+  const invoices = groupInvoices(orders)
+  const totalSpent = orders.filter(o => o.status !== 'cancelled').reduce((s, o) => s + num(o.total_price), 0)
+  const points = Math.round(totalSpent)
+  const tierIdx = TIERS.reduce((idx, t, i) => points >= t.min ? i : idx, 0)
+  const tier = TIERS[tierIdx]
+  const next = TIERS[tierIdx + 1]
+  const progress = next ? Math.min(100, ((points - tier.min) / (next.min - tier.min)) * 100) : 100
+  const perks = TIERS.slice(0, tierIdx + 1).flatMap(t => t.perks)
+
   return (
-    <div className="sh-wrap" style={{ maxWidth: 560 }}>
-      <h1 className="sh-h2">My account</h1>
-      <div className="sh-card2" style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-        {user.user_metadata?.avatar_url && <img src={user.user_metadata.avatar_url} alt="" style={{ width: 52, height: 52, borderRadius: '50%' }} />}
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 16, fontWeight: 800 }}>{profile.full_name || user.user_metadata?.full_name || 'Welcome!'}</div>
-          <div style={{ color: '#8a8278', fontSize: 13 }}>{user.email}</div>
+    <div className="sh-wrap acct">
+      {/* hero: name + loyalty + benefits */}
+      <div className="acct-hero">
+        <div className="acct-id">
+          {user.user_metadata?.avatar_url && <img src={user.user_metadata.avatar_url} alt="" />}
+          <div>
+            <div className="acct-name">{displayName}</div>
+            <div className="acct-email">{user.email}</div>
+          </div>
         </div>
-        <button className="sh-btn" style={{ background: 'none', color: '#E24B4A' }} onClick={signOut}><LogOut size={15} /> Sign out</button>
+        <div className="acct-points">
+          <div className="pts">{points.toLocaleString()}<span> pts</span></div>
+          <div className="acct-bar"><span style={{ width: `${progress}%` }} /></div>
+          <div className="acct-bar-lbl">
+            <span>{tier.emoji} {tier.name}</span>
+            <span>{next ? `${(next.min - points).toLocaleString()} pts to ${next.name}` : 'Top tier 🎉'}</span>
+          </div>
+        </div>
+        <div className="acct-perks">
+          <div className="acct-perks-h">{tier.name} perks</div>
+          {perks.map((p, i) => <div key={i} className="acct-perk"><CheckCircle2 size={14} color="#1D9E75" /> {p}</div>)}
+        </div>
       </div>
 
-      <div className="sh-card2">
-        <div className="hd">Your details</div>
-        <p style={{ fontSize: 12.5, color: '#8a8278', margin: '-6px 0 14px' }}>We'll use these to fill in checkout for you. Nothing saves until you press Save.</p>
-        <Field label="Full name"><input value={profile.full_name} onChange={e => set('full_name', e.target.value)} placeholder="Your name" /></Field>
-        <Field label="Phone / WhatsApp"><input value={profile.phone} onChange={e => set('phone', e.target.value)} inputMode="tel" placeholder="7xxxxxx" /></Field>
-        <Field label="Island"><input value={profile.island} onChange={e => set('island', e.target.value)} placeholder="e.g. Malé, Hulhumalé" /></Field>
-        <Field label="Delivery address"><input value={profile.address} onChange={e => set('address', e.target.value)} placeholder="House / street / landmark" /></Field>
-        <Field label="Notes (optional)"><textarea rows={2} value={profile.notes} onChange={e => set('notes', e.target.value)} placeholder="Anything we should know for deliveries?" /></Field>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 6 }}>
-          <button className="sh-btn sh-btn-o" disabled={saving || !loaded} onClick={saveProfile}>{saving ? 'Saving…' : 'Save details'}</button>
-          {savedMsg && <span style={{ fontSize: 13, fontWeight: 600, color: savedMsg.startsWith('Saved') ? '#1D9E75' : '#E24B4A' }}>{savedMsg}</span>}
-          <button className="sh-btn sh-btn-d" style={{ marginLeft: 'auto' }} onClick={() => navigate('/products')}>Continue shopping</button>
+      <div className="acct-grid">
+        {/* orders */}
+        <div className="sh-card2">
+          <div className="hd" style={{ display: 'flex', justifyContent: 'space-between' }}><span>Your orders</span><span style={{ color: '#b8ab97' }}>{invoices.length}</span></div>
+          {invoices.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '24px 0', color: '#9a9186' }}>
+              <Package size={30} color="#e5dcc9" /><div style={{ marginTop: 8, fontWeight: 600 }}>No orders yet</div>
+              <button className="sh-btn sh-btn-o" style={{ marginTop: 14 }} onClick={() => navigate('/products')}>Start shopping</button>
+            </div>
+          ) : invoices.map(inv => {
+            const [label, color] = ORDER_STATUS[inv.status] || [inv.status, '#888']
+            return (
+              <div key={inv.invoice} style={{ padding: '13px 0', borderBottom: '1px solid #f2ede4' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <b style={{ fontSize: 13.5 }}>{inv.invoice || 'Order'}</b>
+                  <span style={{ fontSize: 11, fontWeight: 700, color, background: color + '18', padding: '3px 9px', borderRadius: 99 }}>{label}</span>
+                </div>
+                <div style={{ fontSize: 12.5, color: '#77706a', marginBottom: 4 }}>{inv.items.join(', ')}</div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5 }}>
+                  <span style={{ color: '#a79a80' }}>{inv.date}{inv.payment === 'unpaid' ? ' · unpaid' : ''}</span>
+                  <b>{money(inv.total)}</b>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
+        {/* details / address */}
+        <div className="sh-card2">
+          <div className="hd">My details & address</div>
+          <p style={{ fontSize: 12.5, color: '#8a8278', margin: '-6px 0 14px' }}>Fills in checkout for you. Nothing saves until you press Save.</p>
+          <Field label="Full name"><input value={profile.full_name} onChange={e => set('full_name', e.target.value)} placeholder="Your name" /></Field>
+          <Field label="Phone / WhatsApp"><input value={profile.phone} onChange={e => set('phone', e.target.value)} inputMode="tel" placeholder="7xxxxxx" /></Field>
+          <Field label="Island"><input value={profile.island} onChange={e => set('island', e.target.value)} placeholder="e.g. Malé, Hulhumalé" /></Field>
+          <Field label="Delivery address"><input value={profile.address} onChange={e => set('address', e.target.value)} placeholder="House / street / landmark" /></Field>
+          <Field label="Notes (optional)"><textarea rows={2} value={profile.notes} onChange={e => set('notes', e.target.value)} placeholder="Anything we should know for deliveries?" /></Field>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 6, flexWrap: 'wrap' }}>
+            <button className="sh-btn sh-btn-o" disabled={saving || !loaded} onClick={saveProfile}>{saving ? 'Saving…' : 'Save details'}</button>
+            {savedMsg && <span style={{ fontSize: 13, fontWeight: 600, color: savedMsg.startsWith('Saved') ? '#1D9E75' : '#E24B4A' }}>{savedMsg}</span>}
+            <button className="sh-btn" style={{ background: 'none', color: '#E24B4A', marginLeft: 'auto' }} onClick={signOut}><LogOut size={15} /> Sign out</button>
+          </div>
         </div>
       </div>
     </div>
   )
+}
+
+// Group order rows into invoices for the account page
+function groupInvoices(orders) {
+  const map = new Map()
+  orders.forEach(o => {
+    const k = o.invoice_number || o.id
+    if (!map.has(k)) map.set(k, { invoice: o.invoice_number, date: o.order_date, status: o.status, payment: o.payment_status, items: [], total: 0 })
+    const g = map.get(k)
+    g.items.push(`${o.product_name} ×${o.qty}`)
+    g.total += num(o.total_price)
+  })
+  return [...map.values()]
 }

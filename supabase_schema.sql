@@ -404,3 +404,7 @@ drop policy if exists "Public can create customers" on customers;
 drop policy if exists "Public can place orders" on orders;
 create policy "Public can create customers" on customers for insert to anon with check (true);
 create policy "Public can place orders"     on orders    for insert to anon with check (true);
+
+-- Signed-in customers can read their OWN orders (for the account page's order history).
+drop policy if exists "Customers read own orders" on orders;
+create policy "Customers read own orders" on orders for select to authenticated using (customer_id = auth.uid());

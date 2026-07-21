@@ -398,6 +398,25 @@ export function ShopStyles() {
     .sh-footer button:hover, .sh-footer a:hover{ color:#fff; }
     .sh-copy{ text-align:center; color:rgba(255,255,255,0.5); font-size:12px; padding:16px; border-top:1px solid rgba(255,255,255,0.1); }
 
+    /* account dashboard */
+    .acct-hero{ background:linear-gradient(135deg,#fff6e8,#ffeccb); border-radius:22px; padding:26px 30px; display:grid; grid-template-columns:1.1fr 1.3fr 1fr; gap:26px; align-items:center; margin-bottom:22px; }
+    @media(max-width:860px){ .acct-hero{ grid-template-columns:1fr; gap:20px; text-align:center; } }
+    .acct-id{ display:flex; align-items:center; gap:14px; }
+    @media(max-width:860px){ .acct-id{ justify-content:center; } }
+    .acct-id img{ width:56px; height:56px; border-radius:50%; }
+    .acct-name{ font-size:24px; font-weight:900; letter-spacing:-0.6px; text-transform:uppercase; line-height:1.1; }
+    .acct-email{ font-size:13px; color:#a2916f; }
+    .acct-points .pts{ font-size:40px; font-weight:900; color:#0d1b2a; letter-spacing:-1.5px; }
+    .acct-points .pts span{ font-size:15px; font-weight:700; color:#b8740a; }
+    .acct-bar{ height:8px; background:#fff; border-radius:99px; overflow:hidden; margin:8px 0 6px; }
+    .acct-bar span{ display:block; height:100%; background:linear-gradient(90deg,#FFA500,#ff7a00); border-radius:99px; }
+    .acct-bar-lbl{ display:flex; justify-content:space-between; font-size:12px; font-weight:600; color:#8a7a58; }
+    .acct-perks-h{ font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:0.7px; color:#b8740a; margin-bottom:9px; }
+    .acct-perk{ display:flex; align-items:center; gap:8px; font-size:13px; color:#5c5344; padding:3px 0; }
+    @media(max-width:860px){ .acct-perk{ justify-content:center; } }
+    .acct-grid{ display:grid; grid-template-columns:1fr 1fr; gap:20px; align-items:start; }
+    @media(max-width:820px){ .acct-grid{ grid-template-columns:1fr; } }
+
     /* auth (sign up / log in) */
     .sh-authpage{ background:#fff; }
     .sh-auth{ max-width:420px; margin:44px auto; padding:0 22px 60px; text-align:center; }
