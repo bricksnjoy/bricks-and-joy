@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { ShoppingBag } from 'lucide-react'
 import {
-  BRAND, INSTAGRAM, SHOP_LIVE, previewAllowed, num,
+  BRAND, previewAllowed, num, effPrice, DEFAULT_SETTINGS, mergeSettings,
   ShopContext, Header, Footer, ShopStyles, readCart, writeCart,
 } from './core'
 import { Home, ByAge, Listing, ProductPage, CartPage, CheckoutPage, OrderConfirmed, AccountPage } from './pages'
@@ -19,7 +19,10 @@ export default function Shop() {
   const [giftWrap, setGiftWrap] = useState(false)
   const [shipIdx, setShipIdx] = useState(0)
   const [lastOrder, setLastOrder] = useState(null)
-  const [gated] = useState(() => !SHOP_LIVE && !previewAllowed())
+  const [settings, setSettings] = useState(DEFAULT_SETTINGS)
+  const [settingsLoaded, setSettingsLoaded] = useState(false)
+  const preview = previewAllowed()
+  const gated = !settings.live && !preview
 
   // routing
   const navigate = useCallback(to => { window.history.pushState({}, '', to); setLoc(parseLoc()); window.scrollTo(0, 0) }, [])
@@ -29,15 +32,23 @@ export default function Shop() {
     return () => window.removeEventListener('popstate', on)
   }, [])
 
-  // data + auth
+  // load editable site settings first (decides live vs. coming-soon)
   useEffect(() => {
     document.title = `${BRAND} — Toys, sets & gifts`
-    if (gated) { setLoading(false); return }
+    supabase.from('site_settings').select('data').eq('id', 1).single()
+      .then(({ data }) => setSettings(mergeSettings(data?.data)))
+      .catch(() => {})
+      .finally(() => setSettingsLoaded(true))
+  }, [])
+
+  // products + auth (only once we know the site is visible to this viewer)
+  useEffect(() => {
+    if (!settingsLoaded || gated) { if (settingsLoaded) setLoading(false); return }
     load()
     supabase.auth.getUser().then(({ data }) => setUser(data?.user || null))
     const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setUser(s?.user || null))
     return () => sub?.subscription?.unsubscribe()
-  }, [gated])
+  }, [settingsLoaded, gated])
 
   useEffect(() => { writeCart(cart) }, [cart])
 
@@ -57,7 +68,7 @@ export default function Shop() {
       const ex = c.find(i => i.id === p.id)
       const max = Number(p.stock_qty) || 99
       if (ex) return c.map(i => i.id === p.id ? { ...i, qty: Math.min(max, i.qty + qty) } : i)
-      return [...c, { id: p.id, name: p.name, price: p.sell_price, photo_url: p.photo_url, stock_qty: p.stock_qty, qty: Math.min(max, qty) }]
+      return [...c, { id: p.id, name: p.name, price: effPrice(p), photo_url: p.photo_url, stock_qty: p.stock_qty, qty: Math.min(max, qty) }]
     })
   }, [])
   const setQty = useCallback((id, qty) => setCart(c => c.map(i => i.id === id ? { ...i, qty: Math.max(1, Math.min(Number(i.stock_qty) || 99, qty)) } : i)), [])
@@ -72,6 +83,15 @@ export default function Shop() {
   const cartCount = cart.reduce((s, i) => s + i.qty, 0)
   const cartSubtotal = cart.reduce((s, i) => s + num(i.price) * i.qty, 0)
 
+  // hold the first paint until we know whether the site is live (avoids a flash
+  // of the shop before the "coming soon" gate, or vice-versa)
+  if (!settingsLoaded) {
+    return <div style={{ minHeight: '100vh', background: '#faf7f2', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ width: 34, height: 34, border: '3px solid #f0e6d2', borderTopColor: '#FFA500', borderRadius: '50%', animation: 'shSpin .8s linear infinite' }} />
+      <style>{`@keyframes shSpin{to{transform:rotate(360deg)}}`}</style>
+    </div>
+  }
+
   // ── coming soon gate (public, while building) ─────────────────────────────────
   if (gated) {
     return (
@@ -84,7 +104,7 @@ export default function Shop() {
           <p style={{ fontSize: 14.5, opacity: 0.92, lineHeight: 1.6, margin: 0 }}>
             We're putting the finishing touches on something joyful. In the meantime, find us on Instagram to shop our toys, sets & gifts.
           </p>
-          {INSTAGRAM && <a href={INSTAGRAM} target="_blank" rel="noreferrer" style={{ display: 'inline-block', marginTop: 20, background: '#fff', color: '#d97800', fontWeight: 800, padding: '11px 22px', borderRadius: 12, textDecoration: 'none' }}>Visit our Instagram</a>}
+          {settings.instagram && <a href={settings.instagram} target="_blank" rel="noreferrer" style={{ display: 'inline-block', marginTop: 20, background: '#fff', color: '#d97800', fontWeight: 800, padding: '11px 22px', borderRadius: 12, textDecoration: 'none' }}>Visit our Instagram</a>}
         </div>
       </div>
     )
@@ -119,7 +139,7 @@ export default function Shop() {
   else if (loc.path === '/account') Page = AccountPage
 
   const ctx = {
-    loc, navigate, products, loading, needsSetup, reload: load,
+    loc, navigate, products, loading, needsSetup, reload: load, settings,
     user, signIn, signOut,
     cart, cartCount, cartSubtotal, addToCart, setQty, removeItem, clearCart,
     giftWrap, setGiftWrap, shipIdx, setShipIdx, lastOrder, setLastOrder,
@@ -129,6 +149,12 @@ export default function Shop() {
     <ShopContext.Provider value={ctx}>
       <div className="sh">
         <ShopStyles />
+        {settings.announcement && <div className="sh-announce">{settings.announcement}</div>}
+        {!settings.live && preview && (
+          <div style={{ background: '#b8740a', color: '#fff', textAlign: 'center', fontSize: 12.5, fontWeight: 600, padding: '6px 14px' }}>
+            👀 Staff preview — the public still sees “coming soon”. Publish from the back office → Website tab.
+          </div>
+        )}
         <Header />
         <main className="sh-main"><Page /></main>
         <Footer />

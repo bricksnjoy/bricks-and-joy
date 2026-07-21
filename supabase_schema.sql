@@ -290,6 +290,7 @@ alter table products add column if not exists materials text;        -- e.g. "AB
 alter table products add column if not exists video_url text;        -- demo video (YouTube link or mp4)
 alter table products add column if not exists featured boolean default false;  -- show on the homepage
 alter table products add column if not exists badge text;            -- e.g. "New", "Sale", "Seasonal"
+alter table products add column if not exists sale_price numeric(10,2);  -- optional sale price (shows original struck through)
 
 -- Customer product reviews
 create table if not exists product_reviews (
@@ -328,7 +329,7 @@ create table if not exists coupons (
 -- DROP first: the column list changed, and create-or-replace can't reorder columns.
 drop view if exists shop_products;
 create view shop_products as
-  select p.id, p.name, p.category, p.age_range, p.brand, p.sku, p.stock_qty, p.sell_price,
+  select p.id, p.name, p.category, p.age_range, p.brand, p.sku, p.stock_qty, p.sell_price, p.sale_price,
          p.description, p.photo_url, p.safety_warnings, p.battery, p.materials, p.video_url,
          p.featured, p.badge, p.created_at,
          coalesce(r.avg_rating, 0) as avg_rating,
@@ -358,6 +359,30 @@ begin
   return query select true, c.discount_type, c.discount_value, 'Applied';
 end $$;
 grant execute on function validate_coupon(text, numeric) to anon, authenticated;
+
+-- Coupons: staff (back office) manage them; the public never reads the table
+-- directly (only via validate_coupon).
+alter table coupons enable row level security;
+drop policy if exists "Staff manage coupons" on coupons;
+create policy "Staff manage coupons" on coupons for all to authenticated using (true) with check (true);
+grant all on coupons to authenticated;
+
+-- Editable website settings (hero text, promos, shipping fees, live toggle, …).
+-- A single row (id = 1) holding a JSON blob the back office edits and the shop reads.
+create table if not exists site_settings (
+  id int primary key default 1,
+  data jsonb not null default '{}',
+  updated_at timestamptz default now(),
+  constraint site_settings_singleton check (id = 1)
+);
+insert into site_settings (id, data) values (1, '{}') on conflict (id) do nothing;
+alter table site_settings enable row level security;
+drop policy if exists "Anyone can read site settings" on site_settings;
+drop policy if exists "Staff can update site settings" on site_settings;
+create policy "Anyone can read site settings"   on site_settings for select using (true);
+create policy "Staff can update site settings"  on site_settings for all to authenticated using (true) with check (true);
+grant select on site_settings to anon, authenticated;
+grant all on site_settings to authenticated;
 
 -- Let anonymous website visitors create their customer record and place an order.
 -- INSERT only — anon still cannot select, update, or delete anything.

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import {
-  BANK, SHIPPING, GIFT_WRAP_FEE, money, num, genInvoice, dropMissingCol,
+  BANK, money, num, genInvoice, dropMissingCol, onSale, effPrice,
   useShop, ProductImage, ProductCard, Stars, VideoEmbed, QtyStepper, Field
 } from './core'
 import {
@@ -26,30 +26,32 @@ const TILE_COLORS = ['#FFE7C2', '#D9F2E4', '#DCE9FF', '#F3E2FF', '#FFE0E0', '#E9
 function Loading() { return <div className="sh-wrap"><div className="sh-spin" /></div> }
 
 // ── Home ───────────────────────────────────────────────────────────────────────
+const PROMO_ICONS = [Truck, Gift, ShieldCheck, Sparkles]
 export function Home() {
-  const { products, loading, navigate } = useShop()
+  const { products, loading, navigate, settings } = useShop()
   const ages = useMemo(() => Array.from(new Set(products.map(p => p.age_range).filter(Boolean))).slice(0, 6), [products])
   const cats = useMemo(() => Array.from(new Set(products.map(p => p.category).filter(Boolean))).slice(0, 8), [products])
   const featured = useMemo(() => products.filter(p => p.featured).slice(0, 8), [products])
   const newest = useMemo(() => products.slice(0, 10), [products])
+  const promos = (settings.promos || []).filter(Boolean).slice(0, 3)
   if (loading) return <Loading />
   return (
     <div className="sh-wrap">
       <div className="sh-hero">
         <div className="blob" /><div className="blob2" />
-        <h1>Toys that spark joy ✨</h1>
-        <p>Building sets, bouquets & gifts — delivered across the Maldives. Find the perfect present in a few taps.</p>
+        <h1>{settings.hero_title}</h1>
+        <p>{settings.hero_subtitle}</p>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           <button className="sh-btn sh-btn-w" onClick={() => navigate('/products')}>Shop all toys</button>
           <button className="sh-btn sh-btn-d" onClick={() => navigate('/shop-by-age')}>Shop by age</button>
         </div>
       </div>
 
-      <div className="sh-promos">
-        <div className="sh-promo"><Truck size={18} color="#FFA500" /> Island-wide delivery</div>
-        <div className="sh-promo"><Gift size={18} color="#FFA500" /> Gift wrapping available</div>
-        <div className="sh-promo"><ShieldCheck size={18} color="#FFA500" /> Safe, quality toys</div>
-      </div>
+      {promos.length > 0 && (
+        <div className="sh-promos">
+          {promos.map((text, i) => { const Ic = PROMO_ICONS[i] || Sparkles; return <div key={i} className="sh-promo"><Ic size={18} color="#FFA500" /> {text}</div> })}
+        </div>
+      )}
 
       {ages.length > 0 && (<>
         <div className="sh-sec-h"><h2>Shop by age</h2><button className="sh-see" onClick={() => navigate('/shop-by-age')}>See all</button></div>
@@ -236,14 +238,18 @@ export function ProductPage() {
           {p.category && <span className="sh-cat">{p.category}</span>}
           <h1>{p.name}</h1>
           <Stars rating={avg} size={16} showValue count={reviews.length} />
-          <div className="sh-pd-price">{money(p.sell_price)}</div>
+          <div className="sh-pd-price">
+            {money(effPrice(p))}
+            {onSale(p) && <><span className="sh-was" style={{ fontSize: 17 }}>{money(p.sell_price)}</span>
+              <span style={{ marginLeft: 8, fontSize: 13, fontWeight: 800, color: '#fff', background: '#E24B4A', padding: '3px 9px', borderRadius: 99 }}>Save {Math.round((1 - num(p.sale_price) / num(p.sell_price)) * 100)}%</span></>}
+          </div>
           {p.brand && <div style={{ fontSize: 13.5, color: '#77706a' }}>Brand: {p.brand}{p.age_range ? ` · Ages ${p.age_range}` : ''}</div>}
           {low && <div className="sh-low" style={{ marginTop: 6 }}>Only {p.stock_qty} left in stock</div>}
 
           <div style={{ display: 'flex', gap: 12, alignItems: 'center', margin: '20px 0 8px' }}>
             <QtyStepper qty={qty} onChange={setQty} max={Number(p.stock_qty) || 99} />
             <button className="sh-btn sh-btn-o" style={{ flex: 1, justifyContent: 'center' }} onClick={() => { addToCart(p, qty); navigate('/cart') }}>
-              Add to cart · {money(num(p.sell_price) * qty)}
+              Add to cart · {money(effPrice(p) * qty)}
             </button>
           </div>
 
@@ -296,9 +302,14 @@ export function ProductPage() {
 
 // ── Cart ────────────────────────────────────────────────────────────────────────
 export function CartPage() {
-  const { cart, setQty, removeItem, cartSubtotal, giftWrap, setGiftWrap, shipIdx, setShipIdx, navigate } = useShop()
-  const ship = SHIPPING[shipIdx] || SHIPPING[0]
-  const total = cartSubtotal + (giftWrap ? GIFT_WRAP_FEE : 0) + (ship?.fee || 0)
+  const { cart, setQty, removeItem, cartSubtotal, giftWrap, setGiftWrap, shipIdx, setShipIdx, navigate, settings } = useShop()
+  const SHIPPING = settings.shipping || []
+  const GIFT_WRAP_FEE = num(settings.gift_wrap_fee)
+  const freeOver = num(settings.free_delivery_over)
+  const ship = SHIPPING[shipIdx] || SHIPPING[0] || { label: '—', fee: 0 }
+  const freeShip = freeOver > 0 && cartSubtotal >= freeOver
+  const shipFee = freeShip ? 0 : (ship?.fee || 0)
+  const total = cartSubtotal + (giftWrap ? GIFT_WRAP_FEE : 0) + shipFee
   if (!cart.length) return (
     <div className="sh-wrap"><div className="sh-empty">
       <ShoppingCart size={44} color="#e5dcc9" />
@@ -343,9 +354,10 @@ export function CartPage() {
               {SHIPPING.map((s, i) => <option key={i} value={i}>{s.label} — {money(s.fee)}</option>)}
             </select>
           </Field>
+          {freeOver > 0 && !freeShip && <div style={{ fontSize: 12, color: '#1D9E75', fontWeight: 600, marginBottom: 8 }}>Add {money(freeOver - cartSubtotal)} more for FREE delivery 🎉</div>}
           <div className="sh-srow"><span>Subtotal</span><span>{money(cartSubtotal)}</span></div>
           {giftWrap && <div className="sh-srow"><span>Gift wrapping</span><span>{money(GIFT_WRAP_FEE)}</span></div>}
-          <div className="sh-srow"><span>Delivery (est.)</span><span>{money(ship?.fee || 0)}</span></div>
+          <div className="sh-srow"><span>Delivery (est.)</span><span>{freeShip ? <b style={{ color: '#1D9E75' }}>FREE</b> : money(shipFee)}</span></div>
           <div className="sh-stot"><span>Total</span><span style={{ color: '#E24B4A' }}>{money(total)}</span></div>
           <button className="sh-btn sh-btn-o" style={{ width: '100%', justifyContent: 'center', marginTop: 16 }} onClick={() => navigate('/checkout')}>
             Checkout <ChevronRight size={17} />
@@ -359,8 +371,13 @@ export function CartPage() {
 
 // ── Checkout ────────────────────────────────────────────────────────────────────
 export function CheckoutPage() {
-  const { cart, cartSubtotal, giftWrap, shipIdx, user, navigate, clearCart, setLastOrder } = useShop()
-  const ship = SHIPPING[shipIdx] || SHIPPING[0]
+  const { cart, cartSubtotal, giftWrap, shipIdx, user, navigate, clearCart, setLastOrder, settings } = useShop()
+  const SHIPPING = settings.shipping || []
+  const GIFT_WRAP_FEE = num(settings.gift_wrap_fee)
+  const freeOver = num(settings.free_delivery_over)
+  const ship = SHIPPING[shipIdx] || SHIPPING[0] || { label: '—', fee: 0 }
+  const freeShip = freeOver > 0 && cartSubtotal >= freeOver
+  const shipFee = freeShip ? 0 : (ship?.fee || 0)
   const [form, setForm] = useState({
     name: user?.user_metadata?.full_name || '', phone: '', island: '', address: '',
     notes: '', email: user?.email || '',
@@ -373,7 +390,7 @@ export function CheckoutPage() {
 
   const discount = applied ? (applied.type === 'percent' ? cartSubtotal * num(applied.value) / 100 : num(applied.value)) : 0
   const wrapFee = giftWrap ? GIFT_WRAP_FEE : 0
-  const total = Math.max(0, cartSubtotal + wrapFee + (ship?.fee || 0) - discount)
+  const total = Math.max(0, cartSubtotal + wrapFee + shipFee - discount)
 
   useEffect(() => { if (!cart.length) navigate('/cart') }, []) // eslint-disable-line
 
@@ -398,7 +415,7 @@ export function CheckoutPage() {
       const extras = [
         `Website order · ${form.island}`,
         giftWrap ? `Gift wrap +${money(GIFT_WRAP_FEE)}` : '',
-        `Delivery est. ${money(ship?.fee || 0)} (${ship?.label})`,
+        `Delivery est. ${freeShip ? 'FREE' : money(shipFee)} (${ship?.label})`,
         applied ? `Coupon ${applied.code} −${money(discount)}` : '',
         `Amount to pay ${money(total)}`,
         form.notes ? `Note: ${form.notes}` : '',
@@ -419,7 +436,7 @@ export function CheckoutPage() {
           unit_price: num(it.price), total_price: +(num(it.price) * it.qty).toFixed(2),
           channel: 'Website', status: 'created', order_date: orderDate,
           invoice_number: invoice, payment_status: 'unpaid', payment_method: 'Bank Transfer',
-          delivery_fee: i === 0 ? (ship?.fee || 0) : 0,
+          delivery_fee: i === 0 ? shipFee : 0,
           notes: i === 0 ? extras : '',
         }
         let { error } = await supabase.from('orders').insert(payload)
@@ -483,7 +500,7 @@ export function CheckoutPage() {
           </div>
           <div className="sh-srow"><span>Subtotal</span><span>{money(cartSubtotal)}</span></div>
           {giftWrap && <div className="sh-srow"><span>Gift wrapping</span><span>{money(GIFT_WRAP_FEE)}</span></div>}
-          <div className="sh-srow"><span>Delivery (est.)</span><span>{money(ship?.fee || 0)}</span></div>
+          <div className="sh-srow"><span>Delivery (est.)</span><span>{freeShip ? <b style={{ color: '#1D9E75' }}>FREE</b> : money(shipFee)}</span></div>
           {discount > 0 && <div className="sh-srow" style={{ color: '#1D9E75' }}><span>Discount</span><span>−{money(discount)}</span></div>}
           <div className="sh-stot"><span>Total</span><span style={{ color: '#E24B4A' }}>{money(total)}</span></div>
           <button className="sh-btn sh-btn-o" style={{ width: '100%', justifyContent: 'center', marginTop: 16 }} disabled={!canPlace || placing} onClick={placeOrder}>

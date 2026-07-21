@@ -23,13 +23,34 @@ export function previewAllowed() {
   } catch { return false }
 }
 
-// Delivery estimate zones (editable) + gift wrapping fee
+// Delivery estimate zones (defaults) + gift wrapping fee — the back office can
+// override all of these; these are only the fallback values.
 export const SHIPPING = [
   { label: 'Malé / Hulhumalé', fee: 35 },
   { label: 'Greater Malé (Villingili, etc.)', fee: 50 },
   { label: 'Other islands (ferry / courier)', fee: 90 },
 ]
 export const GIFT_WRAP_FEE = 30
+
+// Everything the back office → Website tab can edit. Stored in the site_settings
+// table and merged over these defaults at load time.
+export const DEFAULT_SETTINGS = {
+  live: SHOP_LIVE,
+  hero_title: 'Toys that spark joy ✨',
+  hero_subtitle: 'Building sets, bouquets & gifts — delivered across the Maldives. Find the perfect present in a few taps.',
+  announcement: '',
+  promos: ['Island-wide delivery', 'Gift wrapping available', 'Safe, quality toys'],
+  gift_wrap_fee: GIFT_WRAP_FEE,
+  shipping: SHIPPING,
+  instagram: INSTAGRAM,
+  whatsapp: WHATSAPP,
+  free_delivery_over: 0,
+}
+export const mergeSettings = d => ({ ...DEFAULT_SETTINGS, ...(d || {}), shipping: (d?.shipping?.length ? d.shipping : DEFAULT_SETTINGS.shipping), promos: (d?.promos?.length ? d.promos : DEFAULT_SETTINGS.promos) })
+
+// Sale-price helpers
+export const onSale = p => p && num(p.sale_price) > 0 && num(p.sale_price) < num(p.sell_price)
+export const effPrice = p => onSale(p) ? num(p.sale_price) : num(p.sell_price)
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 export const num = v => { const n = parseFloat(v); return isNaN(n) ? 0 : n }
@@ -93,18 +114,20 @@ export function VideoEmbed({ url }) {
 export function ProductCard({ p }) {
   const { navigate, addToCart } = useShop()
   const low = Number(p.stock_qty) > 0 && Number(p.stock_qty) <= 3
+  const sale = onSale(p)
+  const tag = p.badge || (sale ? `Save ${Math.round((1 - num(p.sale_price) / num(p.sell_price)) * 100)}%` : null)
   return (
     <div className="sh-card" onClick={() => navigate(`/product/${p.id}`)}>
       <div style={{ position: 'relative' }}>
         <ProductImage src={p.photo_url} name={p.name} style={{ width: '100%', aspectRatio: '1/1' }} />
-        {p.badge && <span className="sh-tag">{p.badge}</span>}
+        {tag && <span className="sh-tag" style={sale && !p.badge ? { background: '#E24B4A' } : undefined}>{tag}</span>}
       </div>
       <div className="bd">
         {p.category && <span className="sh-cat">{p.category}</span>}
         <span className="sh-name">{p.name}</span>
         {Number(p.review_count) > 0 && <Stars rating={p.avg_rating} size={12} />}
         {low && <span className="sh-low">Only {p.stock_qty} left</span>}
-        <span className="sh-price">{money(p.sell_price)}</span>
+        <span className="sh-price">{money(effPrice(p))}{sale && <span className="sh-was">{money(p.sell_price)}</span>}</span>
         <button className="sh-add" onClick={e => { e.stopPropagation(); addToCart(p) }}><Plus size={14} /> Add to cart</button>
       </div>
     </div>
@@ -183,7 +206,8 @@ export function Header() {
 }
 
 export function Footer() {
-  const { navigate } = useShop()
+  const { navigate, settings } = useShop()
+  const instagram = settings?.instagram || INSTAGRAM
   return (
     <footer className="sh-footer">
       <div className="sh-footer-in">
@@ -203,7 +227,7 @@ export function Footer() {
         <div>
           <div className="sh-fh">Help</div>
           <button onClick={() => navigate('/cart')}>Your cart</button>
-          {INSTAGRAM && <a href={INSTAGRAM} target="_blank" rel="noreferrer">Instagram</a>}
+          {instagram && <a href={instagram} target="_blank" rel="noreferrer">Instagram</a>}
         </div>
       </div>
       <div className="sh-copy">© {new Date().getFullYear()} {BRAND} · Maldives</div>
@@ -284,6 +308,8 @@ export function ShopStyles() {
     .sh-cat{ font-size:10.5px; font-weight:700; color:#c7a15a; text-transform:uppercase; letter-spacing:0.5px; }
     .sh-name{ font-size:13.5px; font-weight:600; line-height:1.35; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
     .sh-price{ font-size:16px; font-weight:800; margin-top:auto; }
+    .sh-was{ font-size:12.5px; font-weight:600; color:#b0a595; text-decoration:line-through; margin-left:7px; }
+    .sh-announce{ background:#0d1b2a; color:#fff; text-align:center; font-size:13px; font-weight:600; padding:8px 14px; }
     .sh-low{ font-size:11px; color:#E24B4A; font-weight:600; }
     .sh-add{ margin-top:8px; border:none; background:#FFF1D6; color:#b8740a; font-weight:700; font-size:12.5px; padding:9px; border-radius:10px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:6px; }
     .sh-add:hover{ background:#ffe6b8; }

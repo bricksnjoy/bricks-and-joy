@@ -27,7 +27,7 @@ import { restockPredictions, costHistoryByProduct } from '../lib/insights'
 
 const CATEGORIES = ['Building & Blocks','Action Figures','Dolls & Plush','Board Games','Outdoor & Sports','Educational','Vehicles & RC','Arts & Crafts','Puzzles','Other']
 const AGE_RANGES = ['0–2','3–5','6–8','9–12','12+','All ages']
-const EMPTY = { name:'', category:'Building & Blocks', age_range:'3–5', brand:'', sku:'', barcode:'', pieces:'', stock_qty:0, low_stock_threshold:10, cost_price:0, sell_price:0, description:'', sizes:'', weight:'', dimensions:'', tags:'', photo_url:'', discontinued:false, featured:false, badge:'', video_url:'', battery:'', materials:'', safety_warnings:'' }
+const EMPTY = { name:'', category:'Building & Blocks', age_range:'3–5', brand:'', sku:'', barcode:'', pieces:'', stock_qty:0, low_stock_threshold:10, cost_price:0, sell_price:0, description:'', sizes:'', weight:'', dimensions:'', tags:'', photo_url:'', discontinued:false, featured:false, badge:'', sale_price:'', video_url:'', battery:'', materials:'', safety_warnings:'' }
 
 // Generate a unique barcode number
 function genBarcode(name, id) {
@@ -159,7 +159,7 @@ export default function Inventory() {
     const barcode = form.barcode || genBarcode(form.name, form.id || Date.now())
     // Strip nested relation data + edit-only helper that Supabase rejects on update
     const { suppliers: _s, supplier_name: _sn, _origStock, ...cleanForm } = form
-    const payload = { ...cleanForm, barcode, pieces: form.pieces === '' || form.pieces == null ? null : parseInt(form.pieces) || null, stock_qty: parseInt(form.stock_qty) || 0, cost_price: parseFloat(form.cost_price) || 0, sell_price: parseFloat(form.sell_price) || 0, low_stock_threshold: (form.low_stock_threshold === '' || form.low_stock_threshold == null || isNaN(parseInt(form.low_stock_threshold))) ? 10 : parseInt(form.low_stock_threshold) }
+    const payload = { ...cleanForm, barcode, pieces: form.pieces === '' || form.pieces == null ? null : parseInt(form.pieces) || null, stock_qty: parseInt(form.stock_qty) || 0, cost_price: parseFloat(form.cost_price) || 0, sell_price: parseFloat(form.sell_price) || 0, sale_price: (form.sale_price === '' || form.sale_price == null) ? null : (parseFloat(form.sale_price) || null), low_stock_threshold: (form.low_stock_threshold === '' || form.low_stock_threshold == null || isNaN(parseInt(form.low_stock_threshold))) ? 10 : parseInt(form.low_stock_threshold) }
     // On edit, don't overwrite stock if the user didn't change it — avoids clobbering
     // stock changes made by orders while the edit modal was open.
     if (modal === 'edit' && _origStock != null && (parseInt(form.stock_qty) || 0) === (Number(_origStock) || 0)) delete payload.stock_qty
@@ -1031,6 +1031,14 @@ export default function Inventory() {
               </label>
               <Input label="Badge" value={form.badge} onChange={f('badge')} placeholder="New / Sale / Seasonal" style={{ flex: 1, minWidth: 140 }} />
             </div>
+            <FormRow>
+              <Input label="Sale price (MVR, optional)" type="number" step="0.01" value={form.sale_price} onChange={f('sale_price')} placeholder="Leave blank for no sale" />
+              <div style={{ display: 'flex', alignItems: 'flex-end', fontSize: 12, color: form.sale_price && parseFloat(form.sale_price) < parseFloat(form.sell_price) ? '#1D9E75' : '#aaa', paddingBottom: 10 }}>
+                {form.sale_price && parseFloat(form.sale_price) > 0 && parseFloat(form.sale_price) < parseFloat(form.sell_price)
+                  ? `On sale — customers save ${Math.round((1 - parseFloat(form.sale_price) / parseFloat(form.sell_price)) * 100)}%`
+                  : 'Shows the normal price struck through when set below sell price'}
+              </div>
+            </FormRow>
             <FormRow>
               <Input label="Batteries" value={form.battery} onChange={f('battery')} placeholder="e.g. 2 × AA (not included)" />
               <Input label="Materials" value={form.materials} onChange={f('materials')} placeholder="e.g. ABS plastic, BPA-free" />
