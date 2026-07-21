@@ -175,7 +175,7 @@ export function Header() {
         </button>
 
         {/* left cluster: profile / login + search */}
-        <button className="sh-icon" title={user ? 'My account' : 'Sign in'} onClick={() => user ? go('/account') : signIn()}>
+        <button className="sh-icon" title={user ? 'My account' : 'Sign in / account'} onClick={() => go('/account')}>
           {user?.user_metadata?.avatar_url
             ? <img src={user.user_metadata.avatar_url} alt="" style={{ width: 26, height: 26, borderRadius: '50%' }} />
             : <User size={19} />}

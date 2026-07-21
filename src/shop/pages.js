@@ -411,6 +411,22 @@ export function CheckoutPage() {
 
   useEffect(() => { if (!cart.length) navigate('/cart') }, []) // eslint-disable-line
 
+  // prefill from the signed-in customer's saved profile (only empty fields)
+  useEffect(() => {
+    if (!user) return
+    supabase.from('customer_profiles').select('*').eq('id', user.id).maybeSingle().then(({ data }) => {
+      if (!data) return
+      setForm(f => ({
+        ...f,
+        name: f.name || data.full_name || '',
+        phone: f.phone || data.phone || '',
+        island: f.island || data.island || '',
+        address: f.address || data.address || '',
+        notes: f.notes || data.notes || '',
+      }))
+    })
+  }, [user]) // eslint-disable-line
+
   async function applyCoupon() {
     if (!coupon.trim()) return
     setChecking(true); setCouponMsg('')
@@ -459,6 +475,14 @@ export function CheckoutPage() {
         let { error } = await supabase.from('orders').insert(payload)
         while (error && dropMissingCol(error, payload)) { error = (await supabase.from('orders').insert(payload)).error }
         if (error) throw error
+      }
+      // remember the signed-in customer's details for next time (after ordering,
+      // not while they type)
+      if (user) {
+        supabase.from('customer_profiles').upsert({
+          id: user.id, email: user.email, full_name: form.name.trim(), phone: form.phone.trim(),
+          island: form.island.trim(), address: form.address, notes: form.notes, updated_at: new Date().toISOString(),
+        }, { onConflict: 'id' })
       }
       setLastOrder({ invoice, total, name: form.name.trim() })
       clearCart()
@@ -562,26 +586,79 @@ export function OrderConfirmed() {
 // ── Account ─────────────────────────────────────────────────────────────────────
 export function AccountPage() {
   const { user, signIn, signOut, navigate } = useShop()
-  return (
+  const [profile, setProfile] = useState({ full_name: '', phone: '', island: '', address: '', notes: '' })
+  const [loaded, setLoaded] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [savedMsg, setSavedMsg] = useState('')
+
+  useEffect(() => {
+    if (!user) { setLoaded(true); return }
+    supabase.from('customer_profiles').select('*').eq('id', user.id).maybeSingle().then(({ data }) => {
+      setProfile({
+        full_name: data?.full_name || user.user_metadata?.full_name || '',
+        phone: data?.phone || '', island: data?.island || '',
+        address: data?.address || '', notes: data?.notes || '',
+      })
+      setLoaded(true)
+    })
+  }, [user])
+
+  const set = (k, v) => { setProfile(p => ({ ...p, [k]: v })); setSavedMsg('') }
+
+  async function saveProfile() {
+    setSaving(true)
+    const { error } = await supabase.from('customer_profiles').upsert({
+      id: user.id, email: user.email, ...profile, updated_at: new Date().toISOString(),
+    }, { onConflict: 'id' })
+    setSaving(false)
+    setSavedMsg(error ? 'Could not save: ' + error.message : 'Saved ✓')
+  }
+
+  // ── not signed in: guest-friendly sign-in prompt ──
+  if (!user) return (
     <div className="sh-wrap" style={{ maxWidth: 520 }}>
       <h1 className="sh-h2">My account</h1>
       <div className="sh-card2" style={{ textAlign: 'center', padding: '30px 26px' }}>
-        {user ? (
-          <>
-            {user.user_metadata?.avatar_url && <img src={user.user_metadata.avatar_url} alt="" style={{ width: 64, height: 64, borderRadius: '50%', marginBottom: 12 }} />}
-            <div style={{ fontSize: 18, fontWeight: 800 }}>{user.user_metadata?.full_name || 'Welcome!'}</div>
-            <div style={{ color: '#8a8278', fontSize: 13.5, marginBottom: 20 }}>{user.email}</div>
-            <button className="sh-btn sh-btn-o" onClick={() => navigate('/products')}>Continue shopping</button>
-            <button className="sh-btn" style={{ background: 'none', color: '#E24B4A', marginLeft: 8 }} onClick={signOut}><LogOut size={15} /> Sign out</button>
-          </>
-        ) : (
-          <>
-            <Baby size={34} color="#FFA500" style={{ marginBottom: 12 }} />
-            <div style={{ fontSize: 17, fontWeight: 800, marginBottom: 4 }}>Sign in</div>
-            <p style={{ color: '#77706a', fontSize: 14, margin: '0 0 18px' }}>Sign in with Google to leave reviews and check out faster.</p>
-            <button className="sh-btn sh-btn-d" onClick={signIn}>Continue with Google</button>
-          </>
-        )}
+        <Baby size={34} color="#FFA500" style={{ marginBottom: 12 }} />
+        <div style={{ fontSize: 17, fontWeight: 800, marginBottom: 4 }}>Sign in or create an account</div>
+        <p style={{ color: '#77706a', fontSize: 14, margin: '0 0 18px', lineHeight: 1.6 }}>
+          Sign in with Google to save your delivery details, check out faster, and leave reviews.
+        </p>
+        <button className="sh-btn sh-btn-d" onClick={signIn}>Continue with Google</button>
+        <div style={{ marginTop: 22, paddingTop: 18, borderTop: '1px solid #f0ebe3' }}>
+          <p style={{ color: '#8a8278', fontSize: 13, margin: '0 0 12px' }}>No account needed — you can shop and check out as a guest.</p>
+          <button className="sh-btn sh-btn-o" onClick={() => navigate('/products')}>Browse as guest</button>
+        </div>
+      </div>
+    </div>
+  )
+
+  // ── signed in: profile ──
+  return (
+    <div className="sh-wrap" style={{ maxWidth: 560 }}>
+      <h1 className="sh-h2">My account</h1>
+      <div className="sh-card2" style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+        {user.user_metadata?.avatar_url && <img src={user.user_metadata.avatar_url} alt="" style={{ width: 52, height: 52, borderRadius: '50%' }} />}
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 16, fontWeight: 800 }}>{profile.full_name || user.user_metadata?.full_name || 'Welcome!'}</div>
+          <div style={{ color: '#8a8278', fontSize: 13 }}>{user.email}</div>
+        </div>
+        <button className="sh-btn" style={{ background: 'none', color: '#E24B4A' }} onClick={signOut}><LogOut size={15} /> Sign out</button>
+      </div>
+
+      <div className="sh-card2">
+        <div className="hd">Your details</div>
+        <p style={{ fontSize: 12.5, color: '#8a8278', margin: '-6px 0 14px' }}>We'll use these to fill in checkout for you. Nothing saves until you press Save.</p>
+        <Field label="Full name"><input value={profile.full_name} onChange={e => set('full_name', e.target.value)} placeholder="Your name" /></Field>
+        <Field label="Phone / WhatsApp"><input value={profile.phone} onChange={e => set('phone', e.target.value)} inputMode="tel" placeholder="7xxxxxx" /></Field>
+        <Field label="Island"><input value={profile.island} onChange={e => set('island', e.target.value)} placeholder="e.g. Malé, Hulhumalé" /></Field>
+        <Field label="Delivery address"><input value={profile.address} onChange={e => set('address', e.target.value)} placeholder="House / street / landmark" /></Field>
+        <Field label="Notes (optional)"><textarea rows={2} value={profile.notes} onChange={e => set('notes', e.target.value)} placeholder="Anything we should know for deliveries?" /></Field>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 6 }}>
+          <button className="sh-btn sh-btn-o" disabled={saving || !loaded} onClick={saveProfile}>{saving ? 'Saving…' : 'Save details'}</button>
+          {savedMsg && <span style={{ fontSize: 13, fontWeight: 600, color: savedMsg.startsWith('Saved') ? '#1D9E75' : '#E24B4A' }}>{savedMsg}</span>}
+          <button className="sh-btn sh-btn-d" style={{ marginLeft: 'auto' }} onClick={() => navigate('/products')}>Continue shopping</button>
+        </div>
       </div>
     </div>
   )

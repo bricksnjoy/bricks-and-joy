@@ -385,6 +385,19 @@ create policy "Staff can update site settings"  on site_settings for all to auth
 grant select on site_settings to anon, authenticated;
 grant all on site_settings to authenticated;
 
+-- Signed-in customer profiles (saved delivery details). Each shopper can only
+-- read/write their OWN row — never anyone else's.
+create table if not exists customer_profiles (
+  id uuid primary key references auth.users(id) on delete cascade,
+  full_name text, phone text, island text, address text, notes text, email text,
+  updated_at timestamptz default now()
+);
+alter table customer_profiles enable row level security;
+drop policy if exists "Users manage own profile" on customer_profiles;
+create policy "Users manage own profile" on customer_profiles for all to authenticated
+  using (auth.uid() = id) with check (auth.uid() = id);
+grant all on customer_profiles to authenticated;
+
 -- Let anonymous website visitors create their customer record and place an order.
 -- INSERT only — anon still cannot select, update, or delete anything.
 drop policy if exists "Public can create customers" on customers;
