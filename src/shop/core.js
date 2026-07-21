@@ -399,6 +399,7 @@ export function ShopStyles() {
     .sh-copy{ text-align:center; color:rgba(255,255,255,0.5); font-size:12px; padding:16px; border-top:1px solid rgba(255,255,255,0.1); }
 
     /* auth (sign up / log in) */
+    .sh-authpage{ background:#fff; }
     .sh-auth{ max-width:420px; margin:44px auto; padding:0 22px 60px; text-align:center; }
     .sh-auth > img{ height:52px; width:auto; margin:0 auto 18px; display:block; }
     .sh-auth h1{ font-size:23px; font-weight:900; letter-spacing:-0.4px; margin:0 0 8px; }

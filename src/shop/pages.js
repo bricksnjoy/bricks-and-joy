@@ -607,7 +607,7 @@ export function AccountPage() {
   const [savedMsg, setSavedMsg] = useState('')
   // email/password auth
   const [mode, setMode] = useState('login')
-  const [auth, setAuth] = useState({ first: '', last: '', dob: '', email: '', password: '', marketing: false })
+  const [auth, setAuth] = useState({ first: '', last: '', dob: '', phone: '', email: '', password: '', marketing: false })
   const [showPw, setShowPw] = useState(false)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
@@ -619,7 +619,7 @@ export function AccountPage() {
     supabase.from('customer_profiles').select('*').eq('id', user.id).maybeSingle().then(({ data }) => {
       setProfile({
         full_name: data?.full_name || user.user_metadata?.full_name || '',
-        phone: data?.phone || '', island: data?.island || '',
+        phone: data?.phone || user.user_metadata?.phone || '', island: data?.island || '',
         address: data?.address || '', notes: data?.notes || '',
       })
       setLoaded(true)
@@ -649,7 +649,7 @@ export function AccountPage() {
     setBusy(true); setErr(''); setInfo('')
     const { data, error } = await supabase.auth.signUp({
       email: auth.email.trim(), password: auth.password,
-      options: { data: { full_name: `${auth.first} ${auth.last}`.trim(), first_name: auth.first, last_name: auth.last, dob: auth.dob, marketing: auth.marketing } },
+      options: { data: { full_name: `${auth.first} ${auth.last}`.trim(), first_name: auth.first, last_name: auth.last, dob: auth.dob, phone: auth.phone, marketing: auth.marketing } },
     })
     setBusy(false)
     if (error) { setErr(error.message); return }
@@ -676,7 +676,7 @@ export function AccountPage() {
     const signup = mode === 'signup'
     return (
       <div className="sh-auth">
-        <img src="/logo-full.png" alt="Brick's & Joy" onError={e => { e.target.style.display = 'none' }} />
+        <img src="/logo-full.png" alt="Brick's & Joy" onClick={() => navigate('/')} style={{ cursor: 'pointer' }} onError={e => { e.target.style.display = 'none' }} />
         <h1>{signup ? 'Create your account' : 'Welcome back'}</h1>
         <p className="sub">{signup ? 'One account to check out faster, save your details, and leave reviews.' : 'Log in to check out faster, save your picks & track your orders.'}</p>
 
@@ -687,6 +687,7 @@ export function AccountPage() {
           <>
             <Field label="First name"><input value={auth.first} onChange={e => setA('first', e.target.value)} placeholder="First name" /></Field>
             <Field label="Last name"><input value={auth.last} onChange={e => setA('last', e.target.value)} placeholder="Last name" /></Field>
+            <Field label="Phone / WhatsApp"><input value={auth.phone} onChange={e => setA('phone', e.target.value)} inputMode="tel" placeholder="7xxxxxx" /></Field>
             <Field label="Date of birth (optional)"><input type="date" value={auth.dob} onChange={e => setA('dob', e.target.value)} /></Field>
           </>
         )}

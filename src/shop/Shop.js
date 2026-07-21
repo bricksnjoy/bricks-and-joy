@@ -21,6 +21,7 @@ export default function Shop() {
   const [lastOrder, setLastOrder] = useState(null)
   const [settings, setSettings] = useState(DEFAULT_SETTINGS)
   const [settingsLoaded, setSettingsLoaded] = useState(false)
+  const [authReady, setAuthReady] = useState(false)
   const preview = previewAllowed()
   const gated = !settings.live && !preview
 
@@ -45,8 +46,8 @@ export default function Shop() {
   useEffect(() => {
     if (!settingsLoaded || gated) { if (settingsLoaded) setLoading(false); return }
     load()
-    supabase.auth.getUser().then(({ data }) => setUser(data?.user || null))
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setUser(s?.user || null))
+    supabase.auth.getUser().then(({ data }) => { setUser(data?.user || null); setAuthReady(true) })
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => { setUser(s?.user || null); setAuthReady(true) })
     return () => sub?.subscription?.unsubscribe()
   }, [settingsLoaded, gated])
 
@@ -143,6 +144,19 @@ export default function Shop() {
     user, signIn, signOut,
     cart, cartCount, cartSubtotal, addToCart, setQty, removeItem, clearCart,
     giftWrap, setGiftWrap, shipIdx, setShipIdx, lastOrder, setLastOrder,
+  }
+
+  // The account sign-up / log-in screen is a full-page takeover (no shop header
+  // or footer) — like a dedicated auth page.
+  if (loc.path === '/account' && !user) {
+    return (
+      <ShopContext.Provider value={ctx}>
+        <div className="sh sh-authpage">
+          <ShopStyles />
+          {authReady ? <AccountPage /> : <div className="sh-spin" />}
+        </div>
+      </ShopContext.Provider>
+    )
   }
 
   return (
