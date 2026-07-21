@@ -155,47 +155,58 @@ export function Field({ label, children, required }) {
 
 // ── header / footer ────────────────────────────────────────────────────────────
 export function Header() {
-  const { navigate, loc, cartCount, user, signIn } = useShop()
+  const { navigate, loc, cartCount, user } = useShop()
   const [term, setTerm] = useState('')
   const [menu, setMenu] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
   const [logoOk, setLogoOk] = useState(true)
-  const go = to => { setMenu(false); navigate(to) }
+  const go = to => { setMenu(false); setSearchOpen(false); navigate(to) }
   const submit = () => { const t = term.trim(); go(t ? `/products?q=${encodeURIComponent(t)}` : '/products') }
   const links = [['/shop-by-age', 'Shop by Age'], ['/products', 'All Toys']]
   return (
     <header className="sh-head">
-      <div className="sh-head-in">
-        <button className="sh-burger" onClick={() => setMenu(m => !m)} aria-label="Menu">{menu ? <X size={20} /> : <Menu size={20} />}</button>
+      <div className="sh-head-grid">
+        {/* left: nav (desktop) / burger (mobile) */}
+        <div className="sh-left">
+          <button className="sh-burger" onClick={() => setMenu(m => !m)} aria-label="Menu">{menu ? <X size={20} /> : <Menu size={20} />}</button>
+          <nav className="sh-nav">
+            {links.map(([to, label]) => (
+              <button key={to} className={`sh-navlink ${loc.path === to ? 'on' : ''}`} onClick={() => go(to)}>{label}</button>
+            ))}
+          </nav>
+        </div>
 
-        {/* logo → home */}
+        {/* center: logo → home */}
         <button className="sh-logo-btn" onClick={() => go('/')} title={BRAND}>
           {logoOk
             ? <img className="sh-logo-img" src="/logo-full.png" alt={BRAND} onError={() => setLogoOk(false)} />
             : <span className="sh-logo"><span className="dot"><ShoppingBag size={17} color="#fff" /></span><span>{BRAND}</span></span>}
         </button>
 
-        {/* left cluster: profile / login + search */}
-        <button className="sh-icon" title={user ? 'My account' : 'Sign in / account'} onClick={() => go('/account')}>
-          {user?.user_metadata?.avatar_url
-            ? <img src={user.user_metadata.avatar_url} alt="" style={{ width: 26, height: 26, borderRadius: '50%' }} />
-            : <User size={19} />}
-        </button>
-        <div className="sh-search">
-          <Search size={16} color="#b8ab97" />
-          <input value={term} onChange={e => setTerm(e.target.value)} onKeyDown={e => e.key === 'Enter' && submit()} placeholder="Search toys…" />
+        {/* right: icons */}
+        <div className="sh-right">
+          <button className="sh-icon" title="Search" onClick={() => setSearchOpen(o => !o)}><Search size={19} /></button>
+          <button className="sh-icon" title={user ? 'My account' : 'Sign in / account'} onClick={() => go('/account')}>
+            {user?.user_metadata?.avatar_url
+              ? <img src={user.user_metadata.avatar_url} alt="" style={{ width: 24, height: 24, borderRadius: '50%' }} />
+              : <User size={19} />}
+          </button>
+          <button className="sh-icon sh-carticon" title="Cart" onClick={() => go('/cart')}>
+            <ShoppingCart size={19} />
+            {cartCount > 0 && <span className="sh-badge">{cartCount}</span>}
+          </button>
         </div>
-
-        {/* right cluster: nav + cart */}
-        <nav className="sh-nav">
-          {links.map(([to, label]) => (
-            <button key={to} className={`sh-navlink ${loc.path === to ? 'on' : ''}`} onClick={() => go(to)}>{label}</button>
-          ))}
-        </nav>
-        <button className="sh-icon sh-carticon" title="Cart" onClick={() => go('/cart')}>
-          <ShoppingCart size={19} />
-          {cartCount > 0 && <span className="sh-badge">{cartCount}</span>}
-        </button>
       </div>
+
+      {searchOpen && (
+        <div className="sh-searchrow">
+          <div className="sh-search">
+            <Search size={16} color="#b8ab97" />
+            <input autoFocus value={term} onChange={e => setTerm(e.target.value)} onKeyDown={e => e.key === 'Enter' && submit()} placeholder="Search toys, sets, gifts…" />
+            <button className="sh-x" onClick={() => setSearchOpen(false)} style={{ padding: 2 }}><X size={16} /></button>
+          </div>
+        </div>
+      )}
       {menu && (
         <div className="sh-mobilenav">
           {links.map(([to, label]) => <button key={to} onClick={() => go(to)}>{label}</button>)}
@@ -250,10 +261,14 @@ export function ShopStyles() {
 
     /* header */
     .sh-head{ position:sticky; top:0; z-index:50; background:rgba(255,255,255,0.94); backdrop-filter:blur(10px); border-bottom:1px solid #f0ebe3; }
-    .sh-head-in{ max-width:1200px; margin:0 auto; padding:12px 18px; display:flex; align-items:center; gap:14px; }
+    .sh-head-grid{ max-width:1200px; margin:0 auto; padding:14px 22px; display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:14px; }
+    .sh-left{ display:flex; align-items:center; gap:6px; justify-self:start; }
+    .sh-right{ display:flex; align-items:center; gap:2px; justify-self:end; }
     .sh-burger{ display:none; background:none; border:none; cursor:pointer; color:#0d1b2a; padding:2px; }
-    .sh-logo-btn{ background:none; border:none; cursor:pointer; padding:0; flex-shrink:0; display:flex; align-items:center; }
-    .sh-logo-img{ height:46px; width:auto; display:block; }
+    .sh-logo-btn{ background:none; border:none; cursor:pointer; padding:0; justify-self:center; display:flex; align-items:center; }
+    .sh-logo-img{ height:48px; width:auto; display:block; }
+    .sh-searchrow{ border-top:1px solid #f0ebe3; background:#fff; padding:12px 22px; display:flex; justify-content:center; animation:shFade .15s ease; }
+    .sh-searchrow .sh-search{ width:100%; max-width:640px; flex:none; }
     @media(max-width:560px){ .sh-logo-img{ height:36px; } }
     .sh-logo{ display:flex; align-items:center; gap:9px; font-weight:800; font-size:18px; letter-spacing:-0.4px; cursor:pointer; flex-shrink:0; }
     .sh-logo .dot{ width:30px; height:30px; border-radius:9px; background:linear-gradient(135deg,#FFA500,#ff8c00); display:flex; align-items:center; justify-content:center; box-shadow:0 4px 10px rgba(255,165,0,0.3); }
