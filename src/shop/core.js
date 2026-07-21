@@ -398,6 +398,22 @@ export function ShopStyles() {
     .sh-footer button:hover, .sh-footer a:hover{ color:#fff; }
     .sh-copy{ text-align:center; color:rgba(255,255,255,0.5); font-size:12px; padding:16px; border-top:1px solid rgba(255,255,255,0.1); }
 
+    /* auth (sign up / log in) */
+    .sh-auth{ max-width:420px; margin:44px auto; padding:0 22px 60px; text-align:center; }
+    .sh-auth > img{ height:52px; width:auto; margin:0 auto 18px; display:block; }
+    .sh-auth h1{ font-size:23px; font-weight:900; letter-spacing:-0.4px; margin:0 0 8px; }
+    .sh-auth .sub{ color:#77706a; font-size:14px; line-height:1.5; margin:0 0 22px; }
+    .sh-auth .sh-field{ text-align:left; }
+    .sh-authbtn{ width:100%; border:none; background:#111; color:#fff; font-weight:800; font-size:14px; letter-spacing:0.5px; text-transform:uppercase; padding:16px; border-radius:99px; cursor:pointer; transition:opacity .15s; }
+    .sh-authbtn:hover{ opacity:0.88; }
+    .sh-authbtn:disabled{ opacity:0.5; cursor:default; }
+    .sh-google{ width:100%; border:1px solid #ddd; background:#fff; color:#111; font-weight:700; font-size:14px; padding:13px; border-radius:99px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:10px; }
+    .sh-google:hover{ background:#faf9f6; }
+    .sh-or{ display:flex; align-items:center; gap:12px; color:#b0a595; font-size:12px; margin:18px 0; }
+    .sh-or::before,.sh-or::after{ content:''; flex:1; height:1px; background:#ece6db; }
+    .sh-toggle-link{ background:none; border:none; color:#111; font-weight:800; cursor:pointer; text-decoration:underline; font-family:inherit; font-size:13.5px; padding:0; }
+    .sh-err{ color:#E24B4A; font-size:13px; margin:0 0 12px; font-weight:600; }
+    .sh-info{ color:#1D9E75; font-size:13px; margin:0 0 12px; font-weight:600; }
     .sh-spin{ width:34px; height:34px; border:3px solid #f0e6d2; border-top-color:#FFA500; border-radius:50%; animation:shSpin .8s linear infinite; margin:60px auto; }
     .sh-empty{ text-align:center; padding:64px 0; color:#9a9186; }
   `}</style>

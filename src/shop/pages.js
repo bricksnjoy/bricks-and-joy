@@ -6,8 +6,20 @@ import {
 } from './core'
 import {
   ArrowLeft, CheckCircle2, Copy, Gift, Truck, ShieldCheck, BatteryCharging, Boxes,
-  Tag, Sparkles, Baby, ShoppingCart, Trash2, LogOut, Star, Package, ChevronRight
+  Tag, Sparkles, ShoppingCart, Trash2, LogOut, Star, Package, ChevronRight, Eye, EyeOff
 } from 'lucide-react'
+
+// Google "G" mark (inline so it works under the strict CSP)
+function GoogleG() {
+  return (
+    <svg width="17" height="17" viewBox="0 0 48 48" aria-hidden="true">
+      <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
+      <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
+      <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
+      <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
+    </svg>
+  )
+}
 
 const ageEmoji = a => {
   const s = String(a || '')
@@ -593,6 +605,14 @@ export function AccountPage() {
   const [loaded, setLoaded] = useState(false)
   const [saving, setSaving] = useState(false)
   const [savedMsg, setSavedMsg] = useState('')
+  // email/password auth
+  const [mode, setMode] = useState('login')
+  const [auth, setAuth] = useState({ first: '', last: '', dob: '', email: '', password: '', marketing: false })
+  const [showPw, setShowPw] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const [info, setInfo] = useState('')
+  const setA = (k, v) => { setAuth(a => ({ ...a, [k]: v })); setErr(''); setInfo('') }
 
   useEffect(() => {
     if (!user) { setLoaded(true); return }
@@ -622,24 +642,85 @@ export function AccountPage() {
     setSavedMsg(error ? 'Could not save: ' + error.message : 'Saved ✓')
   }
 
-  // ── not signed in: guest-friendly sign-in prompt ──
-  if (!user) return (
-    <div className="sh-wrap" style={{ maxWidth: 520 }}>
-      <h1 className="sh-h2">My account</h1>
-      <div className="sh-card2" style={{ textAlign: 'center', padding: '30px 26px' }}>
-        <Baby size={34} color="#FFA500" style={{ marginBottom: 12 }} />
-        <div style={{ fontSize: 17, fontWeight: 800, marginBottom: 4 }}>Sign in or create an account</div>
-        <p style={{ color: '#77706a', fontSize: 14, margin: '0 0 18px', lineHeight: 1.6 }}>
-          Sign in with Google to save your delivery details, check out faster, and leave reviews.
-        </p>
-        <button className="sh-btn sh-btn-d" onClick={signIn}>Continue with Google</button>
-        <div style={{ marginTop: 22, paddingTop: 18, borderTop: '1px solid #f0ebe3' }}>
-          <p style={{ color: '#8a8278', fontSize: 13, margin: '0 0 12px' }}>No account needed — you can shop and check out as a guest.</p>
-          <button className="sh-btn sh-btn-o" onClick={() => navigate('/products')}>Browse as guest</button>
+  // ── auth actions ──
+  async function doSignup() {
+    if (!auth.email || !auth.password) { setErr('Email and password are required'); return }
+    if (auth.password.length < 6) { setErr('Password must be at least 6 characters'); return }
+    setBusy(true); setErr(''); setInfo('')
+    const { data, error } = await supabase.auth.signUp({
+      email: auth.email.trim(), password: auth.password,
+      options: { data: { full_name: `${auth.first} ${auth.last}`.trim(), first_name: auth.first, last_name: auth.last, dob: auth.dob, marketing: auth.marketing } },
+    })
+    setBusy(false)
+    if (error) { setErr(error.message); return }
+    if (!data.session) setInfo(`Almost there! We sent a confirmation link to ${auth.email}. Click it to finish creating your account.`)
+    // if a session came back, onAuthStateChange signs them in automatically
+  }
+  async function doLogin() {
+    if (!auth.email || !auth.password) { setErr('Enter your email and password'); return }
+    setBusy(true); setErr(''); setInfo('')
+    const { error } = await supabase.auth.signInWithPassword({ email: auth.email.trim(), password: auth.password })
+    setBusy(false)
+    if (error) setErr(error.message)
+  }
+  async function forgot() {
+    if (!auth.email) { setErr('Enter your email first, then tap Forgot password'); return }
+    setBusy(true); setErr(''); setInfo('')
+    const { error } = await supabase.auth.resetPasswordForEmail(auth.email.trim(), { redirectTo: window.location.origin + '/account' })
+    setBusy(false)
+    if (error) setErr(error.message); else setInfo(`Password reset link sent to ${auth.email}.`)
+  }
+
+  // ── not signed in: sign up / log in ──
+  if (!user) {
+    const signup = mode === 'signup'
+    return (
+      <div className="sh-auth">
+        <img src="/logo-full.png" alt="Brick's & Joy" onError={e => { e.target.style.display = 'none' }} />
+        <h1>{signup ? 'Create your account' : 'Welcome back'}</h1>
+        <p className="sub">{signup ? 'One account to check out faster, save your details, and leave reviews.' : 'Log in to check out faster, save your picks & track your orders.'}</p>
+
+        <button className="sh-google" onClick={signIn}><GoogleG /> Continue with Google</button>
+        <div className="sh-or">or</div>
+
+        {signup && (
+          <>
+            <Field label="First name"><input value={auth.first} onChange={e => setA('first', e.target.value)} placeholder="First name" /></Field>
+            <Field label="Last name"><input value={auth.last} onChange={e => setA('last', e.target.value)} placeholder="Last name" /></Field>
+            <Field label="Date of birth (optional)"><input type="date" value={auth.dob} onChange={e => setA('dob', e.target.value)} /></Field>
+          </>
+        )}
+        <Field label="Email address"><input type="email" value={auth.email} onChange={e => setA('email', e.target.value)} placeholder="you@example.com" autoComplete="email" /></Field>
+        <div className="sh-field" style={{ textAlign: 'left' }}>
+          <label>Password</label>
+          <div style={{ position: 'relative' }}>
+            <input type={showPw ? 'text' : 'password'} value={auth.password} onChange={e => setA('password', e.target.value)} placeholder="Password" autoComplete={signup ? 'new-password' : 'current-password'} style={{ width: '100%', paddingRight: 42 }} />
+            <button type="button" onClick={() => setShowPw(s => !s)} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#999', display: 'flex' }}>{showPw ? <EyeOff size={17} /> : <Eye size={17} />}</button>
+          </div>
         </div>
+        {!signup && <button className="sh-toggle-link" style={{ display: 'block', margin: '2px 0 14px' }} onClick={forgot}>Forgot password?</button>}
+        {signup && (
+          <label style={{ display: 'flex', gap: 9, alignItems: 'flex-start', textAlign: 'left', fontSize: 12.5, color: '#77706a', margin: '4px 0 16px', cursor: 'pointer' }}>
+            <input type="checkbox" checked={auth.marketing} onChange={e => setA('marketing', e.target.checked)} style={{ marginTop: 2, accentColor: '#111' }} />
+            <span>Email me about new toys, sales & exclusive offers.</span>
+          </label>
+        )}
+
+        {err && <p className="sh-err">{err}</p>}
+        {info && <p className="sh-info">{info}</p>}
+
+        <button className="sh-authbtn" disabled={busy} onClick={signup ? doSignup : doLogin}>{busy ? 'Please wait…' : signup ? 'Create account' : 'Log in'}</button>
+
+        <p style={{ fontSize: 13.5, color: '#77706a', marginTop: 18 }}>
+          {signup ? 'Already have an account? ' : "Don't have an account? "}
+          <button className="sh-toggle-link" onClick={() => { setMode(signup ? 'login' : 'signup'); setErr(''); setInfo('') }}>{signup ? 'Log in' : 'Sign up'}</button>
+        </p>
+        <p style={{ marginTop: 14 }}>
+          <button className="sh-toggle-link" style={{ color: '#b8740a' }} onClick={() => navigate('/products')}>Or keep shopping as a guest →</button>
+        </p>
       </div>
-    </div>
-  )
+    )
+  }
 
   // ── signed in: profile ──
   return (
