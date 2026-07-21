@@ -11,12 +11,15 @@ import {
 
 const ageEmoji = a => {
   const s = String(a || '')
-  if (/^0|1|2|baby|infant/i.test(s)) return '🍼'
-  if (/3|4|5/.test(s)) return '🧸'
-  if (/6|7|8/.test(s)) return '🚀'
-  if (/9|10|11|12/.test(s)) return '🎮'
-  if (/teen|13|14|adult|\+/i.test(s)) return '🎯'
-  return '🎁'
+  if (/all|any/i.test(s)) return '🎁'
+  if (/baby|infant/i.test(s)) return '🍼'
+  const n = parseInt((s.match(/\d+/) || [])[0])   // first number in the label
+  if (isNaN(n)) return '🎁'
+  if (n <= 2) return '🍼'
+  if (n <= 5) return '🧸'
+  if (n <= 8) return '🚀'
+  if (n <= 12) return '🎮'
+  return '🎯'
 }
 const TILE_COLORS = ['#FFE7C2', '#D9F2E4', '#DCE9FF', '#F3E2FF', '#FFE0E0', '#E9F5C9', '#FDE8CF']
 

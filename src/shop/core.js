@@ -135,31 +135,39 @@ export function Header() {
   const { navigate, loc, cartCount, user, signIn } = useShop()
   const [term, setTerm] = useState('')
   const [menu, setMenu] = useState(false)
+  const [logoOk, setLogoOk] = useState(true)
   const go = to => { setMenu(false); navigate(to) }
   const submit = () => { const t = term.trim(); go(t ? `/products?q=${encodeURIComponent(t)}` : '/products') }
-  const links = [['/', 'Home'], ['/shop-by-age', 'Shop by Age'], ['/products', 'All Toys']]
+  const links = [['/shop-by-age', 'Shop by Age'], ['/products', 'All Toys']]
   return (
     <header className="sh-head">
       <div className="sh-head-in">
         <button className="sh-burger" onClick={() => setMenu(m => !m)} aria-label="Menu">{menu ? <X size={20} /> : <Menu size={20} />}</button>
-        <div className="sh-logo" onClick={() => go('/')}>
-          <span className="dot"><ShoppingBag size={17} color="#fff" /></span>
-          <span>{BRAND}</span>
-        </div>
-        <nav className="sh-nav">
-          {links.map(([to, label]) => (
-            <button key={to} className={`sh-navlink ${loc.path === to ? 'on' : ''}`} onClick={() => go(to)}>{label}</button>
-          ))}
-        </nav>
-        <div className="sh-search">
-          <Search size={16} color="#b8ab97" />
-          <input value={term} onChange={e => setTerm(e.target.value)} onKeyDown={e => e.key === 'Enter' && submit()} placeholder="Search toys…" />
-        </div>
+
+        {/* logo → home */}
+        <button className="sh-logo-btn" onClick={() => go('/')} title={BRAND}>
+          {logoOk
+            ? <img className="sh-logo-img" src="/logo-full.png" alt={BRAND} onError={() => setLogoOk(false)} />
+            : <span className="sh-logo"><span className="dot"><ShoppingBag size={17} color="#fff" /></span><span>{BRAND}</span></span>}
+        </button>
+
+        {/* left cluster: profile / login + search */}
         <button className="sh-icon" title={user ? 'My account' : 'Sign in'} onClick={() => user ? go('/account') : signIn()}>
           {user?.user_metadata?.avatar_url
             ? <img src={user.user_metadata.avatar_url} alt="" style={{ width: 26, height: 26, borderRadius: '50%' }} />
             : <User size={19} />}
         </button>
+        <div className="sh-search">
+          <Search size={16} color="#b8ab97" />
+          <input value={term} onChange={e => setTerm(e.target.value)} onKeyDown={e => e.key === 'Enter' && submit()} placeholder="Search toys…" />
+        </div>
+
+        {/* right cluster: nav + cart */}
+        <nav className="sh-nav">
+          {links.map(([to, label]) => (
+            <button key={to} className={`sh-navlink ${loc.path === to ? 'on' : ''}`} onClick={() => go(to)}>{label}</button>
+          ))}
+        </nav>
         <button className="sh-icon sh-carticon" title="Cart" onClick={() => go('/cart')}>
           <ShoppingCart size={19} />
           {cartCount > 0 && <span className="sh-badge">{cartCount}</span>}
@@ -220,13 +228,16 @@ export function ShopStyles() {
     .sh-head{ position:sticky; top:0; z-index:50; background:rgba(255,255,255,0.94); backdrop-filter:blur(10px); border-bottom:1px solid #f0ebe3; }
     .sh-head-in{ max-width:1200px; margin:0 auto; padding:12px 18px; display:flex; align-items:center; gap:14px; }
     .sh-burger{ display:none; background:none; border:none; cursor:pointer; color:#0d1b2a; padding:2px; }
+    .sh-logo-btn{ background:none; border:none; cursor:pointer; padding:0; flex-shrink:0; display:flex; align-items:center; }
+    .sh-logo-img{ height:46px; width:auto; display:block; }
+    @media(max-width:560px){ .sh-logo-img{ height:36px; } }
     .sh-logo{ display:flex; align-items:center; gap:9px; font-weight:800; font-size:18px; letter-spacing:-0.4px; cursor:pointer; flex-shrink:0; }
     .sh-logo .dot{ width:30px; height:30px; border-radius:9px; background:linear-gradient(135deg,#FFA500,#ff8c00); display:flex; align-items:center; justify-content:center; box-shadow:0 4px 10px rgba(255,165,0,0.3); }
     .sh-nav{ display:flex; gap:4px; }
     .sh-navlink{ background:none; border:none; cursor:pointer; padding:8px 12px; border-radius:9px; font-size:13.5px; font-weight:600; color:#6b645d; }
     .sh-navlink:hover{ background:#f4f0e9; color:#0d1b2a; }
     .sh-navlink.on{ color:#b8740a; }
-    .sh-search{ flex:1; max-width:340px; display:flex; align-items:center; gap:8px; background:#f4f0e9; border:1px solid #efe9df; border-radius:99px; padding:9px 14px; }
+    .sh-search{ flex:1; max-width:420px; display:flex; align-items:center; gap:8px; background:#f4f0e9; border:1px solid #efe9df; border-radius:99px; padding:10px 16px; }
     .sh-search input{ border:none; background:none; outline:none; font-family:inherit; font-size:13.5px; width:100%; color:#0d1b2a; }
     .sh-icon{ position:relative; background:none; border:none; cursor:pointer; color:#0d1b2a; padding:7px; border-radius:10px; display:flex; }
     .sh-icon:hover{ background:#f4f0e9; }
@@ -243,12 +254,12 @@ export function ShopStyles() {
     .sh-crumb{ background:none; border:none; cursor:pointer; color:#77706a; font-weight:600; font-size:13.5px; display:inline-flex; align-items:center; gap:6px; margin-bottom:14px; padding:0; }
 
     /* hero */
-    .sh-hero{ background:linear-gradient(135deg,#FFA500,#ff7a00); border-radius:24px; padding:44px 38px; color:#fff; position:relative; overflow:hidden; margin-bottom:14px; }
-    .sh-hero h1{ margin:0 0 10px; font-size:36px; font-weight:900; letter-spacing:-1px; max-width:560px; line-height:1.08; }
-    .sh-hero p{ margin:0 0 20px; font-size:15.5px; opacity:0.95; max-width:520px; line-height:1.55; }
-    .sh-hero .blob{ position:absolute; right:-50px; top:-50px; width:230px; height:230px; background:rgba(255,255,255,0.14); border-radius:50%; }
-    .sh-hero .blob2{ position:absolute; right:90px; bottom:-80px; width:170px; height:170px; background:rgba(255,255,255,0.10); border-radius:50%; }
-    @media(max-width:600px){ .sh-hero{ padding:30px 24px; } .sh-hero h1{ font-size:27px; } }
+    .sh-hero{ background:linear-gradient(135deg,#FFA500,#ff7a00); border-radius:28px; padding:72px 52px; color:#fff; position:relative; overflow:hidden; margin-bottom:14px; min-height:340px; display:flex; flex-direction:column; justify-content:center; }
+    .sh-hero h1{ margin:0 0 14px; font-size:48px; font-weight:900; letter-spacing:-1.4px; max-width:620px; line-height:1.05; }
+    .sh-hero p{ margin:0 0 26px; font-size:17px; opacity:0.96; max-width:540px; line-height:1.55; }
+    .sh-hero .blob{ position:absolute; right:-60px; top:-60px; width:300px; height:300px; background:rgba(255,255,255,0.14); border-radius:50%; }
+    .sh-hero .blob2{ position:absolute; right:120px; bottom:-100px; width:220px; height:220px; background:rgba(255,255,255,0.10); border-radius:50%; }
+    @media(max-width:600px){ .sh-hero{ padding:44px 26px; min-height:270px; border-radius:22px; } .sh-hero h1{ font-size:32px; } .sh-hero p{ font-size:15px; } }
     .sh-btn{ border:none; border-radius:12px; padding:13px 22px; font-weight:700; font-size:14.5px; cursor:pointer; display:inline-flex; align-items:center; gap:8px; transition:transform .12s; }
     .sh-btn:hover{ transform:translateY(-1px); }
     .sh-btn-w{ background:#fff; color:#d97800; }
