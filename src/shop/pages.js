@@ -289,7 +289,7 @@ export function ProductPage() {
 
           <div style={{ display: 'flex', gap: 12, alignItems: 'center', margin: '20px 0 8px' }}>
             <QtyStepper qty={qty} onChange={setQty} max={Number(p.stock_qty) || 99} />
-            <button className="sh-btn sh-btn-o" style={{ flex: 1, justifyContent: 'center' }} onClick={() => { addToCart(p, qty); navigate('/cart') }}>
+            <button className="sh-btn sh-btn-o" style={{ flex: 1, justifyContent: 'center' }} onClick={() => addToCart(p, qty)}>
               Add to cart · {money(effPrice(p) * qty)}
             </button>
           </div>
@@ -412,7 +412,7 @@ export function CartPage() {
 
 // ── Checkout ────────────────────────────────────────────────────────────────────
 export function CheckoutPage() {
-  const { cart, cartSubtotal, giftWrap, shipIdx, user, navigate, clearCart, setLastOrder, settings } = useShop()
+  const { cart, cartSubtotal, giftWrap, shipIdx, setShipIdx, user, navigate, clearCart, setLastOrder, settings } = useShop()
   const SHIPPING = settings.shipping || []
   const GIFT_WRAP_FEE = num(settings.gift_wrap_fee)
   const freeOver = num(settings.free_delivery_over)
@@ -529,11 +529,16 @@ export function CheckoutPage() {
       <div className="sh-cartgrid">
         <div>
           <div className="sh-card2">
-            <div className="hd">Shipping details</div>
+            <div className="hd">Delivery</div>
             <Field label="Full name" required><input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Your name" /></Field>
             <Field label="Phone / WhatsApp" required><input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} inputMode="tel" placeholder="7xxxxxx" /></Field>
             <Field label="Island" required><input value={form.island} onChange={e => setForm(f => ({ ...f, island: e.target.value }))} placeholder="e.g. Malé, Hulhumalé" /></Field>
             <Field label="Delivery address"><input value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} placeholder="House / street / landmark" /></Field>
+            <Field label="Delivery area (for the estimate)">
+              <select value={shipIdx} onChange={e => setShipIdx(Number(e.target.value))}>
+                {SHIPPING.map((s, i) => <option key={i} value={i}>{s.label} — {money(s.fee)}</option>)}
+              </select>
+            </Field>
             <Field label="Note (optional)"><textarea rows={2} value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} placeholder="Anything we should know?" /></Field>
           </div>
 

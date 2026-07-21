@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase'
 import { ShoppingBag } from 'lucide-react'
 import {
   BRAND, previewAllowed, num, effPrice, DEFAULT_SETTINGS, mergeSettings,
-  ShopContext, Header, Footer, ShopStyles, readCart, writeCart,
+  ShopContext, Header, Footer, ShopStyles, CartDrawer, readCart, writeCart,
 } from './core'
 import { Home, ByAge, Listing, ProductPage, CartPage, CheckoutPage, OrderConfirmed, AccountPage } from './pages'
 
@@ -18,6 +18,7 @@ export default function Shop() {
   const [cart, setCart] = useState(readCart)
   const [giftWrap, setGiftWrap] = useState(false)
   const [shipIdx, setShipIdx] = useState(0)
+  const [cartOpen, setCartOpen] = useState(false)
   const [lastOrder, setLastOrder] = useState(null)
   const [settings, setSettings] = useState(DEFAULT_SETTINGS)
   const [settingsLoaded, setSettingsLoaded] = useState(false)
@@ -71,6 +72,7 @@ export default function Shop() {
       if (ex) return c.map(i => i.id === p.id ? { ...i, qty: Math.min(max, i.qty + qty) } : i)
       return [...c, { id: p.id, name: p.name, price: effPrice(p), photo_url: p.photo_url, stock_qty: p.stock_qty, qty: Math.min(max, qty) }]
     })
+    setCartOpen(true)   // pop the bag open on add, like a real store
   }, [])
   const setQty = useCallback((id, qty) => setCart(c => c.map(i => i.id === id ? { ...i, qty: Math.max(1, Math.min(Number(i.stock_qty) || 99, qty)) } : i)), [])
   const removeItem = useCallback(id => setCart(c => c.filter(i => i.id !== id)), [])
@@ -143,7 +145,7 @@ export default function Shop() {
     loc, navigate, products, loading, needsSetup, reload: load, settings,
     user, signIn, signOut,
     cart, cartCount, cartSubtotal, addToCart, setQty, removeItem, clearCart,
-    giftWrap, setGiftWrap, shipIdx, setShipIdx, lastOrder, setLastOrder,
+    giftWrap, setGiftWrap, shipIdx, setShipIdx, cartOpen, setCartOpen, lastOrder, setLastOrder,
   }
 
   // The account sign-up / log-in screen is a full-page takeover (no shop header
@@ -172,6 +174,7 @@ export default function Shop() {
         <Header />
         <main className="sh-main"><Page /></main>
         <Footer />
+        <CartDrawer />
       </div>
     </ShopContext.Provider>
   )

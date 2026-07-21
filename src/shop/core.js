@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState } from 'react'
 import {
-  ShoppingBag, ShoppingCart, Search, User, Menu, X, Star, Package, Plus, Minus
+  ShoppingBag, ShoppingCart, Search, User, Menu, X, Star, Package, Plus, Minus, Trash2, Lock
 } from 'lucide-react'
 
 // ── Brand / config ────────────────────────────────────────────────────────────
@@ -155,7 +155,7 @@ export function Field({ label, children, required }) {
 
 // ── header / footer ────────────────────────────────────────────────────────────
 export function Header() {
-  const { navigate, loc, cartCount, user } = useShop()
+  const { navigate, loc, cartCount, user, setCartOpen } = useShop()
   const [term, setTerm] = useState('')
   const [menu, setMenu] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
@@ -191,7 +191,7 @@ export function Header() {
               ? <img src={user.user_metadata.avatar_url} alt="" style={{ width: 24, height: 24, borderRadius: '50%' }} />
               : <User size={19} />}
           </button>
-          <button className="sh-icon sh-carticon" title="Cart" onClick={() => go('/cart')}>
+          <button className="sh-icon sh-carticon" title="Cart" onClick={() => { setMenu(false); setSearchOpen(false); setCartOpen(true) }}>
             <ShoppingCart size={19} />
             {cartCount > 0 && <span className="sh-badge">{cartCount}</span>}
           </button>
@@ -243,6 +243,109 @@ export function Footer() {
       </div>
       <div className="sh-copy">© {new Date().getFullYear()} {BRAND} · Maldives</div>
     </footer>
+  )
+}
+
+// ── slide-out cart / bag ────────────────────────────────────────────────────────
+export function CartDrawer() {
+  const { cartOpen, setCartOpen, cart, setQty, removeItem, cartSubtotal, giftWrap, setGiftWrap, shipIdx, settings, navigate, products } = useShop()
+  if (!cartOpen) return null
+  const freeOver = num(settings.free_delivery_over)
+  const gwFee = num(settings.gift_wrap_fee)
+  const zones = settings.shipping || []
+  const ship = zones[shipIdx] || zones[0] || { fee: 0 }
+  const freeShip = freeOver > 0 && cartSubtotal >= freeOver
+  const shipFee = freeShip ? 0 : (ship.fee || 0)
+  const wrap = giftWrap ? gwFee : 0
+  const total = cartSubtotal + wrap + shipFee
+  const points = Math.round(cartSubtotal)
+  const remaining = Math.max(0, freeOver - cartSubtotal)
+  const pct = freeOver > 0 ? Math.min(100, (cartSubtotal / freeOver) * 100) : 0
+  const upsell = products.filter(p => !cart.find(c => c.id === p.id))
+    .slice().sort((a, b) => num(a.sell_price) - num(b.sell_price)).slice(0, 4)
+  const close = () => setCartOpen(false)
+  const go = to => { close(); navigate(to) }
+  return (
+    <>
+      <div className="sh-scrim" onClick={close} />
+      <div className="sh-drawer">
+        <div className="sh-drawer-h">
+          <span style={{ fontWeight: 800, fontSize: 15, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Your bag</span>
+          <button className="sh-x" onClick={close}><X size={20} /></button>
+        </div>
+
+        {cart.length === 0 ? (
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, color: '#9a9186', padding: 24 }}>
+            <ShoppingCart size={40} color="#e5dcc9" />
+            <div style={{ fontWeight: 700 }}>Your bag is empty</div>
+            <button className="sh-btn sh-btn-o" onClick={() => go('/products')}>Start shopping</button>
+          </div>
+        ) : (
+          <>
+            <div className="sh-drawer-body">
+              {freeOver > 0 && (
+                <div className="sh-freebar-wrap">
+                  <div className="sh-freemsg">{freeShip ? "You've unlocked FREE delivery! 🎉" : <>You're <b>{money(remaining)}</b> away from free delivery</>}</div>
+                  <div className="sh-freebar"><span style={{ width: `${pct}%` }} /></div>
+                </div>
+              )}
+
+              {cart.map(it => (
+                <div key={it.id} className="sh-bagline">
+                  <ProductImage src={it.photo_url} name={it.name} style={{ width: 70, height: 70, borderRadius: 10, flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                      <span style={{ fontSize: 13.5, fontWeight: 600, cursor: 'pointer' }} onClick={() => go(`/product/${it.id}`)}>{it.name}</span>
+                      <button className="sh-x" style={{ padding: 2 }} onClick={() => removeItem(it.id)}><Trash2 size={15} /></button>
+                    </div>
+                    <div style={{ fontSize: 13, fontWeight: 800, margin: '4px 0 8px' }}>{money(it.price)}</div>
+                    <QtyStepper qty={it.qty} onChange={v => setQty(it.id, v)} max={Number(it.stock_qty) || 99} />
+                  </div>
+                </div>
+              ))}
+
+              <div className={`sh-toggle ${giftWrap ? 'on' : ''}`} style={{ marginTop: 14 }} onClick={() => setGiftWrap(g => !g)}>
+                <span className="sh-check">{giftWrap && <Star size={13} color="#fff" fill="#fff" />}</span>
+                <span style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>Add gift wrapping</span>
+                <span style={{ fontSize: 13, fontWeight: 700 }}>{money(gwFee)}</span>
+              </div>
+
+              {upsell.length > 0 && (
+                <div style={{ marginTop: 20 }}>
+                  <div style={{ fontSize: 12, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px', color: '#8a8278' }}>Add a little extra</div>
+                  <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 6, marginTop: 10 }}>
+                    {upsell.map(p => (
+                      <div key={p.id} className="sh-upsell">
+                        <ProductImage src={p.photo_url} name={p.name} style={{ width: '100%', aspectRatio: '1/1', borderRadius: 8 }} />
+                        <div style={{ fontSize: 11.5, fontWeight: 600, lineHeight: 1.3, marginTop: 6, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{p.name}</div>
+                        <div style={{ fontSize: 12.5, fontWeight: 800, margin: '3px 0 6px' }}>{money(effPrice(p))}</div>
+                        <button className="sh-add" style={{ marginTop: 0, padding: '6px' }} onClick={() => go(`/product/${p.id}`)}>View</button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="sh-drawer-foot">
+              <div className="sh-srow"><span>Subtotal</span><span>{money(cartSubtotal)}</span></div>
+              {giftWrap && <div className="sh-srow"><span>Gift wrapping</span><span>{money(gwFee)}</span></div>}
+              <div className="sh-srow"><span>Estimated delivery</span><span>{freeShip ? <b style={{ color: '#1D9E75' }}>FREE</b> : money(shipFee)}</span></div>
+              <div className="sh-srow" style={{ fontWeight: 800, fontSize: 16, color: '#0d1b2a' }}><span>Total</span><span>{money(total)}</span></div>
+              <div className="sh-srow" style={{ color: '#b8740a', fontWeight: 700 }}><span>Loyalty points</span><span>+{points.toLocaleString()}</span></div>
+              <button className="sh-authbtn" style={{ marginTop: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }} onClick={() => go('/checkout')}>
+                <Lock size={15} /> Checkout securely
+              </button>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 12, flexWrap: 'wrap' }}>
+                {['VISA', 'Mastercard', 'Bank transfer'].map(t => (
+                  <span key={t} style={{ fontSize: 10.5, fontWeight: 700, color: '#8a8278', border: '1px solid #eee3d3', borderRadius: 5, padding: '3px 7px' }}>{t}</span>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </>
   )
 }
 
@@ -397,6 +500,19 @@ export function ShopStyles() {
     .sh-footer button, .sh-footer a{ display:block; background:none; border:none; color:rgba(255,255,255,0.82); font-size:13.5px; padding:5px 0; cursor:pointer; text-decoration:none; text-align:left; }
     .sh-footer button:hover, .sh-footer a:hover{ color:#fff; }
     .sh-copy{ text-align:center; color:rgba(255,255,255,0.5); font-size:12px; padding:16px; border-top:1px solid rgba(255,255,255,0.1); }
+
+    /* slide-out bag */
+    .sh-scrim{ position:fixed; inset:0; background:rgba(13,27,42,0.45); backdrop-filter:blur(2px); z-index:80; animation:shFade .2s ease; }
+    .sh-drawer{ position:fixed; top:0; right:0; height:100%; width:420px; max-width:94vw; background:#fff; z-index:90; box-shadow:-12px 0 40px rgba(0,0,0,0.16); display:flex; flex-direction:column; animation:shSlide .26s cubic-bezier(0.4,0,0.2,1); }
+    .sh-drawer-h{ padding:18px 22px; border-bottom:1px solid #f0ebe3; display:flex; align-items:center; justify-content:space-between; }
+    .sh-drawer-body{ flex:1; overflow-y:auto; padding:16px 22px; }
+    .sh-drawer-foot{ border-top:1px solid #f0ebe3; padding:16px 22px 20px; background:#fff; }
+    .sh-freebar-wrap{ margin-bottom:16px; }
+    .sh-freemsg{ font-size:12.5px; color:#4b453f; margin-bottom:7px; }
+    .sh-freebar{ height:7px; background:#f0ebe3; border-radius:99px; overflow:hidden; }
+    .sh-freebar span{ display:block; height:100%; background:linear-gradient(90deg,#FFA500,#ff7a00); border-radius:99px; transition:width .3s ease; }
+    .sh-bagline{ display:flex; gap:12px; padding:14px 0; border-bottom:1px solid #f5f1ea; }
+    .sh-upsell{ flex:0 0 118px; width:118px; }
 
     /* account dashboard */
     .acct-hero{ background:linear-gradient(135deg,#fff6e8,#ffeccb); border-radius:22px; padding:26px 30px; display:grid; grid-template-columns:1.1fr 1.3fr 1fr; gap:26px; align-items:center; margin-bottom:22px; }
