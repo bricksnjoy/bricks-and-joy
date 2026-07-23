@@ -74,6 +74,7 @@ create table orders (
 -- alter table orders add column if not exists delivery_person text;
 -- alter table orders add column if not exists delivery_date date;
 -- alter table orders add column if not exists created_by_email text;
+-- alter table orders add column if not exists fulfilment text default 'delivery';  -- 'delivery' | 'pickup'
 
 -- PURCHASE ORDERS (buying from suppliers)
 create table purchase_orders (

@@ -110,6 +110,9 @@ export default function Deliveries() {
     return charges.filter(c => invKey(c) === invKey(o))
   }
 
+  // Pickup orders (customer collects) — no delivery staff needed
+  const isPickup = o => o.fulfilment === 'pickup' || /pickup/i.test(o.notes || '')
+
   const filtered = orders.filter(o => {
     const matchSearch = !search ||
       (o.product_name || '').toLowerCase().includes(search.toLowerCase()) ||
@@ -117,18 +120,21 @@ export default function Deliveries() {
       customerInsta(o).toLowerCase().includes(search.toLowerCase()) ||
       (o.invoice_number || '').toLowerCase().includes(search.toLowerCase())
     let matchFilter = true
-    // unassigned = no staff (regardless of status, including delivered-without-staff)
+    // unassigned = needs a delivery (no staff, and not a pickup)
     // assigned   = has staff AND not yet delivered
     // delivered  = status === 'delivered'
-    if (filter === 'unassigned') matchFilter = !o.delivery_person
+    // pickup     = customer collects from store
+    if (filter === 'unassigned') matchFilter = !o.delivery_person && !isPickup(o)
     else if (filter === 'assigned') matchFilter = !!o.delivery_person && o.status !== 'delivered'
     else if (filter === 'delivered') matchFilter = o.status === 'delivered'
+    else if (filter === 'pickup') matchFilter = isPickup(o)
     return matchSearch && matchFilter
   })
 
   // assigned = has staff AND not yet delivered (delivered ones drop out of this count)
   const assignedCount = orders.filter(o => o.delivery_person && o.status !== 'delivered').length
-  const unassignedCount = orders.filter(o => !o.delivery_person).length
+  const unassignedCount = orders.filter(o => !o.delivery_person && !isPickup(o)).length
+  const pickupCount = orders.filter(isPickup).length
   const deliveredCount = orders.filter(o => o.status === 'delivered').length
   const today = localToday()
   const todayCount = orders.filter(o => effectiveDate(o) === today).length
@@ -149,6 +155,7 @@ export default function Deliveries() {
   const FILTERS = [
     ['unassigned', `Unassigned (${unassignedCount})`],
     ['assigned', `Assigned (${assignedCount})`],
+    ['pickup', `Pickup (${pickupCount})`],
     ['delivered', 'Delivered'],
     ['all', 'All'],
   ]
@@ -316,6 +323,7 @@ export default function Deliveries() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
                       <span style={{ fontSize: 12, color: '#aaa', fontFamily: 'monospace' }}>{o.invoice_number || '—'}</span>
                       <StatusBadge status={o.status} />
+                      {isPickup(o) && <span style={{ fontSize: 11, fontWeight: 700, color: '#2c7a54', background: '#e8f7ee', padding: '3px 10px', borderRadius: 99 }}>🏬 Pickup</span>}
                     </div>
                     <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 4 }}>
                       <label style={{ fontSize: 11, color: '#999', fontWeight: 600 }}>

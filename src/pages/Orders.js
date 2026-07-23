@@ -15,7 +15,7 @@ const BANK_ACCOUNT_NAME = 'BRICKS & JOY'
 const CHANNELS = ['Website','Instagram','Facebook','Retail shop','Pop-up shop','Call']
 const STATUSES = [{ value: 'created', label: 'Order created' },{ value: 'transit', label: 'Dispatched' },{ value: 'delivered', label: 'Delivered' },{ value: 'cancelled', label: 'Cancelled' }]
 const PAY_METHODS = ['Cash','BML Transfer','Bank Transfer','Card','Other']
-const EMPTY_FORM = { customer_id:'', customer_name:'', channel:'Retail shop', status:'created', order_date:'', notes:'', payment_status:'unpaid', payment_method:'', transfer_reference:'', invoice_number:'', delivery_person:'', delivery_date:'', delivery_time:'', discount_value:0, discount_type:'amount', special_request:'', delivery_fee:'', delivery_fee_covered:false, delivery_fee_separate:true, delivery_fee_expense:true, special_request_cost:'', special_request_covered:false, special_request_separate:true, special_request_expense:false }
+const EMPTY_FORM = { customer_id:'', customer_name:'', channel:'Retail shop', status:'created', order_date:'', notes:'', payment_status:'unpaid', payment_method:'', transfer_reference:'', invoice_number:'', fulfilment:'delivery', delivery_person:'', delivery_date:'', delivery_time:'', discount_value:0, discount_type:'amount', special_request:'', delivery_fee:'', delivery_fee_covered:false, delivery_fee_separate:true, delivery_fee_expense:true, special_request_cost:'', special_request_covered:false, special_request_separate:true, special_request_expense:false }
 const today = localToday
 // Gift/special-request charges and customer-paid delivery fees live on their OWN
 // invoice rows (no product) so each appears as a separate transaction on receipts
@@ -136,6 +136,7 @@ export default function Orders() {
       payment_method: order.payment_method || '',
       transfer_reference: order.transfer_reference || '',
       invoice_number: order.invoice_number || '',
+      fulfilment: order.fulfilment || (/pickup/i.test(order.notes || '') ? 'pickup' : 'delivery'),
       delivery_person: order.delivery_person || '',
       delivery_date: order.delivery_date || '',
       delivery_time: order.delivery_time || '',
@@ -350,7 +351,8 @@ export default function Orders() {
       payment_method: form.payment_method || '',
       transfer_reference: form.transfer_reference || '',
       invoice_number: form.invoice_number || '',
-      delivery_person: form.delivery_person || '',
+      fulfilment: form.fulfilment || 'delivery',
+      delivery_person: form.fulfilment === 'pickup' ? '' : (form.delivery_person || ''),
       delivery_date: form.delivery_date || null,
       delivery_time: form.delivery_time || null,
       product_id: item.product_id,
@@ -1340,8 +1342,19 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
               connected via the order's delivery_person / delivery_date fields */}
           <div style={{ marginBottom: 14, border: '1px solid #eef1f6', background: '#f7f9fc', borderRadius: 10, padding: '12px 14px' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#378ADD', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: 10 }}>
-              <Package size={13} /> Assign delivery
+              <Package size={13} /> Fulfilment
             </label>
+            <div style={{ display: 'inline-flex', border: '1px solid #d9e2ef', borderRadius: 8, overflow: 'hidden', marginBottom: 12 }}>
+              {[['delivery', '🚚 Delivery'], ['pickup', '🏬 Pickup']].map(([k, label]) => (
+                <button key={k} type="button" onClick={() => setForm(p => ({ ...p, fulfilment: k }))}
+                  style={{ padding: '8px 16px', border: 'none', cursor: 'pointer', fontSize: 12.5, fontWeight: 700, fontFamily: 'inherit', background: form.fulfilment === k ? '#378ADD' : '#fff', color: form.fulfilment === k ? '#fff' : '#888' }}>{label}</button>
+              ))}
+            </div>
+            {form.fulfilment === 'pickup' ? (
+              <div style={{ fontSize: 12.5, color: '#2c7a54', background: '#f0fbf5', border: '1px solid #cfe3d6', borderRadius: 8, padding: '9px 12px' }}>
+                🏬 Customer collects from the store — no delivery staff needed. Shows under the <strong>Pickup</strong> filter in Deliveries.
+              </div>
+            ) : (
             <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
               <div style={{ flex: '1 1 220px', minWidth: 0 }}>
                 <label style={{ fontSize: 10, color: '#999', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: 4, fontWeight: 600 }}>Delivery staff</label>
@@ -1368,7 +1381,8 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
                   style={{ width: '100%', padding: '8px 10px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', background: '#fff', outline: 'none', boxSizing: 'border-box' }} />
               </div>
             </div>
-            <div style={{ fontSize: 11, color: '#9aa7b8', marginTop: 8 }}>Also editable from the Deliveries tab.</div>
+            )}
+            {form.fulfilment !== 'pickup' && <div style={{ fontSize: 11, color: '#9aa7b8', marginTop: 8 }}>Also editable from the Deliveries tab.</div>}
           </div>
 
           {/* Special request + island delivery fee */}

@@ -502,6 +502,7 @@ export function CheckoutPage() {
           unit_price: num(it.price), total_price: +(num(it.price) * it.qty).toFixed(2),
           channel: 'Website', status: 'created', order_date: orderDate,
           invoice_number: invoice, payment_status: 'unpaid', payment_method: 'Bank Transfer',
+          fulfilment: pickup ? 'pickup' : 'delivery',
           delivery_fee: i === 0 ? shipFee : 0,
           notes: i === 0 ? extras : '',
         }
