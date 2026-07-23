@@ -166,6 +166,19 @@ export default function Shop() {
     )
   }
 
+  // Checkout is a dedicated full-page flow (Gymshark-style) — no shop header,
+  // footer or cart drawer around it.
+  if (loc.path === '/checkout') {
+    return (
+      <ShopContext.Provider value={ctx}>
+        <div className="sh sh-checkoutpage">
+          <ShopStyles />
+          <CheckoutPage />
+        </div>
+      </ShopContext.Provider>
+    )
+  }
+
   return (
     <ShopContext.Provider value={ctx}>
       <div className="sh">

@@ -594,5 +594,47 @@ export function ShopStyles() {
     .sh-info{ color:#1D9E75; font-size:13px; margin:0 0 12px; font-weight:600; }
     .sh-spin{ width:34px; height:34px; border:3px solid #f0e6d2; border-top-color:#FFA500; border-radius:50%; animation:shSpin .8s linear infinite; margin:60px auto; }
     .sh-empty{ text-align:center; padding:64px 0; color:#9a9186; }
+
+    /* ── Checkout (Gymshark-style full page) ───────────────────────── */
+    .sh-checkoutpage{ background:#fff; }
+    .co{ min-height:100vh; background:#fff; color:#111; }
+    .co-top{ border-bottom:1px solid #ececec; padding:20px 0; display:flex; justify-content:center; }
+    .co-top img{ height:34px; width:auto; cursor:pointer; }
+    .co-body{ display:grid; grid-template-columns:1fr 1fr; align-items:stretch; min-height:calc(100vh - 75px); }
+    /* left = form, pinned toward the centre gutter */
+    .co-left{ display:flex; justify-content:flex-end; }
+    .co-left-in{ width:100%; max-width:560px; padding:44px 56px 80px; }
+    /* right = grey order summary, pinned toward the centre gutter */
+    .co-right{ background:#f4f3f1; border-left:1px solid #ececec; display:flex; justify-content:flex-start; }
+    .co-right-in{ width:100%; max-width:480px; padding:44px 56px 80px; position:sticky; top:0; align-self:flex-start; }
+    .co-sec{ margin-bottom:26px; }
+    .co-h{ font-size:16px; font-weight:800; letter-spacing:-0.2px; margin:0 0 14px; }
+    .co-field{ margin-bottom:12px; }
+    .co-field input, .co-field select{ width:100%; box-sizing:border-box; border:1px solid #cfcbc4; border-radius:8px; padding:14px 14px; font-size:14px; font-family:inherit; background:#fff; color:#111; outline:none; transition:border-color .15s, box-shadow .15s; }
+    .co-field input:focus, .co-field select:focus{ border-color:#111; box-shadow:0 0 0 1px #111; }
+    .co-field input::placeholder{ color:#a09a90; }
+    .co-two{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    .co-two .co-field{ margin-bottom:0; }
+    .co-pay{ width:100%; border:none; background:#111; color:#fff; font-weight:800; font-size:15px; letter-spacing:0.3px; padding:18px; border-radius:99px; cursor:pointer; margin-top:8px; transition:opacity .15s; }
+    .co-pay:hover{ opacity:0.9; }
+    .co-pay:disabled{ opacity:0.45; cursor:default; }
+    /* summary items */
+    .co-item{ display:flex; align-items:center; gap:14px; margin-bottom:16px; }
+    .co-item .th{ position:relative; flex-shrink:0; }
+    .co-item .qb{ position:absolute; top:-8px; right:-8px; min-width:20px; height:20px; padding:0 5px; box-sizing:border-box; background:#5c5750; color:#fff; border-radius:99px; font-size:11px; font-weight:700; display:flex; align-items:center; justify-content:center; }
+    .co-coupon{ display:flex; gap:8px; margin:6px 0 18px; }
+    .co-coupon input{ flex:1; min-width:0; border:1px solid #cfcbc4; border-radius:8px; padding:13px 13px; font-size:13.5px; font-family:inherit; background:#fff; outline:none; }
+    .co-coupon input:focus{ border-color:#111; }
+    .co-coupon button{ border:1px solid #bdb8b0; background:#eceae6; color:#555; font-weight:700; font-size:12.5px; letter-spacing:0.4px; padding:0 18px; border-radius:8px; cursor:pointer; font-family:inherit; }
+    .co-coupon button:disabled{ opacity:0.5; cursor:default; }
+    .co-row{ display:flex; justify-content:space-between; align-items:center; font-size:14px; color:#5b564f; padding:7px 0; }
+    .co-tot{ display:flex; justify-content:space-between; align-items:flex-end; font-size:20px; font-weight:800; color:#111; border-top:1px solid #e2ded6; margin-top:12px; padding-top:16px; }
+    .co-tot .usd{ font-size:12px; font-weight:700; color:#8a847b; margin-right:6px; }
+    @media(max-width:900px){
+      .co-body{ grid-template-columns:1fr; min-height:0; }
+      .co-left{ order:2; justify-content:center; }
+      .co-right{ order:1; border-left:none; border-bottom:1px solid #ececec; justify-content:center; }
+      .co-left-in, .co-right-in{ max-width:560px; padding:28px 20px 40px; position:static; }
+    }
   `}</style>
 }

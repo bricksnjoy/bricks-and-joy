@@ -425,10 +425,13 @@ export function CheckoutPage() {
   const ship = SHIPPING[shipIdx] || SHIPPING[0] || { label: '—', fee: 0 }
   const freeShip = freeOver > 0 && cartSubtotal >= freeOver
   const shipFee = pickup ? 0 : (freeShip ? 0 : (ship?.fee || 0))
+  const meta = user?.user_metadata || {}
   const [form, setForm] = useState({
-    name: user?.user_metadata?.full_name || '', phone: '', island: '', address: '',
-    notes: '', email: user?.email || '',
+    first: meta.first_name || (meta.full_name || '').split(' ')[0] || '',
+    last: meta.last_name || (meta.full_name || '').split(' ').slice(1).join(' ') || '',
+    phone: meta.phone || '', island: '', address: '', notes: '', email: user?.email || '',
   })
+  const fullName = `${form.first} ${form.last}`.trim()
   const [coupon, setCoupon] = useState('')
   const [applied, setApplied] = useState(null) // { type, value, code }
   const [couponMsg, setCouponMsg] = useState('')
@@ -448,7 +451,8 @@ export function CheckoutPage() {
       if (!data) return
       setForm(f => ({
         ...f,
-        name: f.name || data.full_name || '',
+        first: f.first || (data.full_name || '').split(' ')[0] || '',
+        last: f.last || (data.full_name || '').split(' ').slice(1).join(' ') || '',
         phone: f.phone || data.phone || '',
         island: f.island || data.island || '',
         address: f.address || data.address || '',
@@ -469,7 +473,7 @@ export function CheckoutPage() {
   }
 
   async function placeOrder() {
-    if (!form.name.trim() || !form.phone.trim() || (!pickup && !form.island.trim()) || !cart.length) return
+    if (!fullName || !form.phone.trim() || (!pickup && !form.island.trim()) || !cart.length) return
     setPlacing(true)
     try {
       const invoice = genInvoice()
@@ -487,7 +491,7 @@ export function CheckoutPage() {
       ].filter(Boolean).join(' · ')
 
       if (customerId) {
-        const cp = { id: customerId, name: form.name.trim(), phone: form.phone.trim(), email: user?.email || form.email || null, address: addr }
+        const cp = { id: customerId, name: fullName, phone: form.phone.trim(), email: user?.email || form.email || null, address: addr }
         if (!user) cp.notes = `Website order ${invoice}`   // keep existing notes for known accounts
         let { error } = await supabase.from('customers').upsert(cp, { onConflict: 'id' })
         while (error && dropMissingCol(error, cp)) { error = (await supabase.from('customers').upsert(cp, { onConflict: 'id' })).error }
@@ -497,7 +501,7 @@ export function CheckoutPage() {
       for (let i = 0; i < cart.length; i++) {
         const it = cart[i]
         const payload = {
-          customer_id: customerId, customer_name: form.name.trim(),
+          customer_id: customerId, customer_name: fullName,
           product_id: it.id, product_name: it.name, qty: it.qty,
           unit_price: num(it.price), total_price: +(num(it.price) * it.qty).toFixed(2),
           channel: 'Website', status: 'created', order_date: orderDate,
@@ -514,11 +518,11 @@ export function CheckoutPage() {
       // not while they type)
       if (user) {
         supabase.from('customer_profiles').upsert({
-          id: user.id, email: user.email, full_name: form.name.trim(), phone: form.phone.trim(),
+          id: user.id, email: user.email, full_name: fullName, phone: form.phone.trim(),
           island: form.island.trim(), address: form.address, notes: form.notes, updated_at: new Date().toISOString(),
         }, { onConflict: 'id' })
       }
-      setLastOrder({ invoice, total, name: form.name.trim() })
+      setLastOrder({ invoice, total, name: fullName })
       clearCart()
       navigate('/order-confirmed')
     } catch (err) {
@@ -528,84 +532,119 @@ export function CheckoutPage() {
     }
   }
 
-  const canPlace = form.name.trim() && form.phone.trim() && (pickup || form.island.trim()) && cart.length
+  const canPlace = fullName && form.phone.trim() && (pickup || form.island.trim()) && cart.length
+  const [logoOk, setLogoOk] = useState(true)
   return (
-    <div className="sh-wrap" style={{ maxWidth: 900 }}>
-      <button className="sh-crumb" onClick={() => navigate('/cart')}><ArrowLeft size={16} /> Back to cart</button>
-      <h1 className="sh-h2">Checkout</h1>
-      <div className="sh-cartgrid">
-        <div>
-          <div className="sh-card2">
-            <div className="hd">How would you like it?</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
-              {[['delivery', '🚚 Delivery', 'We bring it to you'], ['pickup', '🏬 Pickup', 'Collect from our store']].map(([k, label, sub]) => (
-                <button key={k} onClick={() => setFulfil(k)} type="button"
-                  style={{ textAlign: 'left', padding: '13px 15px', borderRadius: 12, cursor: 'pointer', fontFamily: 'inherit',
-                    border: `1.5px solid ${fulfil === k ? '#FFA500' : '#e6e0d6'}`, background: fulfil === k ? '#FFF8EC' : '#fff' }}>
-                  <div style={{ fontWeight: 700, fontSize: 14 }}>{label}</div>
-                  <div style={{ fontSize: 12, color: '#8a8278', marginTop: 2 }}>{sub}</div>
-                </button>
-              ))}
-            </div>
-            <div className="hd">{pickup ? 'Your details' : 'Delivery'}</div>
-            <Field label="Full name" required><input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Your name" /></Field>
-            <Field label="Phone / WhatsApp" required><input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} inputMode="tel" placeholder="7xxxxxx" /></Field>
-            {pickup ? (
-              <div style={{ background: '#f0fbf5', border: '1px solid #cfe3d6', borderRadius: 11, padding: '12px 14px', fontSize: 13, color: '#2c7a54', marginBottom: 14 }}>
-                🏬 We'll message you on WhatsApp when your order is ready to collect from our store. No delivery charge.
+    <div className="co">
+      <div className="co-top">
+        {logoOk
+          ? <img src="/logo-full.png" alt="Brick's & Joy" onClick={() => navigate('/')} onError={() => setLogoOk(false)} />
+          : <span onClick={() => navigate('/')} style={{ fontWeight: 900, fontSize: 20, letterSpacing: '-0.4px', cursor: 'pointer' }}>Brick's & Joy</span>}
+      </div>
+      <div className="co-body">
+        {/* LEFT — form */}
+        <div className="co-left"><div className="co-left-in">
+          {/* account / email */}
+          <div className="co-sec">
+            {user ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, border: '1px solid #eee', borderRadius: 8, padding: '12px 14px' }}>
+                {user.user_metadata?.avatar_url
+                  ? <img src={user.user_metadata.avatar_url} alt="" style={{ width: 26, height: 26, borderRadius: '50%' }} />
+                  : <span style={{ width: 26, height: 26, borderRadius: '50%', background: '#0d1b2a', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 12 }}>{(user.email || '?')[0].toUpperCase()}</span>}
+                <span style={{ fontSize: 14 }}>{user.email}</span>
               </div>
             ) : (
               <>
-                <Field label="Island" required><input value={form.island} onChange={e => setForm(f => ({ ...f, island: e.target.value }))} placeholder="e.g. Malé, Hulhumalé" /></Field>
-                <Field label="Delivery address"><input value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} placeholder="House / street / landmark" /></Field>
-                <Field label="Delivery area (for the estimate)">
-                  <select value={shipIdx} onChange={e => setShipIdx(Number(e.target.value))}>
-                    {SHIPPING.map((s, i) => <option key={i} value={i}>{s.label} — {money(s.fee)}</option>)}
-                  </select>
-                </Field>
+                <div className="co-h">Contact</div>
+                <div className="co-field"><input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="Email address" autoComplete="email" /></div>
               </>
             )}
-            <Field label="Note (optional)"><textarea rows={2} value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} placeholder="Anything we should know?" /></Field>
           </div>
 
-          <div className="sh-card2">
-            <div className="hd">Payment</div>
-            <div className="sh-toggle on" style={{ cursor: 'default' }}>
-              <span className="sh-check"><CheckCircle2 size={16} color="#fff" /></span>
-              <Truck size={18} color="#FFA500" />
-              <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 700, fontSize: 14 }}>Bank transfer</div>
-                <div style={{ fontSize: 12.5, color: '#8a8278' }}>Pay to our account after ordering — details shown next.</div>
-              </div>
-            </div>
-            <div className="sh-toggle" style={{ marginTop: 10, opacity: 0.55, cursor: 'not-allowed' }}>
-              <span className="sh-check" /><Tag size={18} color="#bbb" />
-              <div style={{ flex: 1 }}><div style={{ fontWeight: 700, fontSize: 14 }}>Card payment</div><div style={{ fontSize: 12.5, color: '#8a8278' }}>Coming soon</div></div>
+          {/* fulfilment */}
+          <div className="co-sec">
+            <div className="co-h">How would you like it?</div>
+            <div className="co-two">
+              {[['delivery', '🚚 Delivery', 'We bring it to you'], ['pickup', '🏬 Pickup', 'Collect from our store']].map(([k, label, sub]) => (
+                <button key={k} type="button" onClick={() => setFulfil(k)}
+                  style={{ textAlign: 'left', padding: '13px 15px', borderRadius: 10, cursor: 'pointer', fontFamily: 'inherit', border: `1.5px solid ${fulfil === k ? '#111' : '#ddd'}`, background: '#fff' }}>
+                  <div style={{ fontWeight: 700, fontSize: 14 }}>{label}</div>
+                  <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>{sub}</div>
+                </button>
+              ))}
             </div>
           </div>
-        </div>
 
-        <div className="sh-summary">
-          <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 14 }}>Your order</div>
+          {/* DELIVERY */}
+          <div className="co-sec">
+            <div className="co-h">{pickup ? 'Your details' : 'Delivery'}</div>
+            <div className="co-two">
+              <div className="co-field"><input value={form.first} onChange={e => setForm(f => ({ ...f, first: e.target.value }))} placeholder="First name" /></div>
+              <div className="co-field"><input value={form.last} onChange={e => setForm(f => ({ ...f, last: e.target.value }))} placeholder="Last name" /></div>
+            </div>
+            {!pickup && <>
+              <div className="co-field"><input value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} placeholder="Address (house / street / landmark)" /></div>
+              <div className="co-field"><input value={form.island} onChange={e => setForm(f => ({ ...f, island: e.target.value }))} placeholder="Island (e.g. Malé, Hulhumalé)" /></div>
+            </>}
+            <div className="co-field"><input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} inputMode="tel" placeholder="Phone / WhatsApp" /></div>
+            {pickup && <div style={{ background: '#f0fbf5', border: '1px solid #cfe3d6', borderRadius: 8, padding: '12px 14px', fontSize: 13, color: '#2c7a54' }}>🏬 We'll message you on WhatsApp when it's ready to collect. No delivery charge.</div>}
+          </div>
+
+          {/* SHIPPING METHOD */}
+          {!pickup && (
+            <div className="co-sec">
+              <div className="co-h">Shipping method</div>
+              <div className="co-field"><select value={shipIdx} onChange={e => setShipIdx(Number(e.target.value))}>
+                {SHIPPING.map((s, i) => <option key={i} value={i}>{s.label} — {freeShip ? 'FREE' : money(s.fee)}</option>)}
+              </select></div>
+              <div style={{ fontSize: 12, color: '#999' }}>Delivery is an estimate — the final charge is confirmed with you.</div>
+            </div>
+          )}
+
+          {/* PAYMENT */}
+          <div className="co-sec">
+            <div className="co-h">Payment</div>
+            <div style={{ fontSize: 12.5, color: '#888', marginTop: '-8px', marginBottom: 12 }}>All transactions are secure. Pay by bank transfer after ordering.</div>
+            <div style={{ border: '1.5px solid #111', borderRadius: 8, padding: '14px 15px', display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ width: 16, height: 16, borderRadius: '50%', border: '5px solid #111' }} />
+              <div><div style={{ fontWeight: 700, fontSize: 14 }}>Bank transfer</div><div style={{ fontSize: 12.5, color: '#888' }}>Account details shown after you order.</div></div>
+            </div>
+            <div style={{ border: '1px solid #eee', borderRadius: 8, padding: '14px 15px', display: 'flex', alignItems: 'center', gap: 10, marginTop: 8, opacity: 0.55 }}>
+              <span style={{ width: 16, height: 16, borderRadius: '50%', border: '1.5px solid #ccc' }} />
+              <div><div style={{ fontWeight: 700, fontSize: 14 }}>Card payment</div><div style={{ fontSize: 12.5, color: '#888' }}>Coming soon</div></div>
+            </div>
+          </div>
+
+          <button className="co-pay" disabled={!canPlace || placing} onClick={placeOrder}>{placing ? 'Placing…' : `Pay now · ${money(total)}`}</button>
+          <div style={{ textAlign: 'center', marginTop: 14 }}>
+            <button onClick={() => navigate('/cart')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#888', fontSize: 13, fontFamily: 'inherit', textDecoration: 'underline' }}>Return to cart</button>
+          </div>
+        </div></div>
+
+        {/* RIGHT — grey order summary */}
+        <div className="co-right"><div className="co-right-in">
           {cart.map(it => (
-            <div key={it.id} className="sh-srow"><span style={{ maxWidth: 190, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.name} ×{it.qty}</span><span>{money(num(it.price) * it.qty)}</span></div>
-          ))}
-          <div style={{ margin: '12px 0' }}>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <input className="sh-inp" style={{ flex: 1 }} value={coupon} onChange={e => setCoupon(e.target.value)} placeholder="Coupon code" />
-              <button className="sh-btn sh-btn-d" style={{ padding: '10px 14px' }} disabled={checking || !coupon.trim()} onClick={applyCoupon}>{checking ? '…' : 'Apply'}</button>
+            <div key={it.id} className="co-item">
+              <div className="th"><ProductImage src={it.photo_url} name={it.name} style={{ width: 64, height: 64, borderRadius: 8, border: '1px solid #e6e0d6' }} /><span className="qb">{it.qty}</span></div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13.5, fontWeight: 600 }}>{it.name}</div>
+              </div>
+              <div style={{ fontWeight: 600, fontSize: 14 }}>{money(num(it.price) * it.qty)}</div>
             </div>
-            {couponMsg && <div style={{ fontSize: 12, marginTop: 6, color: applied ? '#1D9E75' : '#E24B4A', fontWeight: 600 }}>{applied ? `✓ ${applied.code} applied` : couponMsg}</div>}
+          ))}
+
+          <div className="co-coupon">
+            <input value={coupon} onChange={e => setCoupon(e.target.value)} placeholder="Gift card or discount code" />
+            <button disabled={checking || !coupon.trim()} onClick={applyCoupon}>{checking ? '…' : 'APPLY'}</button>
           </div>
-          <div className="sh-srow"><span>Subtotal</span><span>{money(cartSubtotal)}</span></div>
-          {giftWrap && <div className="sh-srow"><span>Gift wrapping</span><span>{money(GIFT_WRAP_FEE)}</span></div>}
-          <div className="sh-srow"><span>{pickup ? 'Pickup' : 'Delivery (est.)'}</span><span>{pickup ? <b style={{ color: '#1D9E75' }}>FREE</b> : freeShip ? <b style={{ color: '#1D9E75' }}>FREE</b> : money(shipFee)}</span></div>
-          {discount > 0 && <div className="sh-srow" style={{ color: '#1D9E75' }}><span>Discount</span><span>−{money(discount)}</span></div>}
-          <div className="sh-stot"><span>Total</span><span style={{ color: '#E24B4A' }}>{money(total)}</span></div>
-          <button className="sh-btn sh-btn-o" style={{ width: '100%', justifyContent: 'center', marginTop: 16 }} disabled={!canPlace || placing} onClick={placeOrder}>
-            {placing ? 'Placing…' : `Place order · ${money(total)}`}
-          </button>
-        </div>
+          {couponMsg && <div style={{ fontSize: 12, margin: '-10px 0 14px', color: applied ? '#1D9E75' : '#E24B4A', fontWeight: 600 }}>{applied ? `✓ ${applied.code} applied` : couponMsg}</div>}
+
+          <div className="co-row"><span>Subtotal</span><span>{money(cartSubtotal)}</span></div>
+          {giftWrap && <div className="co-row"><span>Gift wrapping</span><span>{money(GIFT_WRAP_FEE)}</span></div>}
+          <div className="co-row"><span>{pickup ? 'Pickup' : 'Shipping'}</span><span>{pickup || freeShip ? 'FREE' : money(shipFee)}</span></div>
+          {discount > 0 && <div className="co-row" style={{ color: '#1D9E75' }}><span>Discount</span><span>−{money(discount)}</span></div>}
+          <div className="co-tot"><span>Total</span><span><span className="usd">MVR</span>{money(total).replace('MVR ', '')}</span></div>
+        </div></div>
       </div>
     </div>
   )
