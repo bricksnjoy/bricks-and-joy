@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Spinner } from '../components/UI'
 import { FinancialBusiness } from '../components/BusinessSections'
+import { exportBusinessSummary } from '../lib/business'
 import { FileText, BookOpen, Calendar, Download, TrendingUp, TrendingDown, Receipt, CheckCircle, AlertTriangle, Info, Table2 } from 'lucide-react'
 
 const MVR_RATE = 15.42
@@ -880,6 +881,7 @@ export default function Accounting() {
           </div>
           <div className="dl-grid">
             {[
+              { title: 'Business Summary', desc: 'One-page sheet: performance, cashflow, inventory, shipment & forecast', icon: '📊', action: () => exportBusinessSummary(), label: 'Download Excel' },
               { title: 'Income Statement', desc: 'Revenue, costs, gross & net profit', icon: '📄', action: downloadIncomeStatementCSV, label: 'Download CSV', secondary: printIncomeStatement, secondaryLabel: 'Print / PDF' },
               { title: 'Monthly Cost Report', desc: 'Costs broken down by category per month', icon: '📅', action: downloadMonthlyCostsCSV, label: 'Download CSV' },
               { title: 'General Journal', desc: 'All double-entry accounting records', icon: '📖', action: downloadJournalCSV, label: 'Download CSV' },

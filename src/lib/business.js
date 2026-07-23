@@ -140,3 +140,90 @@ export function exportBusinessExcel(data, opening = getOpening()) {
   const today = new Date().toISOString().slice(0, 10)
   XLSX.writeFile(wb, `bricks-and-joy-business-sheet-${today}.xlsx`)
 }
+
+// ── One-page "Business Summary" laid out like the owner's spreadsheet ─────────────
+const DELIVERY_CATS = ['Delivery', 'Shipping']
+const PERSONAL_CATS = ['Personal use', 'Personal', 'Owner draw']
+
+export async function exportBusinessSummary(data, opening = getOpening()) {
+  if (!data) data = await loadBusinessData()
+  const { orders, products, expenses, purchases, loanPays } = data
+  const costOf = {}; products.forEach(p => { costOf[p.id] = num(p.cost_price) })
+  const liveOrders = orders.filter(o => o.status !== 'cancelled')
+  const r2 = n => Math.round(num(n) * 100) / 100
+
+  // rich monthly breakdown (Cash Out split into Advertise / Loan / Personal use)
+  const keys = new Set()
+  liveOrders.forEach(o => o.order_date && keys.add(o.order_date.slice(0, 7)))
+  expenses.forEach(e => e.expense_date && keys.add(e.expense_date.slice(0, 7)))
+  loanPays.forEach(lp => lp.paid_on && keys.add(lp.paid_on.slice(0, 7)))
+  const months = [...keys].sort().map(m => {
+    const mo = liveOrders.filter(o => (o.order_date || '').startsWith(m))
+    const orderCount = new Set(mo.map(o => o.invoice_number || o.id)).size
+    const revenue = mo.reduce((s, o) => s + num(o.total_price), 0)
+    const cogs = mo.reduce((s, o) => s + (costOf[o.product_id] || 0) * (parseInt(o.qty) || 0), 0)
+    const ex = expenses.filter(e => (e.expense_date || '').startsWith(m))
+    const delivery = ex.filter(e => DELIVERY_CATS.includes(e.category)).reduce((s, e) => s + num(e.amount), 0)
+    const ad = ex.filter(e => AD_CATS.includes(e.category)).reduce((s, e) => s + num(e.amount), 0)
+    const personal = ex.filter(e => PERSONAL_CATS.includes(e.category)).reduce((s, e) => s + num(e.amount), 0)
+    const other = ex.filter(e => ![...DELIVERY_CATS, ...AD_CATS, ...PERSONAL_CATS].includes(e.category)).reduce((s, e) => s + num(e.amount), 0)
+    const loan = loanPays.filter(lp => (lp.paid_on || '').startsWith(m)).reduce((s, lp) => s + num(lp.amount), 0)
+    const totalExp = cogs + delivery + other + ad + loan + personal
+    return { m, orderCount, revenue, cos: cogs + delivery, other, ad, loan, personal, totalExp, profit: revenue - totalExp }
+  })
+  const T = months.reduce((t, r) => ({ orderCount: t.orderCount + r.orderCount, revenue: t.revenue + r.revenue, cos: t.cos + r.cos, other: t.other + r.other, ad: t.ad + r.ad, loan: t.loan + r.loan, personal: t.personal + r.personal, totalExp: t.totalExp + r.totalExp, profit: t.profit + r.profit }),
+    { orderCount: 0, revenue: 0, cos: 0, other: 0, ad: 0, loan: 0, personal: 0, totalExp: 0, profit: 0 })
+
+  // inventory
+  const soldQty = liveOrders.reduce((s, o) => s + (parseInt(o.qty) || 0), 0)
+  const cogsTotal = liveOrders.reduce((s, o) => s + (costOf[o.product_id] || 0) * (parseInt(o.qty) || 0), 0)
+  const closing = products.filter(p => !p.discontinued).reduce((s, p) => s + num(p.cost_price) * (parseInt(p.stock_qty) || 0), 0)
+  const closingQty = products.filter(p => !p.discontinued).reduce((s, p) => s + (parseInt(p.stock_qty) || 0), 0)
+  const purchasesVal = purchases.reduce((s, po) => s + num(po.total_cost || (num(po.unit_cost) * (parseInt(po.qty) || 0))), 0)
+  const purchasedQty = purchases.reduce((s, po) => s + (parseInt(po.qty) || 0), 0)
+  const openingInv = closing + cogsTotal - purchasesVal
+  const avg = (openingInv + closing) / 2
+  const turn = avg > 0 ? cogsTotal / avg : 0
+  const days = turn > 0 ? 365 / turn : 0
+  const closingBank = opening + T.revenue - T.totalExp
+
+  const B = '' // blank cell
+  const rows = []
+  rows.push(['Last Year Performance'])
+  rows.push(['Month', 'No. of Orders', 'Revenue', 'Cost of Sales + Delivery', 'Other costs', 'Advertise', 'Loan', 'Personal use', 'Total Exp', 'Profit'])
+  months.forEach(r => rows.push([monthLabel(r.m), r.orderCount, r2(r.revenue), r2(r.cos), r2(r.other), r2(r.ad), r2(r.loan), r2(r.personal), r2(r.totalExp), r2(r.profit)]))
+  rows.push(['Total', T.orderCount, r2(T.revenue), r2(T.cos), r2(T.other), r2(T.ad), r2(T.loan), r2(T.personal), r2(T.totalExp), r2(T.profit)])
+  rows.push([])
+  rows.push(['Advertising platforms spent', 'order', 'spent for Adv', 'Revenue'])
+  rows.push(['Instagram', B, B, B]); rows.push(['TikTok', B, B, B]); rows.push(['Facebook', B, B, B])
+  rows.push(['Total', B, r2(T.ad), B])
+  rows.push([])
+  rows.push(['Cashflow', 'MVR'])
+  rows.push(['Opening Balance at Bank', r2(opening)])
+  rows.push(['Total Revenue (Cash Received)', r2(T.revenue)])
+  rows.push(['Total Expenses (Cash Out)', r2(T.totalExp)])
+  rows.push(['Closing Balance at Bank', r2(closingBank)])
+  rows.push([])
+  rows.push(['Inventory', 'qty', 'Value'])
+  rows.push(['Opening Inventory Value', B, r2(openingInv)])
+  rows.push(['Purchases During year (Additions to stock)', purchasedQty, r2(purchasesVal)])
+  rows.push(['Cost of goods sold (Sold Qty)', soldQty, r2(cogsTotal)])
+  rows.push(['Closing Inventory Value', closingQty, r2(closing)])
+  rows.push(['Check Stock Turn', r2(turn) + 'x', B])
+  rows.push(['How long Inventory takes to sell? (days)', Math.round(days) + ' days', B])
+  rows.push([])
+  rows.push(['New Shipment Details', 'USD', 'MVR'])
+  for (let i = 0; i < 6; i++) rows.push([B, B, B])
+  rows.push(['Total', B, B])
+  rows.push([])
+  rows.push(['Sales Forecast Next 6 months (Payback)', B, 'MVR'])
+  rows.push(['Revenue', B, B]); rows.push(['Cost', B, B]); rows.push(['Exp', B, B])
+  rows.push(['Net Profit', B, B]); rows.push(['Payback Period (months)', B, B])
+
+  const ws = XLSX.utils.aoa_to_sheet(rows)
+  ws['!cols'] = [{ wch: 34 }, { wch: 13 }, { wch: 16 }, { wch: 20 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 13 }, { wch: 13 }]
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, 'Business Summary')
+  const today = new Date().toISOString().slice(0, 10)
+  XLSX.writeFile(wb, `bricks-and-joy-business-summary-${today}.xlsx`)
+}
