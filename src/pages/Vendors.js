@@ -27,6 +27,7 @@ export default function Vendors() {
   const [vendors, setVendors] = useState([])
   const [products, setProducts] = useState([])
   const [purchaseOrders, setPurchaseOrders] = useState([])
+  const [payments, setPayments] = useState([])
   const [loading, setLoading] = useState(true)
   const [modal, setModal] = useState(null)
   const [viewModal, setViewModal] = useState(null)
@@ -39,14 +40,16 @@ export default function Vendors() {
 
   async function load() {
     setLoading(true)
-    const [v, p, po] = await Promise.all([
+    const [v, p, po, sp] = await Promise.all([
       supabase.from('suppliers').select('*').order('name'),
       supabase.from('products').select('id, name, supplier_id, cost_price, stock_qty'),
       supabase.from('purchase_orders').select('*').order('created_at', { ascending: false }),
+      supabase.from('supplier_payments').select('*'),
     ])
     setVendors(v.data || [])
     setProducts(p.data || [])
     setPurchaseOrders(po.data || [])
+    setPayments(sp.data || [])
     setLoading(false)
   }
 
@@ -118,12 +121,18 @@ export default function Vendors() {
       const g = map.get(key)
       g.items.push(po); g.total += Number(po.total_cost || 0); g.statuses.add(po.status)
     })
+    const vPays = payments.filter(p => p.supplier_id === vendorId)
     const arr = [...map.values()].sort((a, b) => (a.date || '').localeCompare(b.date || ''))
     arr.forEach((b, i) => {
       b.seq = i + 1
       b.label = b.batch_no ? `Batch ${b.batch_no}` : `Batch ${i + 1}`
       b.status = b.statuses.has('pending') ? 'pending' : b.statuses.has('ordered') ? 'ordered' : 'received'
       b.units = b.items.reduce((s, po) => s + (parseInt(po.qty) || 0), 0)
+      // payments attributed by matching batch number, or by a linked purchase-order id
+      const itemIds = new Set(b.items.map(po => po.id))
+      b.paid = vPays.filter(p => (b.batch_no && p.batch_no === b.batch_no) || (p.purchase_order_id && itemIds.has(p.purchase_order_id)))
+        .reduce((s, p) => s + Number(p.amount || 0), 0)
+      b.outstanding = Math.max(0, b.total - b.paid)
     })
     return arr
   }
@@ -135,14 +144,18 @@ export default function Vendors() {
   }
   const slug = s => String(s || 'vendor').replace(/[^a-z0-9]+/gi, '-').toLowerCase()
   function downloadBatch(vendor, b) {
+    const rows = b.items.map(po => [po.product_name || '', po.qty || 0, Number(po.unit_cost || 0).toFixed(2), Number(po.total_cost || 0).toFixed(2), po.status || '', po.order_date || ''])
+    rows.push([])
+    rows.push(['TOTAL', '', '', b.total.toFixed(2), '', ''])
+    rows.push(['PAID', '', '', b.paid.toFixed(2), '', ''])
+    rows.push(['OUTSTANDING', '', '', b.outstanding.toFixed(2), '', ''])
     downloadCSV(`${slug(vendor.name)}-${b.label.replace(/\s+/g, '')}.csv`,
-      ['Product', 'Qty', 'Unit cost (MVR)', 'Total (MVR)', 'Status', 'Date'],
-      b.items.map(po => [po.product_name || '', po.qty || 0, Number(po.unit_cost || 0).toFixed(2), Number(po.total_cost || 0).toFixed(2), po.status || '', po.order_date || '']))
+      ['Product', 'Qty', 'Unit cost (MVR)', 'Total (MVR)', 'Status', 'Date'], rows)
   }
   function downloadAllBatches(vendor, batches) {
     const rows = []
-    batches.forEach(b => b.items.forEach(po => rows.push([b.label, b.date || '', po.product_name || '', po.qty || 0, Number(po.unit_cost || 0).toFixed(2), Number(po.total_cost || 0).toFixed(2), po.status || ''])))
-    downloadCSV(`${slug(vendor.name)}-batch-history.csv`, ['Batch', 'Date', 'Product', 'Qty', 'Unit cost (MVR)', 'Total (MVR)', 'Status'], rows)
+    batches.forEach(b => b.items.forEach(po => rows.push([b.label, b.date || '', po.product_name || '', po.qty || 0, Number(po.unit_cost || 0).toFixed(2), Number(po.total_cost || 0).toFixed(2), po.status || '', b.paid.toFixed(2), b.outstanding.toFixed(2)])))
+    downloadCSV(`${slug(vendor.name)}-batch-history.csv`, ['Batch', 'Date', 'Product', 'Qty', 'Unit cost (MVR)', 'Total (MVR)', 'Status', 'Batch paid (MVR)', 'Batch outstanding (MVR)'], rows)
   }
 
   const filtered = vendors.filter(v =>
@@ -172,13 +185,16 @@ export default function Vendors() {
     { key: 'orders', label: 'POs', render: r => { const s = getVendorStats(r.id); return <span>{s.totalOrders}</span> }},
     { key: 'spent', label: 'Total purchased', render: r => { const s = getVendorStats(r.id); return <span style={{ fontWeight: 600, color: '#1D9E75' }}>MVR {s.totalSpent.toFixed(2)}</span> }},
     { key: 'pending', label: 'Pending', render: r => { const s = getVendorStats(r.id); return s.pendingOrders > 0 ? <Badge color="amber">{s.pendingOrders} orders</Badge> : <span style={{ color: '#aaa' }}>—</span> }},
-    { key: 'actions', label: '', render: r => (
+    { key: 'actions', label: '', render: r => {
+      const batches = batchesFor(r.id)
+      return (
       <div style={{ display: 'flex', gap: 5 }}>
+        {batches.length > 0 && <Button variant="ghost" size="sm" title="Download batch history" onClick={() => downloadAllBatches(r, batches)}><Download size={13} /></Button>}
         <Button variant="ghost" size="sm" onClick={() => openView(r)}><Eye size={13} /></Button>
         <Button variant="ghost" size="sm" onClick={() => openEdit(r)}><Edit2 size={13} /></Button>
         <Button variant="danger" size="sm" onClick={() => del(r.id)}><Trash2 size={13} /></Button>
       </div>
-    )},
+    )}},
   ]
 
   const viewStats = viewModal ? getVendorStats(viewModal.id) : null
@@ -292,7 +308,15 @@ export default function Vendors() {
                           <span style={{ fontSize: 12, color: '#888' }}>{b.items.length} product{b.items.length === 1 ? '' : 's'} · {b.units} unit{b.units === 1 ? '' : 's'}</span>
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <span style={{ fontWeight: 700, color: '#1D9E75' }}>MVR {b.total.toFixed(2)}</span>
+                          <div style={{ textAlign: 'right' }}>
+                            <span style={{ fontWeight: 700, color: '#0d1b2a' }}>MVR {b.total.toFixed(2)}</span>
+                            <div style={{ fontSize: 11, fontWeight: 600 }}>
+                              <span style={{ color: '#1D9E75' }}>Paid {b.paid.toFixed(2)}</span>
+                              {b.outstanding > 0.005
+                                ? <span style={{ color: '#E24B4A' }}> · Owe {b.outstanding.toFixed(2)}</span>
+                                : <span style={{ color: '#1D9E75' }}> · ✓ settled</span>}
+                            </div>
+                          </div>
                           <Button variant="ghost" size="sm" onClick={() => downloadBatch(viewModal, b)}><Download size={13} /></Button>
                         </div>
                       </div>
