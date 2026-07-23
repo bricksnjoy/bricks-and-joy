@@ -22,12 +22,14 @@ function buildInvoices(orders) {
         payment_status: o.payment_status || 'unpaid',
         payment_method: o.payment_method || '',
         transfer_reference: o.transfer_reference || '',
+        transfer_slip_url: o.transfer_slip_url || '',
         notes: o.notes || '',
         created_at: o.created_at,
         items: [],
         total: 0,
       }
     }
+    if (!map[key].transfer_slip_url && o.transfer_slip_url) map[key].transfer_slip_url = o.transfer_slip_url
     map[key].items.push(o)
     map[key].total += Number(o.total_price || 0)
   }
@@ -41,6 +43,7 @@ export default function Invoices() {
   const [search, setSearch] = useState('')
   const [payFilter, setPayFilter] = useState('all')
   const [expanded, setExpanded] = useState(null)
+  const [slipView, setSlipView] = useState(null)
   const toast = useToast()
 
   useEffect(() => { load() }, [])
@@ -393,7 +396,13 @@ export default function Invoices() {
                         {inv.transfer_reference && <span style={{ marginLeft:8, fontFamily:'monospace' }}>#{inv.transfer_reference}</span>}
                         {inv.notes && <span style={{ marginLeft:8, fontStyle:'italic' }}>{inv.notes.slice(0,60)}{inv.notes.length > 60 ? '…' : ''}</span>}
                       </div>
-                      <div style={{ display:'flex', gap:8 }}>
+                      <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+                        {inv.transfer_slip_url && (
+                          <button className="inv-action" onClick={() => setSlipView(inv.transfer_slip_url)}
+                            style={{ display:'flex', alignItems:'center', gap:6, padding:'6px 12px', border:'1px solid #cfe3d6', background:'#f0fbf5', color:'#1D9E75', borderRadius:8, cursor:'pointer', fontSize:12, fontWeight:600, fontFamily:'inherit' }}>
+                            <FileText size={12} /> View BML slip
+                          </button>
+                        )}
                         <button className="inv-action print" onClick={() => printReceipt(inv)}>
                           <Printer size={12} /> Print receipt
                         </button>
@@ -404,6 +413,15 @@ export default function Invoices() {
               </div>
             )
           })}
+        </div>
+      )}
+
+      {slipView && (
+        <div onClick={() => setSlipView(null)}
+          style={{ position:'fixed', inset:0, background:'rgba(13,27,42,0.85)', zIndex:3000, display:'flex', alignItems:'center', justifyContent:'center', padding:24, cursor:'zoom-out' }}>
+          <img src={slipView} alt="Payment slip" style={{ maxWidth:'100%', maxHeight:'100%', borderRadius:12, boxShadow:'0 20px 60px rgba(0,0,0,0.5)' }} />
+          <a href={slipView} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
+            style={{ position:'absolute', bottom:24, background:'#fff', color:'#0d1b2a', padding:'9px 18px', borderRadius:99, textDecoration:'none', fontWeight:700, fontSize:13 }}>Open full size ↗</a>
         </div>
       )}
 

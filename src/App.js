@@ -16,11 +16,9 @@ import SupplierCatalog from './pages/SupplierCatalog'
 import MessageCenter from './pages/MessageCenter'
 import Deliveries from './pages/Deliveries'
 import Invoices from './pages/Invoices'
-import Planning from './pages/Planning'
-import Events from './pages/Events'
+import PlanningEvents from './pages/PlanningEvents'
 import FuturePlans from './pages/FuturePlans'
 import Reconciliation from './pages/Reconciliation'
-import Budget from './pages/Budget'
 import StockReport from './pages/StockReport'
 import HelpGuide from './pages/HelpGuide'
 import Settings from './pages/Settings'
@@ -31,7 +29,7 @@ import {
   LayoutDashboard, ShoppingCart, Package, Users,
   DollarSign, BarChart2, Truck, ChevronDown, ChevronRight,
   LogOut, Building2, FileText, Menu, CalendarDays, Tag, BookOpen,
-  GripVertical, Check, Settings2, MoreVertical, Sparkles, MessageSquare, LifeBuoy, TrendingUp, Scale, ClipboardList, Target, Settings as SettingsIcon, History, PartyPopper, Globe, Landmark
+  GripVertical, Check, Settings2, MoreVertical, Sparkles, MessageSquare, LifeBuoy, TrendingUp, Scale, ClipboardList, Settings as SettingsIcon, History, Globe, Landmark
 } from 'lucide-react'
 
 // Catalog of every page. The sidebar layout (sections + order) is built from
@@ -45,8 +43,7 @@ const ITEMS = {
   deliveries:         { label: 'Deliveries',        icon: Truck,           render: <Deliveries /> },
   tasks:              { label: 'Tasks & Calendar',  icon: CalendarDays,    render: <TasksCalendar /> },
   messages:           { label: 'Message Center',    icon: MessageSquare,   render: <MessageCenter /> },
-  planning:           { label: 'Planning',          icon: Sparkles,        render: <Planning /> },
-  events:             { label: 'Events',            icon: PartyPopper,     render: <Events /> },
+  planning:           { label: 'Planning & Events', icon: Sparkles,        render: <PlanningEvents /> },
   inventory:          { label: 'Inventory',         icon: Package,         render: <Inventory /> },
   categories:         { label: 'Categories',        icon: Tag,             render: <Categories /> },
   'purchase-orders':  { label: 'Batch Orders',      icon: Truck,           render: <PurchaseOrders /> },
@@ -56,7 +53,6 @@ const ITEMS = {
   loans:              { label: 'Loans',             icon: Landmark,        render: <Loans /> },
   'profit-loss':      { label: 'Financial Reports', icon: FileText,        render: <ProfitLoss /> },
   reconciliation:     { label: 'Reconciliation',    icon: Scale,           render: <Reconciliation /> },
-  budget:             { label: 'Budget vs Actual',  icon: Target,          render: <Budget /> },
   costs:              { label: 'Cost Management',    icon: DollarSign,      render: <CostManagement /> },
   vendors:            { label: 'Vendors',           icon: Building2,       render: <Vendors /> },
   statistics:         { label: 'Analytics',         icon: BarChart2,       render: <Statistics /> },
@@ -65,9 +61,9 @@ const ITEMS = {
 
 const DEFAULT_NAV = [
   { id: 'main',       section: null,             items: ['dashboard', 'website'] },
-  { id: 'pos',        section: 'Point of Sale',  items: ['orders', 'invoices', 'customers', 'deliveries', 'tasks', 'messages', 'planning', 'events'] },
+  { id: 'pos',        section: 'Point of Sale',  items: ['orders', 'invoices', 'customers', 'deliveries', 'tasks', 'messages', 'planning'] },
   { id: 'inventory',  section: 'Inventory',      items: ['inventory', 'categories', 'purchase-orders', 'supplier-catalog', 'stock-report'] },
-  { id: 'accounting', section: 'Accounting',     items: ['loans', 'future-plans', 'profit-loss', 'reconciliation', 'budget', 'costs', 'vendors', 'statistics', 'audit-log'] },
+  { id: 'accounting', section: 'Accounting',     items: ['loans', 'future-plans', 'profit-loss', 'reconciliation', 'costs', 'vendors', 'statistics', 'audit-log'] },
 ]
 
 const NAV_KEY = 'bnj_nav_layout_v1'

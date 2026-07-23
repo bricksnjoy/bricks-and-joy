@@ -420,9 +420,11 @@ export function CheckoutPage() {
   const SHIPPING = settings.shipping || []
   const GIFT_WRAP_FEE = num(settings.gift_wrap_fee)
   const freeOver = num(settings.free_delivery_over)
+  const [fulfil, setFulfil] = useState('delivery')
+  const pickup = fulfil === 'pickup'
   const ship = SHIPPING[shipIdx] || SHIPPING[0] || { label: '—', fee: 0 }
   const freeShip = freeOver > 0 && cartSubtotal >= freeOver
-  const shipFee = freeShip ? 0 : (ship?.fee || 0)
+  const shipFee = pickup ? 0 : (freeShip ? 0 : (ship?.fee || 0))
   const [form, setForm] = useState({
     name: user?.user_metadata?.full_name || '', phone: '', island: '', address: '',
     notes: '', email: user?.email || '',
@@ -467,7 +469,7 @@ export function CheckoutPage() {
   }
 
   async function placeOrder() {
-    if (!form.name.trim() || !form.phone.trim() || !form.island.trim() || !cart.length) return
+    if (!form.name.trim() || !form.phone.trim() || (!pickup && !form.island.trim()) || !cart.length) return
     setPlacing(true)
     try {
       const invoice = genInvoice()
@@ -476,9 +478,9 @@ export function CheckoutPage() {
       const customerId = user?.id || (crypto?.randomUUID && crypto.randomUUID()) || null
       const addr = [form.address, form.island].filter(Boolean).join(', ')
       const extras = [
-        `Website order · ${form.island}`,
+        pickup ? 'Website order · 🏬 PICKUP from store' : `Website order · ${form.island}`,
         giftWrap ? `Gift wrap +${money(GIFT_WRAP_FEE)}` : '',
-        `Delivery est. ${freeShip ? 'FREE' : money(shipFee)} (${ship?.label})`,
+        pickup ? 'Pickup — collect from store' : `Delivery est. ${freeShip ? 'FREE' : money(shipFee)} (${ship?.label})`,
         applied ? `Coupon ${applied.code} −${money(discount)}` : '',
         `Amount to pay ${money(total)}`,
         form.notes ? `Note: ${form.notes}` : '',
@@ -525,7 +527,7 @@ export function CheckoutPage() {
     }
   }
 
-  const canPlace = form.name.trim() && form.phone.trim() && form.island.trim() && cart.length
+  const canPlace = form.name.trim() && form.phone.trim() && (pickup || form.island.trim()) && cart.length
   return (
     <div className="sh-wrap" style={{ maxWidth: 900 }}>
       <button className="sh-crumb" onClick={() => navigate('/cart')}><ArrowLeft size={16} /> Back to cart</button>
@@ -533,16 +535,35 @@ export function CheckoutPage() {
       <div className="sh-cartgrid">
         <div>
           <div className="sh-card2">
-            <div className="hd">Delivery</div>
+            <div className="hd">How would you like it?</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
+              {[['delivery', '🚚 Delivery', 'We bring it to you'], ['pickup', '🏬 Pickup', 'Collect from our store']].map(([k, label, sub]) => (
+                <button key={k} onClick={() => setFulfil(k)} type="button"
+                  style={{ textAlign: 'left', padding: '13px 15px', borderRadius: 12, cursor: 'pointer', fontFamily: 'inherit',
+                    border: `1.5px solid ${fulfil === k ? '#FFA500' : '#e6e0d6'}`, background: fulfil === k ? '#FFF8EC' : '#fff' }}>
+                  <div style={{ fontWeight: 700, fontSize: 14 }}>{label}</div>
+                  <div style={{ fontSize: 12, color: '#8a8278', marginTop: 2 }}>{sub}</div>
+                </button>
+              ))}
+            </div>
+            <div className="hd">{pickup ? 'Your details' : 'Delivery'}</div>
             <Field label="Full name" required><input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Your name" /></Field>
             <Field label="Phone / WhatsApp" required><input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} inputMode="tel" placeholder="7xxxxxx" /></Field>
-            <Field label="Island" required><input value={form.island} onChange={e => setForm(f => ({ ...f, island: e.target.value }))} placeholder="e.g. Malé, Hulhumalé" /></Field>
-            <Field label="Delivery address"><input value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} placeholder="House / street / landmark" /></Field>
-            <Field label="Delivery area (for the estimate)">
-              <select value={shipIdx} onChange={e => setShipIdx(Number(e.target.value))}>
-                {SHIPPING.map((s, i) => <option key={i} value={i}>{s.label} — {money(s.fee)}</option>)}
-              </select>
-            </Field>
+            {pickup ? (
+              <div style={{ background: '#f0fbf5', border: '1px solid #cfe3d6', borderRadius: 11, padding: '12px 14px', fontSize: 13, color: '#2c7a54', marginBottom: 14 }}>
+                🏬 We'll message you on WhatsApp when your order is ready to collect from our store. No delivery charge.
+              </div>
+            ) : (
+              <>
+                <Field label="Island" required><input value={form.island} onChange={e => setForm(f => ({ ...f, island: e.target.value }))} placeholder="e.g. Malé, Hulhumalé" /></Field>
+                <Field label="Delivery address"><input value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} placeholder="House / street / landmark" /></Field>
+                <Field label="Delivery area (for the estimate)">
+                  <select value={shipIdx} onChange={e => setShipIdx(Number(e.target.value))}>
+                    {SHIPPING.map((s, i) => <option key={i} value={i}>{s.label} — {money(s.fee)}</option>)}
+                  </select>
+                </Field>
+              </>
+            )}
             <Field label="Note (optional)"><textarea rows={2} value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} placeholder="Anything we should know?" /></Field>
           </div>
 
@@ -577,7 +598,7 @@ export function CheckoutPage() {
           </div>
           <div className="sh-srow"><span>Subtotal</span><span>{money(cartSubtotal)}</span></div>
           {giftWrap && <div className="sh-srow"><span>Gift wrapping</span><span>{money(GIFT_WRAP_FEE)}</span></div>}
-          <div className="sh-srow"><span>Delivery (est.)</span><span>{freeShip ? <b style={{ color: '#1D9E75' }}>FREE</b> : money(shipFee)}</span></div>
+          <div className="sh-srow"><span>{pickup ? 'Pickup' : 'Delivery (est.)'}</span><span>{pickup ? <b style={{ color: '#1D9E75' }}>FREE</b> : freeShip ? <b style={{ color: '#1D9E75' }}>FREE</b> : money(shipFee)}</span></div>
           {discount > 0 && <div className="sh-srow" style={{ color: '#1D9E75' }}><span>Discount</span><span>−{money(discount)}</span></div>}
           <div className="sh-stot"><span>Total</span><span style={{ color: '#E24B4A' }}>{money(total)}</span></div>
           <button className="sh-btn sh-btn-o" style={{ width: '100%', justifyContent: 'center', marginTop: 16 }} disabled={!canPlace || placing} onClick={placeOrder}>
