@@ -14,6 +14,8 @@ export default function Accounting() {
   const [purchaseOrders, setPurchaseOrders] = useState([])
   const [customers, setCustomers] = useState([])
   const [suppliers, setSuppliers] = useState([])
+  const [loans, setLoans] = useState([])
+  const [loanPays, setLoanPays] = useState([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('income')
   const [gstSettings, setGstSettings] = useState(() => {
@@ -27,13 +29,15 @@ export default function Accounting() {
 
   async function load() {
     setLoading(true)
-    const [o, p, e, po, c, s] = await Promise.all([
+    const [o, p, e, po, c, s, l, lp] = await Promise.all([
       supabase.from('orders').select('*').order('order_date'),
-      supabase.from('products').select('id, name, cost_price, stock_qty'),
+      supabase.from('products').select('id, name, category, sku, cost_price, sell_price, stock_qty, low_stock_threshold, discontinued'),
       supabase.from('expenses').select('*').order('expense_date', { ascending: false }),
       supabase.from('purchase_orders').select('*'),
       supabase.from('customers').select('*'),
       supabase.from('suppliers').select('id, name, contact_name'),
+      supabase.from('loans').select('*'),
+      supabase.from('loan_payments').select('*'),
     ])
     setOrders(o.data || [])
     setProducts(p.data || [])
@@ -41,6 +45,8 @@ export default function Accounting() {
     setPurchaseOrders(po.data || [])
     setCustomers(c.data || [])
     setSuppliers(s.data || [])
+    setLoans(l.data || [])
+    setLoanPays(lp.data || [])
     setLoading(false)
   }
 
@@ -206,6 +212,107 @@ export default function Accounting() {
     downloadCSV('customers.csv',
       ['Name', 'Username/Instagram', 'Phone', 'Address'],
       customers.map(c => [c.name, c.email || '', c.phone || '', c.address || ''])
+    )
+  }
+
+  // ── extra reports ──────────────────────────────────────────────────────────────
+  const num = v => { const n = parseFloat(v); return isNaN(n) ? 0 : n }
+  const activeProducts = products.filter(p => !p.discontinued)
+  const periodOrders = orders.filter(o => o.status !== 'cancelled' && inPeriod(o.order_date))
+
+  function downloadInventoryValuationCSV() {
+    downloadCSV('inventory-valuation.csv',
+      ['Product', 'Category', 'SKU', 'In stock', 'Cost price', 'Sell price', 'Stock value (cost)', 'Stock value (retail)'],
+      activeProducts.map(p => {
+        const q = parseInt(p.stock_qty) || 0
+        return [p.name, p.category || '', p.sku || '', q, num(p.cost_price).toFixed(2), num(p.sell_price).toFixed(2), (q * num(p.cost_price)).toFixed(2), (q * num(p.sell_price)).toFixed(2)]
+      })
+    )
+  }
+
+  function downloadSalesByProductCSV() {
+    const agg = {}
+    periodOrders.forEach(o => {
+      if (!o.product_id) return
+      const a = agg[o.product_id] || (agg[o.product_id] = { name: o.product_name, units: 0, revenue: 0 })
+      a.units += parseInt(o.qty) || 0; a.revenue += num(o.total_price)
+    })
+    const costOf = {}; products.forEach(p => { costOf[p.id] = num(p.cost_price); })
+    const catOf = {}; products.forEach(p => { catOf[p.id] = p.category || ''; })
+    const rows = Object.entries(agg).map(([id, a]) => {
+      const cost = costOf[id] * a.units; const profit = a.revenue - cost
+      return [a.name, catOf[id], a.units, a.revenue.toFixed(2), cost.toFixed(2), profit.toFixed(2), a.revenue > 0 ? Math.round(profit / a.revenue * 100) + '%' : '0%']
+    }).sort((x, y) => num(y[3]) - num(x[3]))
+    downloadCSV(`sales-by-product-${periodFilter}.csv`, ['Product', 'Category', 'Units sold', 'Revenue', 'Cost', 'Profit', 'Margin'], rows)
+  }
+
+  function downloadSalesByCategoryCSV() {
+    const catOf = {}; products.forEach(p => { catOf[p.id] = p.category || 'Uncategorised'; })
+    const costOf = {}; products.forEach(p => { costOf[p.id] = num(p.cost_price); })
+    const agg = {}
+    periodOrders.forEach(o => {
+      const cat = catOf[o.product_id] || 'Uncategorised'
+      const a = agg[cat] || (agg[cat] = { units: 0, revenue: 0, cost: 0 })
+      a.units += parseInt(o.qty) || 0; a.revenue += num(o.total_price); a.cost += costOf[o.product_id] * (parseInt(o.qty) || 0)
+    })
+    const rows = Object.entries(agg).map(([cat, a]) => [cat, a.units, a.revenue.toFixed(2), a.cost.toFixed(2), (a.revenue - a.cost).toFixed(2)]).sort((x, y) => num(y[2]) - num(x[2]))
+    downloadCSV(`sales-by-category-${periodFilter}.csv`, ['Category', 'Units sold', 'Revenue', 'Cost', 'Profit'], rows)
+  }
+
+  function downloadSalesByCustomerCSV() {
+    const agg = {}
+    orders.filter(o => o.status !== 'cancelled' && inPeriod(o.order_date)).forEach(o => {
+      const key = o.customer_id || o.customer_name || 'Walk-in'
+      const a = agg[key] || (agg[key] = { name: o.customer_name || 'Walk-in', invoices: new Set(), spent: 0, unpaid: 0 })
+      a.invoices.add(o.invoice_number || o.id); a.spent += num(o.total_price)
+      if (o.payment_status === 'unpaid') a.unpaid += num(o.total_price)
+    })
+    const rows = Object.values(agg).map(a => [a.name, a.invoices.size, a.spent.toFixed(2), a.unpaid.toFixed(2)]).sort((x, y) => num(y[2]) - num(x[2]))
+    downloadCSV(`sales-by-customer-${periodFilter}.csv`, ['Customer', 'Orders', 'Total spent (MVR)', 'Unpaid (MVR)'], rows)
+  }
+
+  function downloadReceivablesCSV() {
+    const inv = {}
+    orders.filter(o => o.status !== 'cancelled' && o.payment_status !== 'paid').forEach(o => {
+      const k = o.invoice_number || o.id
+      const a = inv[k] || (inv[k] = { inv: o.invoice_number || '', customer: o.customer_name || 'Walk-in', date: o.order_date, status: o.payment_status || 'unpaid', total: 0 })
+      a.total += num(o.total_price)
+    })
+    const rows = Object.values(inv).map(a => [a.inv, a.customer, a.date, a.status, a.total.toFixed(2)]).sort((x, y) => (x[2] < y[2] ? 1 : -1))
+    downloadCSV('unpaid-invoices.csv', ['Invoice #', 'Customer', 'Date', 'Payment status', 'Amount due (MVR)'], rows)
+  }
+
+  function downloadLowStockCSV() {
+    const rows = activeProducts.map(p => {
+      const q = parseInt(p.stock_qty) || 0; const th = p.low_stock_threshold ?? 10
+      return { p, q, th, need: q <= th }
+    }).filter(r => r.need).sort((a, b) => a.q - b.q)
+      .map(r => [r.p.name, r.p.category || '', r.q, r.th, r.q <= 0 ? 'OUT OF STOCK' : 'Low', num(r.p.cost_price).toFixed(2)])
+    downloadCSV('low-stock.csv', ['Product', 'Category', 'In stock', 'Low-stock alert at', 'Status', 'Cost price'], rows)
+  }
+
+  function downloadPurchasesCSV() {
+    const supOf = {}; suppliers.forEach(s => { supOf[s.id] = s.contact_name || s.name; })
+    downloadCSV('supplier-purchases.csv',
+      ['Date', 'Supplier', 'Product', 'Qty', 'Unit cost', 'Total cost', 'Status'],
+      purchaseOrders.map(po => [po.order_date || '', po.supplier_name || supOf[po.supplier_id] || '', po.product_name || '', po.qty || 0, num(po.unit_cost).toFixed(2), num(po.total_cost || num(po.unit_cost) * (parseInt(po.qty) || 0)).toFixed(2), po.status || ''])
+    )
+  }
+
+  function downloadPriceListCSV() {
+    downloadCSV('price-list.csv',
+      ['Product', 'Category', 'SKU', 'Price (MVR)', 'In stock'],
+      activeProducts.filter(p => (parseInt(p.stock_qty) || 0) > 0).map(p => [p.name, p.category || '', p.sku || '', num(p.sell_price).toFixed(2), parseInt(p.stock_qty) || 0])
+    )
+  }
+
+  function downloadLoansCSV() {
+    downloadCSV('loans-statement.csv',
+      ['Lender', 'Used for', 'Taken on', 'Amount', 'Monthly', 'Paid', 'Remaining'],
+      loans.map(l => {
+        const paid = loanPays.filter(p => p.loan_id === l.id).reduce((s, p) => s + num(p.amount), 0)
+        return [l.lender || '', l.purpose || '', l.taken_on || '', num(l.amount).toFixed(2), num(l.monthly_payment).toFixed(2), paid.toFixed(2), Math.max(0, num(l.amount) - paid).toFixed(2)]
+      })
     )
   }
 
@@ -888,6 +995,15 @@ export default function Accounting() {
               { title: 'Orders Report', desc: 'All sales orders with details', icon: '🛒', action: downloadOrdersCSV, label: 'Download CSV' },
               { title: 'Cost Detail Report', desc: 'All expenses with categories', icon: '💰', action: downloadCostsCSV, label: 'Download CSV' },
               { title: 'Customer List', desc: 'All customer contact information', icon: '👥', action: downloadCustomersCSV, label: 'Download CSV' },
+              { title: 'Inventory Valuation', desc: 'Every product with stock value at cost & retail', icon: '📦', action: downloadInventoryValuationCSV, label: 'Download CSV' },
+              { title: 'Sales by Product', desc: 'Units, revenue, cost, profit & margin per product', icon: '🏷️', action: downloadSalesByProductCSV, label: 'Download CSV' },
+              { title: 'Sales by Category', desc: 'Revenue & profit grouped by category', icon: '🧩', action: downloadSalesByCategoryCSV, label: 'Download CSV' },
+              { title: 'Sales by Customer', desc: 'Orders, total spent & unpaid per customer', icon: '🧑‍🤝‍🧑', action: downloadSalesByCustomerCSV, label: 'Download CSV' },
+              { title: 'Unpaid Invoices', desc: 'Money owed to you — receivables to chase', icon: '⏳', action: downloadReceivablesCSV, label: 'Download CSV' },
+              { title: 'Low Stock / Reorder', desc: 'Products at or below their low-stock alert', icon: '⚠️', action: downloadLowStockCSV, label: 'Download CSV' },
+              { title: 'Supplier Purchases', desc: 'All batch orders bought from suppliers', icon: '🚚', action: downloadPurchasesCSV, label: 'Download CSV' },
+              { title: 'Price List', desc: 'In-stock products & prices — shareable', icon: '📋', action: downloadPriceListCSV, label: 'Download CSV' },
+              { title: 'Loan Statement', desc: 'Loans with amount, paid & remaining', icon: '🏦', action: downloadLoansCSV, label: 'Download CSV' },
             ].map((doc, i) => (
               <div key={i} className="dl-card">
                 <div style={{ fontSize: 28 }}>{doc.icon}</div>
