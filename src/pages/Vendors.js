@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Button, Input, Select, Table, Modal, Spinner, FormRow, useToast, Toasts, Badge } from '../components/UI'
-import { Plus, Trash2, Edit2, Eye, Package, ShoppingCart, User, Mail, Phone, MapPin, CalendarDays, Search, Building2, TrendingUp } from 'lucide-react'
+import { Plus, Trash2, Edit2, Eye, Package, ShoppingCart, User, Mail, Phone, MapPin, CalendarDays, Search, Building2, TrendingUp, Download, Layers } from 'lucide-react'
 
 const EMPTY = { name: '', contact_name: '', email: '', phone: '', address: '', payment_terms: 'Net 30', currency: 'MVR', notes: '' }
 const PAYMENT_TERMS = ['Net 7', 'Net 15', 'Net 30', 'Net 60', 'Due on receipt', 'Prepaid']
@@ -105,6 +105,44 @@ export default function Vendors() {
       products: vProducts,
       purchaseOrders: vPOs,
     }
+  }
+
+  // Group a vendor's purchase orders into batches (one batch = one batch order).
+  // Numbered chronologically: oldest is Batch 1.
+  function batchesFor(vendorId) {
+    const vPOs = purchaseOrders.filter(po => po.supplier_id === vendorId)
+    const map = new Map()
+    vPOs.forEach(po => {
+      const key = po.batch_no || `d:${po.order_date || (po.created_at || '').slice(0, 10)}`
+      if (!map.has(key)) map.set(key, { key, batch_no: po.batch_no || '', date: po.order_date || (po.created_at || '').slice(0, 10), items: [], total: 0, statuses: new Set() })
+      const g = map.get(key)
+      g.items.push(po); g.total += Number(po.total_cost || 0); g.statuses.add(po.status)
+    })
+    const arr = [...map.values()].sort((a, b) => (a.date || '').localeCompare(b.date || ''))
+    arr.forEach((b, i) => {
+      b.seq = i + 1
+      b.label = b.batch_no ? `Batch ${b.batch_no}` : `Batch ${i + 1}`
+      b.status = b.statuses.has('pending') ? 'pending' : b.statuses.has('ordered') ? 'ordered' : 'received'
+      b.units = b.items.reduce((s, po) => s + (parseInt(po.qty) || 0), 0)
+    })
+    return arr
+  }
+
+  function downloadCSV(filename, headers, rows) {
+    const csv = [headers.join(','), ...rows.map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(','))].join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = filename; a.click()
+  }
+  const slug = s => String(s || 'vendor').replace(/[^a-z0-9]+/gi, '-').toLowerCase()
+  function downloadBatch(vendor, b) {
+    downloadCSV(`${slug(vendor.name)}-${b.label.replace(/\s+/g, '')}.csv`,
+      ['Product', 'Qty', 'Unit cost (MVR)', 'Total (MVR)', 'Status', 'Date'],
+      b.items.map(po => [po.product_name || '', po.qty || 0, Number(po.unit_cost || 0).toFixed(2), Number(po.total_cost || 0).toFixed(2), po.status || '', po.order_date || '']))
+  }
+  function downloadAllBatches(vendor, batches) {
+    const rows = []
+    batches.forEach(b => b.items.forEach(po => rows.push([b.label, b.date || '', po.product_name || '', po.qty || 0, Number(po.unit_cost || 0).toFixed(2), Number(po.total_cost || 0).toFixed(2), po.status || ''])))
+    downloadCSV(`${slug(vendor.name)}-batch-history.csv`, ['Batch', 'Date', 'Product', 'Qty', 'Unit cost (MVR)', 'Total (MVR)', 'Status'], rows)
   }
 
   const filtered = vendors.filter(v =>
@@ -232,37 +270,50 @@ export default function Vendors() {
             </>
           )}
 
-          {viewStats.purchaseOrders.length > 0 && (
-            <>
-              <h3 style={{ fontSize: 12, fontWeight: 600, color: '#0d1b2a', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 7, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-                <ShoppingCart size={14} color="#FFA500" />Purchase order history
-              </h3>
-              <div style={{ border: '1px solid #eee', borderRadius: 10, overflow: 'hidden' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                  <thead>
-                    <tr style={{ background: '#fafafa' }}>
-                      {['Date', 'Product', 'Qty', 'Total', 'Status'].map(h => (
-                        <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontSize: 11, color: '#999', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.4px', borderBottom: '1px solid #eee' }}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {viewStats.purchaseOrders.slice(0, 10).map((po, i) => (
-                      <tr key={po.id} style={{ borderBottom: i < Math.min(viewStats.purchaseOrders.length, 10) - 1 ? '1px solid #f5f5f5' : 'none' }}>
-                        <td style={{ padding: '9px 12px', color: '#888', fontSize: 12 }}>{po.order_date || '—'}</td>
-                        <td style={{ padding: '9px 12px', fontWeight: 500 }}>{po.product_name || '—'}</td>
-                        <td style={{ padding: '9px 12px' }}>{po.qty}</td>
-                        <td style={{ padding: '9px 12px', fontWeight: 600 }}>MVR {Number(po.total_cost || 0).toFixed(2)}</td>
-                        <td style={{ padding: '9px 12px' }}>
-                          <Badge color={po.status === 'received' ? 'green' : po.status === 'ordered' ? 'blue' : 'amber'}>{po.status}</Badge>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          )}
+          {(() => {
+            const batches = batchesFor(viewModal.id)
+            if (!batches.length) return null
+            return (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
+                  <h3 style={{ fontSize: 12, fontWeight: 600, color: '#0d1b2a', margin: 0, display: 'flex', alignItems: 'center', gap: 7, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                    <Layers size={14} color="#FFA500" /> Batch history ({batches.length})
+                  </h3>
+                  <Button variant="ghost" size="sm" onClick={() => downloadAllBatches(viewModal, batches)}><Download size={13} /> Download all batches</Button>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {batches.slice().reverse().map(b => (
+                    <div key={b.key} style={{ border: '1px solid #eee', borderRadius: 10, overflow: 'hidden' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '10px 14px', background: '#faf9f6', flexWrap: 'wrap' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                          <span style={{ fontWeight: 800, color: '#0d1b2a', fontSize: 13.5 }}>{b.label}</span>
+                          <span style={{ fontSize: 12, color: '#888' }}>{b.date || '—'}</span>
+                          <Badge color={b.status === 'received' ? 'green' : b.status === 'ordered' ? 'blue' : 'amber'}>{b.status}</Badge>
+                          <span style={{ fontSize: 12, color: '#888' }}>{b.items.length} product{b.items.length === 1 ? '' : 's'} · {b.units} unit{b.units === 1 ? '' : 's'}</span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <span style={{ fontWeight: 700, color: '#1D9E75' }}>MVR {b.total.toFixed(2)}</span>
+                          <Button variant="ghost" size="sm" onClick={() => downloadBatch(viewModal, b)}><Download size={13} /></Button>
+                        </div>
+                      </div>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+                        <tbody>
+                          {b.items.map((po, i) => (
+                            <tr key={po.id} style={{ borderTop: '1px solid #f5f5f5' }}>
+                              <td style={{ padding: '8px 14px', fontWeight: 500 }}>{po.product_name || '—'}</td>
+                              <td style={{ padding: '8px 14px', textAlign: 'right', color: '#888' }}>× {po.qty}</td>
+                              <td style={{ padding: '8px 14px', textAlign: 'right', color: '#888' }}>@ MVR {Number(po.unit_cost || 0).toFixed(2)}</td>
+                              <td style={{ padding: '8px 14px', textAlign: 'right', fontWeight: 600 }}>MVR {Number(po.total_cost || 0).toFixed(2)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )
+          })()}
 
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
             <Button variant="ghost" onClick={() => { openEdit(viewModal); setViewModal(null) }}><Edit2 size={13} /> Edit</Button>
