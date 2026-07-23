@@ -662,12 +662,13 @@ export function Wishlist() {
 
 // ── Account ─────────────────────────────────────────────────────────────────────
 export function AccountPage() {
-  const { user, signIn, signOut, navigate } = useShop()
+  const { user, signIn, signOut, navigate, settings } = useShop()
   const [profile, setProfile] = useState({ full_name: '', phone: '', island: '', address: '', notes: '' })
   const [orders, setOrders] = useState([])
   const [loaded, setLoaded] = useState(false)
   const [saving, setSaving] = useState(false)
   const [savedMsg, setSavedMsg] = useState('')
+  const [showDetails, setShowDetails] = useState(false)
   // email/password auth
   const [mode, setMode] = useState('login')
   const [auth, setAuth] = useState({ first: '', last: '', dob: '', phone: '', email: '', password: '', marketing: false })
@@ -798,50 +799,57 @@ export function AccountPage() {
   const progress = next ? Math.min(100, ((points - tier.min) / (next.min - tier.min)) * 100) : 100
   const perks = TIERS.slice(0, tierIdx + 1).flatMap(t => t.perks)
 
+  const whatsapp = settings?.whatsapp
+  const instagram = settings?.instagram
   return (
-    <div className="sh-wrap acct">
-      {/* hero: name + loyalty + benefits */}
-      <div className="acct-hero">
-        <div className="acct-id">
-          {user.user_metadata?.avatar_url && <img src={user.user_metadata.avatar_url} alt="" />}
+    <div className="acctp">
+      {/* full-width hero: name/menu · points · benefits */}
+      <div className="acctp-hero">
+        <div className="acctp-hero-in">
           <div>
-            <div className="acct-name">{displayName}</div>
-            <div className="acct-email">{user.email}</div>
+            <div className="acctp-name">{displayName}</div>
+            <div className="acctp-menu">
+              <button onClick={() => { setShowDetails(true); document.getElementById('acctp-details')?.scrollIntoView({ behavior: 'smooth' }) }}>My details</button>
+              <button onClick={() => document.getElementById('acctp-orders')?.scrollIntoView({ behavior: 'smooth' })}>Orders</button>
+              <button onClick={signOut}>Sign out</button>
+            </div>
           </div>
-        </div>
-        <div className="acct-points">
-          <div className="pts">{points.toLocaleString()}<span> pts</span></div>
-          <div className="acct-bar"><span style={{ width: `${progress}%` }} /></div>
-          <div className="acct-bar-lbl">
-            <span>{tier.emoji} {tier.name}</span>
-            <span>{next ? `${(next.min - points).toLocaleString()} pts to ${next.name}` : 'Top tier 🎉'}</span>
+          <div className="acctp-pts">
+            <div className="n">{points.toLocaleString()}<span>PTS</span></div>
+            <div className="acctp-bar"><span style={{ width: `${progress}%` }} /></div>
+            <div className="acctp-barlbl">
+              <span>{points.toLocaleString()} / {next ? next.min.toLocaleString() : points.toLocaleString()} pts</span>
+              <span>{next ? `${(next.min - points).toLocaleString()} PTS TO GO` : 'TOP TIER 🎉'}</span>
+            </div>
           </div>
-        </div>
-        <div className="acct-perks">
-          <div className="acct-perks-h">{tier.name} perks</div>
-          {perks.map((p, i) => <div key={i} className="acct-perk"><CheckCircle2 size={14} color="#1D9E75" /> {p}</div>)}
+          <div className="acctp-benefits">
+            <div className="bh">{tier.emoji} {tier.name.toUpperCase()} BENEFITS</div>
+            {perks.map((p, i) => <div key={i} className="acctp-benefit"><CheckCircle2 size={14} color="#1D9E75" /> {p}</div>)}
+          </div>
         </div>
       </div>
 
-      <div className="acct-grid">
-        {/* orders */}
-        <div className="sh-card2">
-          <div className="hd" style={{ display: 'flex', justifyContent: 'space-between' }}><span>Your orders</span><span style={{ color: '#b8ab97' }}>{invoices.length}</span></div>
+      {/* lower: orders + action rows */}
+      <div className="acctp-lower">
+        <div id="acctp-orders" className="acctp-panel">
+          <div className="acctp-panel-h">ORDERS</div>
           {invoices.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '24px 0', color: '#9a9186' }}>
-              <Package size={30} color="#e5dcc9" /><div style={{ marginTop: 8, fontWeight: 600 }}>No orders yet</div>
-              <button className="sh-btn sh-btn-o" style={{ marginTop: 14 }} onClick={() => navigate('/products')}>Start shopping</button>
+            <div style={{ textAlign: 'center', padding: '40px 10px', color: '#9a9186' }}>
+              <Package size={34} color="#e5dcc9" />
+              <div style={{ marginTop: 10, fontWeight: 600, color: '#77706a' }}>You haven't made any orders yet.</div>
+              <div style={{ fontSize: 13, color: '#a79a80', marginTop: 2 }}>When you order, it'll show up here.</div>
+              <button className="sh-btn sh-btn-o" style={{ marginTop: 16 }} onClick={() => navigate('/products')}>Start shopping</button>
             </div>
           ) : invoices.map(inv => {
             const [label, color] = ORDER_STATUS[inv.status] || [inv.status, '#888']
             return (
-              <div key={inv.invoice} style={{ padding: '13px 0', borderBottom: '1px solid #f2ede4' }}>
+              <div key={inv.invoice} style={{ padding: '14px 0', borderBottom: '1px solid #f2ede4' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                  <b style={{ fontSize: 13.5 }}>{inv.invoice || 'Order'}</b>
+                  <b style={{ fontSize: 14 }}>{inv.invoice || 'Order'}</b>
                   <span style={{ fontSize: 11, fontWeight: 700, color, background: color + '18', padding: '3px 9px', borderRadius: 99 }}>{label}</span>
                 </div>
-                <div style={{ fontSize: 12.5, color: '#77706a', marginBottom: 4 }}>{inv.items.join(', ')}</div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5 }}>
+                <div style={{ fontSize: 13, color: '#77706a', marginBottom: 4 }}>{inv.items.join(', ')}</div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
                   <span style={{ color: '#a79a80' }}>{inv.date}{inv.payment === 'unpaid' ? ' · unpaid' : ''}</span>
                   <b>{money(inv.total)}</b>
                 </div>
@@ -850,20 +858,40 @@ export function AccountPage() {
           })}
         </div>
 
-        {/* details / address */}
-        <div className="sh-card2">
-          <div className="hd">My details & address</div>
-          <p style={{ fontSize: 12.5, color: '#8a8278', margin: '-6px 0 14px' }}>Fills in checkout for you. Nothing saves until you press Save.</p>
-          <Field label="Full name"><input value={profile.full_name} onChange={e => set('full_name', e.target.value)} placeholder="Your name" /></Field>
-          <Field label="Phone / WhatsApp"><input value={profile.phone} onChange={e => set('phone', e.target.value)} inputMode="tel" placeholder="7xxxxxx" /></Field>
-          <Field label="Island"><input value={profile.island} onChange={e => set('island', e.target.value)} placeholder="e.g. Malé, Hulhumalé" /></Field>
-          <Field label="Delivery address"><input value={profile.address} onChange={e => set('address', e.target.value)} placeholder="House / street / landmark" /></Field>
-          <Field label="Notes (optional)"><textarea rows={2} value={profile.notes} onChange={e => set('notes', e.target.value)} placeholder="Anything we should know for deliveries?" /></Field>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 6, flexWrap: 'wrap' }}>
-            <button className="sh-btn sh-btn-o" disabled={saving || !loaded} onClick={saveProfile}>{saving ? 'Saving…' : 'Save details'}</button>
-            {savedMsg && <span style={{ fontSize: 13, fontWeight: 600, color: savedMsg.startsWith('Saved') ? '#1D9E75' : '#E24B4A' }}>{savedMsg}</span>}
-            <button className="sh-btn" style={{ background: 'none', color: '#E24B4A', marginLeft: 'auto' }} onClick={signOut}><LogOut size={15} /> Sign out</button>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {/* details & address (expandable) */}
+          <div id="acctp-details" className="acctp-panel" style={{ padding: 0, overflow: 'hidden' }}>
+            <button className="acctp-row" onClick={() => setShowDetails(s => !s)}>
+              <div><div className="t">MY DETAILS & ADDRESS</div><div className="s">Name, phone & delivery info</div></div>
+              <ChevronRight size={18} color="#bbb" style={{ transform: showDetails ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }} />
+            </button>
+            {showDetails && (
+              <div style={{ padding: '4px 20px 20px' }}>
+                <p style={{ fontSize: 12.5, color: '#8a8278', margin: '0 0 12px' }}>Fills in checkout for you. Nothing saves until you press Save.</p>
+                <Field label="Full name"><input value={profile.full_name} onChange={e => set('full_name', e.target.value)} placeholder="Your name" /></Field>
+                <Field label="Phone / WhatsApp"><input value={profile.phone} onChange={e => set('phone', e.target.value)} inputMode="tel" placeholder="7xxxxxx" /></Field>
+                <Field label="Island"><input value={profile.island} onChange={e => set('island', e.target.value)} placeholder="e.g. Malé, Hulhumalé" /></Field>
+                <Field label="Delivery address"><input value={profile.address} onChange={e => set('address', e.target.value)} placeholder="House / street / landmark" /></Field>
+                <Field label="Notes (optional)"><textarea rows={2} value={profile.notes} onChange={e => set('notes', e.target.value)} placeholder="Anything we should know for deliveries?" /></Field>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 6 }}>
+                  <button className="sh-btn sh-btn-o" disabled={saving || !loaded} onClick={saveProfile}>{saving ? 'Saving…' : 'Save details'}</button>
+                  {savedMsg && <span style={{ fontSize: 13, fontWeight: 600, color: savedMsg.startsWith('Saved') ? '#1D9E75' : '#E24B4A' }}>{savedMsg}</span>}
+                </div>
+              </div>
+            )}
           </div>
+
+          {(whatsapp || instagram) && (
+            <a className="acctp-panel acctp-row" href={whatsapp ? `https://wa.me/${whatsapp.replace(/\D/g, '')}` : instagram} target="_blank" rel="noreferrer" style={{ textDecoration: 'none' }}>
+              <div><div className="t">NEED HELP?</div><div className="s">Message us{whatsapp ? ' on WhatsApp' : ' on Instagram'}</div></div>
+              <ChevronRight size={18} color="#bbb" />
+            </a>
+          )}
+
+          <button className="acctp-panel acctp-row" onClick={signOut}>
+            <div><div className="t" style={{ color: '#E24B4A' }}>SIGN OUT</div><div className="s">{user.email}</div></div>
+            <LogOut size={17} color="#E24B4A" />
+          </button>
         </div>
       </div>
     </div>

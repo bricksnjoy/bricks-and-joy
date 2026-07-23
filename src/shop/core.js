@@ -528,7 +528,35 @@ export function ShopStyles() {
     .sh-bagline{ display:flex; gap:12px; padding:14px 0; border-bottom:1px solid #f5f1ea; }
     .sh-upsell{ flex:0 0 118px; width:118px; }
 
-    /* account dashboard */
+    /* account — full-page dashboard */
+    .acctp{ width:100%; }
+    .acctp-hero{ background:#f1ece4; padding:44px 0; }
+    .acctp-hero-in{ max-width:1200px; margin:0 auto; padding:0 22px; display:grid; grid-template-columns:1fr 1.2fr 1fr; gap:34px; align-items:center; }
+    @media(max-width:880px){ .acctp-hero-in{ grid-template-columns:1fr; gap:26px; text-align:center; } }
+    .acctp-name{ font-size:30px; font-weight:900; letter-spacing:-0.6px; text-transform:uppercase; color:#0d1b2a; line-height:1.05; }
+    .acctp-menu{ margin-top:18px; display:flex; flex-direction:column; gap:2px; max-width:280px; }
+    @media(max-width:880px){ .acctp-menu{ margin-inline:auto; } }
+    .acctp-menu button{ text-align:left; background:#e6ddcf; border:none; padding:13px 16px; font-weight:700; font-size:12px; letter-spacing:0.8px; text-transform:uppercase; cursor:pointer; color:#4b453f; font-family:inherit; }
+    .acctp-menu button:hover{ background:#ddd2bf; }
+    .acctp-pts{ text-align:center; }
+    .acctp-pts .n{ font-size:58px; font-weight:900; color:#0d1b2a; letter-spacing:-2.5px; line-height:1; }
+    .acctp-pts .n span{ font-size:16px; font-weight:800; color:#b8740a; vertical-align:super; margin-left:3px; }
+    .acctp-bar{ height:5px; background:#fff; border-radius:99px; overflow:hidden; margin:14px 0 7px; }
+    .acctp-bar span{ display:block; height:100%; background:linear-gradient(90deg,#FFA500,#ff7a00); border-radius:99px; }
+    .acctp-barlbl{ display:flex; justify-content:space-between; font-size:11px; font-weight:700; letter-spacing:0.4px; color:#8a7a58; }
+    .acctp-benefits .bh{ font-size:11px; letter-spacing:1.2px; color:#a2916f; margin-bottom:12px; font-weight:700; }
+    @media(min-width:881px){ .acctp-benefits{ text-align:right; } .acctp-benefit{ justify-content:flex-end; } }
+    .acctp-benefit{ background:#e6ddcf; padding:11px 15px; font-size:13px; color:#4b453f; display:flex; align-items:center; gap:8px; margin-bottom:8px; border-radius:4px; }
+    .acctp-lower{ max-width:1200px; margin:0 auto; padding:30px 22px 60px; display:grid; grid-template-columns:1.4fr 1fr; gap:24px; align-items:start; }
+    @media(max-width:880px){ .acctp-lower{ grid-template-columns:1fr; } }
+    .acctp-panel{ background:#fff; border:1px solid #f0ebe3; border-radius:14px; padding:22px 24px; }
+    .acctp-panel-h{ font-size:14px; font-weight:800; letter-spacing:0.5px; color:#0d1b2a; margin-bottom:6px; }
+    .acctp-row{ width:100%; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:18px 22px; border:none; background:#fff; cursor:pointer; text-align:left; font-family:inherit; }
+    .acctp-row:hover{ background:#faf9f6; }
+    .acctp-row .t{ font-size:13.5px; font-weight:800; letter-spacing:0.5px; color:#0d1b2a; }
+    .acctp-row .s{ font-size:12.5px; color:#8a8278; margin-top:2px; }
+
+    /* account dashboard (legacy) */
     .acct-hero{ background:linear-gradient(135deg,#fff6e8,#ffeccb); border-radius:22px; padding:26px 30px; display:grid; grid-template-columns:1.1fr 1.3fr 1fr; gap:26px; align-items:center; margin-bottom:22px; }
     @media(max-width:860px){ .acct-hero{ grid-template-columns:1fr; gap:20px; text-align:center; } }
     .acct-id{ display:flex; align-items:center; gap:14px; }
