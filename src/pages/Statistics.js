@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Spinner, Badge } from '../components/UI'
+import { AnalyticsBusiness } from '../components/BusinessSections'
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, AreaChart, Area, ComposedChart } from 'recharts'
 import { TrendingUp, TrendingDown, Package, ShoppingCart, Users, AlertTriangle, BarChart3, PieChart as PieIcon, LineChart as LineIcon, Activity, Trophy, Medal, Award, Flame, ArrowUpRight, ArrowDownRight, ArrowRight, CheckCircle, Minus, Coins, Tag, Rocket, Wallet, Target, RotateCcw } from 'lucide-react'
 
@@ -852,6 +853,7 @@ export default function Statistics() {
           ) : <Card style={{ gridColumn: 'span 2' }}><p style={{ color: '#aaa', fontSize: 13, textAlign: 'center', padding: '40px 0' }}>No cost data yet. Add costs in Cost Management.</p></Card>}
         </div>
       )}
+      <AnalyticsBusiness />
     </div>
   )
 }

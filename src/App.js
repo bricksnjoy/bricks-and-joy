@@ -26,12 +26,12 @@ import HelpGuide from './pages/HelpGuide'
 import Settings from './pages/Settings'
 import AuditLog from './pages/AuditLog'
 import Storefront from './pages/Storefront'
-import BusinessSheet from './pages/BusinessSheet'
+import Loans from './pages/Loans'
 import {
   LayoutDashboard, ShoppingCart, Package, Users,
   DollarSign, BarChart2, Truck, ChevronDown, ChevronRight,
   LogOut, Building2, FileText, Menu, CalendarDays, Tag, BookOpen,
-  GripVertical, Check, Settings2, MoreVertical, Sparkles, MessageSquare, LifeBuoy, TrendingUp, Scale, ClipboardList, Target, Settings as SettingsIcon, History, PartyPopper, Globe, Table2
+  GripVertical, Check, Settings2, MoreVertical, Sparkles, MessageSquare, LifeBuoy, TrendingUp, Scale, ClipboardList, Target, Settings as SettingsIcon, History, PartyPopper, Globe, Landmark
 } from 'lucide-react'
 
 // Catalog of every page. The sidebar layout (sections + order) is built from
@@ -53,7 +53,7 @@ const ITEMS = {
   'supplier-catalog': { label: 'Supplier Catalog',  icon: BookOpen,        render: <SupplierCatalog /> },
   'stock-report':     { label: 'Stock Report',      icon: ClipboardList,   render: <StockReport /> },
   'future-plans':     { label: 'Future Plans',      icon: TrendingUp,      render: <FuturePlans /> },
-  'business-sheet':   { label: 'Business Sheet',    icon: Table2,          render: <BusinessSheet /> },
+  loans:              { label: 'Loans',             icon: Landmark,        render: <Loans /> },
   'profit-loss':      { label: 'Financial Reports', icon: FileText,        render: <ProfitLoss /> },
   reconciliation:     { label: 'Reconciliation',    icon: Scale,           render: <Reconciliation /> },
   budget:             { label: 'Budget vs Actual',  icon: Target,          render: <Budget /> },
@@ -67,7 +67,7 @@ const DEFAULT_NAV = [
   { id: 'main',       section: null,             items: ['dashboard', 'website'] },
   { id: 'pos',        section: 'Point of Sale',  items: ['orders', 'invoices', 'customers', 'deliveries', 'tasks', 'messages', 'planning', 'events'] },
   { id: 'inventory',  section: 'Inventory',      items: ['inventory', 'categories', 'purchase-orders', 'supplier-catalog', 'stock-report'] },
-  { id: 'accounting', section: 'Accounting',     items: ['business-sheet', 'future-plans', 'profit-loss', 'reconciliation', 'budget', 'costs', 'vendors', 'statistics', 'audit-log'] },
+  { id: 'accounting', section: 'Accounting',     items: ['loans', 'future-plans', 'profit-loss', 'reconciliation', 'budget', 'costs', 'vendors', 'statistics', 'audit-log'] },
 ]
 
 const NAV_KEY = 'bnj_nav_layout_v1'
