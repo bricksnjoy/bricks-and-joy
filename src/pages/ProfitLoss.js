@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Spinner } from '../components/UI'
 import { FinancialBusiness } from '../components/BusinessSections'
-import { FileText, BookOpen, Calendar, Download, TrendingUp, TrendingDown, Receipt, CheckCircle, AlertTriangle, Info } from 'lucide-react'
+import { FileText, BookOpen, Calendar, Download, TrendingUp, TrendingDown, Receipt, CheckCircle, AlertTriangle, Info, Table2 } from 'lucide-react'
 
 const MVR_RATE = 15.42
 
@@ -354,7 +354,7 @@ export default function Accounting() {
 
       {/* Tabs */}
       <div className="acc-tabs">
-        {[['income', 'Income Statement', FileText], ['gst', 'GST / Tax', Receipt], ['balance', 'Balance Sheet', BookOpen], ['cashflow', 'Cash Flow', TrendingUp], ['transactions', 'Transactions', Calendar], ['monthly', 'Monthly Reports', Calendar], ['journal', 'Journal', BookOpen], ['download', 'Download Documents', Download]].map(([id, label, Icon]) => (
+        {[['income', 'Income Statement', FileText], ['gst', 'GST / Tax', Receipt], ['balance', 'Balance Sheet', BookOpen], ['cashflow', 'Cash Flow', TrendingUp], ['sheet', 'Business Sheet', Table2], ['transactions', 'Transactions', Calendar], ['monthly', 'Monthly Reports', Calendar], ['journal', 'Journal', BookOpen], ['download', 'Download Documents', Download]].map(([id, label, Icon]) => (
           <button key={id} className="acc-tab" onClick={() => setActiveTab(id)}
             style={{ background: activeTab === id ? '#fff' : 'transparent', color: activeTab === id ? '#0d1b2a' : '#888', boxShadow: activeTab === id ? '0 1px 4px rgba(0,0,0,0.1)' : 'none', fontWeight: activeTab === id ? 700 : 500 }}>
             <Icon size={14} /> {label}
@@ -908,7 +908,7 @@ export default function Accounting() {
           </div>
         </>
       )}
-      <FinancialBusiness />
+      {activeTab === 'sheet' && <FinancialBusiness />}
     </div>
   )
 }

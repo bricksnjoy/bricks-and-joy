@@ -239,7 +239,7 @@ export default function Statistics() {
   const t = data
   const tt = { background: '#fff', border: '1px solid #eee', borderRadius: 8, fontSize: 12 }
 
-  const tabs = [['overview','Overview',BarChart3],['products','Products',Package],['categories','By Category',Tag],['forecast','Forecast',LineIcon],['plan','Growth Plan',Rocket],['customers','Customers',Users],['costs','Cost Analysis',Coins]]
+  const tabs = [['overview','Overview',BarChart3],['products','Products',Package],['categories','By Category',Tag],['sheet','Business Sheet',Wallet],['forecast','Forecast',LineIcon],['plan','Growth Plan',Rocket],['customers','Customers',Users],['costs','Cost Analysis',Coins]]
 
   return (
     <div style={{ fontFamily: "'Poppins', sans-serif" }}>
@@ -853,7 +853,7 @@ export default function Statistics() {
           ) : <Card style={{ gridColumn: 'span 2' }}><p style={{ color: '#aaa', fontSize: 13, textAlign: 'center', padding: '40px 0' }}>No cost data yet. Add costs in Cost Management.</p></Card>}
         </div>
       )}
-      <AnalyticsBusiness />
+      {activeTab === 'sheet' && <AnalyticsBusiness />}
     </div>
   )
 }
