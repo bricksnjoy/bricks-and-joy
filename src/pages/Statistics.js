@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Spinner, Badge } from '../components/UI'
-import { AnalyticsBusiness } from '../components/BusinessSections'
+import { AnalyticsMonthly, AnalyticsProducts, AnalyticsCategories } from '../components/BusinessSections'
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, AreaChart, Area, ComposedChart } from 'recharts'
 import { TrendingUp, TrendingDown, Package, ShoppingCart, Users, AlertTriangle, BarChart3, PieChart as PieIcon, LineChart as LineIcon, Activity, Trophy, Medal, Award, Flame, ArrowUpRight, ArrowDownRight, ArrowRight, CheckCircle, Minus, Coins, Tag, Rocket, Wallet, Target, RotateCcw } from 'lucide-react'
 
@@ -239,7 +239,7 @@ export default function Statistics() {
   const t = data
   const tt = { background: '#fff', border: '1px solid #eee', borderRadius: 8, fontSize: 12 }
 
-  const tabs = [['overview','Overview',BarChart3],['products','Products',Package],['categories','By Category',Tag],['sheet','Business Sheet',Wallet],['forecast','Forecast',LineIcon],['plan','Growth Plan',Rocket],['customers','Customers',Users],['costs','Cost Analysis',Coins]]
+  const tabs = [['overview','Overview',BarChart3],['products','Products',Package],['categories','By Category',Tag],['forecast','Forecast',LineIcon],['plan','Growth Plan',Rocket],['customers','Customers',Users],['costs','Cost Analysis',Coins]]
 
   return (
     <div style={{ fontFamily: "'Poppins', sans-serif" }}>
@@ -853,7 +853,9 @@ export default function Statistics() {
           ) : <Card style={{ gridColumn: 'span 2' }}><p style={{ color: '#aaa', fontSize: 13, textAlign: 'center', padding: '40px 0' }}>No cost data yet. Add costs in Cost Management.</p></Card>}
         </div>
       )}
-      {activeTab === 'sheet' && <AnalyticsBusiness />}
+      {activeTab === 'overview' && <AnalyticsMonthly />}
+      {activeTab === 'products' && <AnalyticsProducts />}
+      {activeTab === 'categories' && <AnalyticsCategories />}
     </div>
   )
 }

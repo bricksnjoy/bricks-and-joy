@@ -21,26 +21,24 @@ function Row({ label, value, color, bold }) {
     <span style={{ color: '#667' }}>{label}</span><span style={{ fontWeight: bold ? 800 : 600, color: color || '#0d1b2a' }}>{value}</span>
   </div>
 }
-
 function useBusiness() {
   const [data, setData] = useState(null)
   useEffect(() => { loadBusinessData().then(setData) }, [])
   return data
 }
-
 function DownloadBtn({ data }) {
   return <Button variant="ghost" onClick={() => exportBusinessExcel(data)} style={{ border: '1px solid #e0e0e0' }}><Download size={15} /> Download Excel</Button>
 }
 
-// ── Analytics: monthly performance + product & category analysis ─────────────────
-export function AnalyticsBusiness() {
+// ── Analytics → Overview: monthly performance ────────────────────────────────────
+export function AnalyticsMonthly() {
   const data = useBusiness()
   if (!data) return <Card style={{ marginTop: 20 }}><Spinner /></Card>
   const c = computeBusiness(data)
   return (
     <div style={{ marginTop: 24 }}>
       <BsStyles />
-      <Card style={{ marginBottom: 20 }}>
+      <Card>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
           <h3 style={{ fontSize: 15, fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}><TrendingUp size={17} color="#FFA500" /> Monthly performance</h3>
           <DownloadBtn data={data} />
@@ -58,24 +56,20 @@ export function AnalyticsBusiness() {
           </table>
         </div>
       </Card>
+    </div>
+  )
+}
 
-      <Card style={{ marginBottom: 20 }}>
-        <h3 style={{ fontSize: 15, fontWeight: 700, margin: '0 0 14px', display: 'flex', alignItems: 'center', gap: 8 }}><Package size={17} color="#FFA500" /> By category — is the cost covered?</h3>
-        <div className="bs-scroll">
-          <table className="bs" style={{ minWidth: 640 }}>
-            <thead><tr><th>Category</th><th>Products</th><th>Spent on stock</th><th>Revenue</th><th>Profit</th><th>Status</th></tr></thead>
-            <tbody>
-              {c.categorySummary.map(cat => (
-                <tr key={cat.category}><td>{cat.category}</td><td>{cat.items}</td><td>{money(cat.spent)}</td><td>{money(cat.revenue)}</td><td className={cat.profit >= 0 ? 'pos' : 'neg'}>{money(cat.profit)}</td><td>{cat.covered ? <Badge color="green">Covered</Badge> : <Badge color="red">Not yet</Badge>}</td></tr>
-              ))}
-              {c.categorySummary.length === 0 && <tr><td colSpan={6} style={{ textAlign: 'center', color: '#aaa', padding: 20 }}>No products yet.</td></tr>}
-            </tbody>
-          </table>
-        </div>
-      </Card>
-
+// ── Analytics → Products: product-wise cost coverage ─────────────────────────────
+export function AnalyticsProducts() {
+  const data = useBusiness()
+  if (!data) return <Card style={{ marginTop: 20 }}><Spinner /></Card>
+  const c = computeBusiness(data)
+  return (
+    <div style={{ marginTop: 24 }}>
+      <BsStyles />
       <Card>
-        <h3 style={{ fontSize: 15, fontWeight: 700, margin: '0 0 6px', display: 'flex', alignItems: 'center', gap: 8 }}><Package size={17} color="#FFA500" /> Product-wise analysis</h3>
+        <h3 style={{ fontSize: 15, fontWeight: 700, margin: '0 0 6px', display: 'flex', alignItems: 'center', gap: 8 }}><Package size={17} color="#FFA500" /> Product cost coverage</h3>
         <p style={{ fontSize: 12, color: '#999', margin: '0 0 14px' }}>"Spent on stock" = cost price × all units bought. "Covered" means sales have earned back what you put into that product.</p>
         <div className="bs-scroll">
           <table className="bs" style={{ minWidth: 780 }}>
@@ -93,7 +87,33 @@ export function AnalyticsBusiness() {
   )
 }
 
-// ── Financial Reports: cashflow + inventory ──────────────────────────────────────
+// ── Analytics → By Category: category cost coverage ──────────────────────────────
+export function AnalyticsCategories() {
+  const data = useBusiness()
+  if (!data) return <Card style={{ marginTop: 20 }}><Spinner /></Card>
+  const c = computeBusiness(data)
+  return (
+    <div style={{ marginTop: 24 }}>
+      <BsStyles />
+      <Card>
+        <h3 style={{ fontSize: 15, fontWeight: 700, margin: '0 0 14px', display: 'flex', alignItems: 'center', gap: 8 }}><Package size={17} color="#FFA500" /> Is the cost covered by category?</h3>
+        <div className="bs-scroll">
+          <table className="bs" style={{ minWidth: 640 }}>
+            <thead><tr><th>Category</th><th>Products</th><th>Spent on stock</th><th>Revenue</th><th>Profit</th><th>Status</th></tr></thead>
+            <tbody>
+              {c.categorySummary.map(cat => (
+                <tr key={cat.category}><td>{cat.category}</td><td>{cat.items}</td><td>{money(cat.spent)}</td><td>{money(cat.revenue)}</td><td className={cat.profit >= 0 ? 'pos' : 'neg'}>{money(cat.profit)}</td><td>{cat.covered ? <Badge color="green">Covered</Badge> : <Badge color="red">Not yet</Badge>}</td></tr>
+              ))}
+              {c.categorySummary.length === 0 && <tr><td colSpan={6} style={{ textAlign: 'center', color: '#aaa', padding: 20 }}>No products yet.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    </div>
+  )
+}
+
+// ── Financial Reports → Business Sheet tab: cashflow + inventory ──────────────────
 export function FinancialBusiness() {
   const data = useBusiness()
   const [opening, setOpen] = useState(getOpening)
