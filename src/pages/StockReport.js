@@ -6,6 +6,8 @@ import { getSettings } from '../lib/settings'
 
 const PERIODS = [{ d: 30, label: '30 days' }, { d: 60, label: '60 days' }, { d: 90, label: '90 days' }]
 const COVERS = [{ d: 30, label: '1 month' }, { d: 45, label: '6 weeks' }, { d: 60, label: '2 months' }]
+// How long an order takes to reach you (order → in hand). Default 90 days.
+const LEADS = [{ d: 45, label: '45 days' }, { d: 60, label: '60 days' }, { d: 90, label: '90 days' }, { d: 120, label: '120 days' }]
 
 export default function StockReport() {
   const [orders, setOrders] = useState([])
@@ -13,6 +15,7 @@ export default function StockReport() {
   const [loading, setLoading] = useState(true)
   const [periodDays, setPeriodDays] = useState(30)
   const [coverDays, setCoverDays] = useState(30)
+  const [leadDays, setLeadDays] = useState(90)
   const [budgetInput, setBudgetInput] = useState('')
   const toast = useToast()
 
@@ -57,19 +60,27 @@ export default function StockReport() {
       const p = prodById[id] || {}
       const units = a.units
       const profit = a.revenue - a.cost
-      const dailyRate = units / periodDays
+      const dailyRate = units / periodDays                    // sales velocity (units/day)
       const stock = Number(p.stock_qty || 0)
       const daysCover = dailyRate > 0 ? Math.round(stock / dailyRate) : Infinity
-      const reorderQty = dailyRate > 0 ? Math.max(0, Math.ceil(dailyRate * coverDays - stock)) : 0
+      const weeklyRate = dailyRate * 7                          // how often it sells
+      const leadDemand = dailyRate * leadDays                   // units that will sell while the order ships
+      const safety = Math.ceil(leadDemand * 0.2)                // 20% buffer for demand swings
+      const reorderPoint = Math.ceil(leadDemand + safety)       // reorder when stock drops to here
+      // Order enough to cover the lead time (while it ships) PLUS the cover period after arrival, minus stock in hand
+      const reorderQty = dailyRate > 0 ? Math.max(0, Math.ceil(dailyRate * (leadDays + coverDays) - stock)) : 0
+      const reorderNow = dailyRate > 0 && stock <= reorderPoint // it's time to place the order
+      const stockoutRisk = dailyRate > 0 && daysCover < leadDays // will run out before a new order can arrive
       const unitCost = Number(p.cost_price || 0)
       return {
         id, name: p.name || 'Unknown', category: p.category || '', supplierId: p.supplier_id || null,
         units, revenue: a.revenue, profit, margin: a.revenue > 0 ? Math.round(profit / a.revenue * 100) : 0,
-        stock, daysCover, reorderQty, unitCost, reorderCost: reorderQty * unitCost,
+        stock, daysCover, weeklyRate, leadDemand, reorderPoint, reorderNow, stockoutRisk,
+        reorderQty, unitCost, reorderCost: reorderQty * unitCost,
         discontinued: p.discontinued,
       }
-    }).filter(r => !r.discontinued).sort((a, b) => b.units - a.units)
-  }, [orders, prodById, periodDays, coverDays])
+    }).filter(r => !r.discontinued).sort((a, b) => (b.reorderNow - a.reorderNow) || (b.units - a.units))
+  }, [orders, prodById, periodDays, coverDays, leadDays])
 
   const summary = useMemo(() => ({
     unitsSold: rows.reduce((s, r) => s + r.units, 0),
@@ -109,6 +120,7 @@ export default function StockReport() {
   }
 
   const reorderCount = rows.filter(r => r.reorderQty > 0).length
+  const reorderNowCount = rows.filter(r => r.reorderNow).length
 
   const tabBtn = (active) => ({ padding: '6px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: active ? 700 : 500, background: active ? '#FFA500' : 'transparent', color: active ? '#fff' : '#888' })
 
@@ -120,7 +132,7 @@ export default function StockReport() {
         .sr-card .v { font-size:22px; font-weight:800; letter-spacing:-0.5px; }
         .sr-card .l { font-size:12px; color:#888; font-weight:600; margin-top:3px; }
         .sr-scroll { overflow-x:auto; -webkit-overflow-scrolling:touch; }
-        table.sr-table { width:100%; border-collapse:collapse; font-size:13px; min-width:760px; }
+        table.sr-table { width:100%; border-collapse:collapse; font-size:13px; min-width:940px; }
         .sr-table th { text-align:left; font-size:11px; font-weight:700; color:#999; text-transform:uppercase; letter-spacing:0.4px; padding:9px 10px; border-bottom:2px solid #f0f0f0; white-space:nowrap; }
         .sr-table th.n, .sr-table td.n { text-align:right; }
         .sr-table td { padding:9px 10px; border-bottom:1px solid #f5f5f5; }
@@ -140,9 +152,16 @@ export default function StockReport() {
                 <div className="sr-tabs">{PERIODS.map(p => <button key={p.d} style={tabBtn(periodDays === p.d)} onClick={() => setPeriodDays(p.d)}>{p.label}</button>)}</div>
               </div>
               <div>
-                <div style={{ fontSize: 11, color: '#999', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: 6 }}>Reorder to cover</div>
+                <div style={{ fontSize: 11, color: '#999', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: 6 }}>Cover after it arrives</div>
                 <div className="sr-tabs">{COVERS.map(c => <button key={c.d} style={tabBtn(coverDays === c.d)} onClick={() => setCoverDays(c.d)}>{c.label}</button>)}</div>
               </div>
+              <div>
+                <div style={{ fontSize: 11, color: '#999', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: 6 }}>Lead time (order → arrives)</div>
+                <div className="sr-tabs">{LEADS.map(c => <button key={c.d} style={tabBtn(leadDays === c.d)} onClick={() => setLeadDays(c.d)}>{c.label}</button>)}</div>
+              </div>
+            </div>
+            <div style={{ fontSize: 12, color: '#999', marginTop: 12, lineHeight: 1.6 }}>
+              Because stock takes <strong>{leadDays} days</strong> to reach you, the suggested order covers those {leadDays} days of sales <em>plus</em> {coverDays} days after it lands — and "Order now" flags items that will run out before a fresh order can arrive.
             </div>
           </Card>
 
@@ -189,7 +208,10 @@ export default function StockReport() {
           {/* What sold + reorder table */}
           <Card>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: '#0d1b2a' }}>Products sold · last {periodDays} days</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#0d1b2a', display: 'flex', alignItems: 'center', gap: 10 }}>
+                Products sold · last {periodDays} days
+                {reorderNowCount > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: '#E24B4A', background: '#FDECEC', padding: '3px 10px', borderRadius: 99 }}>{reorderNowCount} to order now</span>}
+              </div>
               {reorderCount > 0 && (
                 <Button onClick={createBatchOrder}>
                   <Truck size={14} /> Create batch order ({reorderCount})
@@ -202,18 +224,29 @@ export default function StockReport() {
               <div className="sr-scroll">
                 <table className="sr-table">
                   <thead><tr>
-                    <th>Product</th><th className="n">Sold</th><th className="n">Revenue</th><th className="n">Profit</th><th className="n">In stock</th><th className="n">Cover</th><th className="n">Reorder</th><th className="n">Reorder cost</th>
+                    <th>Product</th><th className="n">Sold</th><th className="n">Sells/wk</th><th className="n">Revenue</th><th className="n">Profit</th><th className="n">In stock</th><th className="n">Days left</th><th className="n">Reorder pt</th><th className="n">Order</th><th className="n">Cost</th>
                   </tr></thead>
                   <tbody>
                     {rows.map(r => (
-                      <tr key={r.id}>
-                        <td><div style={{ fontWeight: 600, color: '#0d1b2a' }}>{r.name}</div>{r.category && <div style={{ fontSize: 11, color: '#aaa' }}>{r.category}</div>}</td>
+                      <tr key={r.id} style={r.reorderNow ? { background: '#FFFBF2' } : undefined}>
+                        <td>
+                          <div style={{ fontWeight: 600, color: '#0d1b2a', display: 'flex', alignItems: 'center', gap: 6 }}>
+                            {r.name}
+                            {r.stockoutRisk && <span title="Will run out before a new order can arrive" style={{ fontSize: 9.5, fontWeight: 700, color: '#E24B4A', background: '#FDECEC', padding: '1px 6px', borderRadius: 99 }}>⚠ RISK</span>}
+                          </div>
+                          {r.category && <div style={{ fontSize: 11, color: '#aaa' }}>{r.category}</div>}
+                        </td>
                         <td className="n" style={{ fontWeight: 700 }}>{r.units}</td>
+                        <td className="n" style={{ color: '#667' }}>{r.weeklyRate >= 1 ? Math.round(r.weeklyRate) : r.weeklyRate.toFixed(1)}</td>
                         <td className="n">{money(r.revenue)}</td>
                         <td className="n" style={{ color: r.profit >= 0 ? '#1D9E75' : '#E24B4A', fontWeight: 600 }}>{money(r.profit)}<div style={{ fontSize: 10, color: '#bbb' }}>{r.margin}%</div></td>
                         <td className="n" style={{ color: r.stock <= 0 ? '#E24B4A' : '#0d1b2a', fontWeight: 600 }}>{r.stock}</td>
-                        <td className="n" style={{ color: r.daysCover === Infinity ? '#bbb' : r.daysCover <= 7 ? '#E24B4A' : r.daysCover <= 21 ? '#f57f17' : '#1D9E75' }}>{r.daysCover === Infinity ? '—' : r.daysCover + 'd'}</td>
-                        <td className="n" style={{ fontWeight: 700, color: r.reorderQty > 0 ? '#5b5bd6' : '#ccc' }}>{r.reorderQty > 0 ? '+' + r.reorderQty : '—'}</td>
+                        <td className="n" style={{ color: r.daysCover === Infinity ? '#bbb' : r.stockoutRisk ? '#E24B4A' : r.daysCover <= 21 ? '#f57f17' : '#1D9E75' }}>{r.daysCover === Infinity ? '—' : r.daysCover + 'd'}</td>
+                        <td className="n" style={{ color: '#888' }}>{r.reorderPoint > 0 ? r.reorderPoint : '—'}</td>
+                        <td className="n" style={{ fontWeight: 700, color: r.reorderNow ? '#E24B4A' : r.reorderQty > 0 ? '#5b5bd6' : '#ccc' }}>
+                          {r.reorderQty > 0 ? '+' + r.reorderQty : '—'}
+                          {r.reorderNow && <div style={{ fontSize: 9, fontWeight: 800, color: '#E24B4A', letterSpacing: '0.3px' }}>ORDER NOW</div>}
+                        </td>
                         <td className="n">{r.reorderCost > 0 ? money(r.reorderCost) : '—'}</td>
                       </tr>
                     ))}
@@ -222,7 +255,7 @@ export default function StockReport() {
               </div>
             )}
             <div style={{ fontSize: 12, color: '#aaa', marginTop: 12, lineHeight: 1.6 }}>
-              <strong>Cover</strong> = days of stock left at the current selling pace. <strong>Reorder</strong> = units to buy so you hold ~{coverDays} days of stock. <strong>Reorder cost</strong> = reorder units × cost price.
+              <strong>Sells/wk</strong> = how fast it sells. <strong>Days left</strong> = stock ÷ selling pace (red if it runs out before the {leadDays}-day lead time). <strong>Reorder pt</strong> = the stock level to reorder at, so a new order arrives just in time ({leadDays}-day demand + 20% buffer). <strong>Order</strong> = suggested quantity to cover the {leadDays}-day wait plus {coverDays} days after — items marked <span style={{ color: '#E24B4A', fontWeight: 700 }}>ORDER NOW</span> have already hit their reorder point. <strong>Cost</strong> = order × cost price.
             </div>
           </Card>
         </>
