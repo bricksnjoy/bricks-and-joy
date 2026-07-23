@@ -376,7 +376,7 @@ export function ShopStyles() {
 
     /* header */
     .sh-head{ position:sticky; top:0; z-index:50; background:rgba(255,255,255,0.94); backdrop-filter:blur(10px); border-bottom:1px solid #f0ebe3; }
-    .sh-head-grid{ max-width:1440px; margin:0 auto; padding:14px 22px; display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:14px; }
+    .sh-head-grid{ max-width:min(2200px, 94%); margin:0 auto; padding:14px 22px; display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:14px; }
     .sh-left{ display:flex; align-items:center; gap:6px; justify-self:start; }
     .sh-right{ display:flex; align-items:center; gap:2px; justify-self:end; }
     .sh-burger{ display:none; background:none; border:none; cursor:pointer; color:#0d1b2a; padding:2px; }
@@ -403,7 +403,7 @@ export function ShopStyles() {
 
     /* layout */
     .sh-main{ flex:1; }
-    .sh-wrap{ max-width:1440px; margin:0 auto; padding:24px 18px 56px; width:100%; }
+    .sh-wrap{ max-width:min(2200px, 94%); margin:0 auto; padding:24px 18px 56px; width:100%; }
     .sh-h2{ font-size:22px; font-weight:800; letter-spacing:-0.5px; margin:0 0 16px; }
     .sh-crumb{ background:none; border:none; cursor:pointer; color:#77706a; font-weight:600; font-size:13.5px; display:inline-flex; align-items:center; gap:6px; margin-bottom:14px; padding:0; }
 
@@ -508,7 +508,7 @@ export function ShopStyles() {
 
     /* footer */
     .sh-footer{ background:#0d1b2a; color:#fff; margin-top:auto; }
-    .sh-footer-in{ max-width:1440px; margin:0 auto; padding:40px 18px 24px; display:grid; grid-template-columns:2fr 1fr 1fr; gap:24px; }
+    .sh-footer-in{ max-width:min(2200px, 94%); margin:0 auto; padding:40px 18px 24px; display:grid; grid-template-columns:2fr 1fr 1fr; gap:24px; }
     @media(max-width:640px){ .sh-footer-in{ grid-template-columns:1fr 1fr; } }
     .sh-fh{ font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:0.6px; color:rgba(255,255,255,0.55); margin-bottom:12px; }
     .sh-footer button, .sh-footer a{ display:block; background:none; border:none; color:rgba(255,255,255,0.82); font-size:13.5px; padding:5px 0; cursor:pointer; text-decoration:none; text-align:left; }
@@ -531,7 +531,7 @@ export function ShopStyles() {
     /* account — full-page dashboard */
     .acctp{ width:100%; }
     .acctp-hero{ background:#f1ece4; padding:44px 0; }
-    .acctp-hero-in{ max-width:1440px; margin:0 auto; padding:0 22px; display:grid; grid-template-columns:1fr 1.2fr 1fr; gap:34px; align-items:center; }
+    .acctp-hero-in{ max-width:min(2200px, 94%); margin:0 auto; padding:0 22px; display:grid; grid-template-columns:1fr 1.2fr 1fr; gap:34px; align-items:center; }
     @media(max-width:880px){ .acctp-hero-in{ grid-template-columns:1fr; gap:26px; text-align:center; } }
     .acctp-name{ font-size:30px; font-weight:900; letter-spacing:-0.6px; text-transform:uppercase; color:#0d1b2a; line-height:1.05; }
     .acctp-menu{ margin-top:18px; display:flex; flex-direction:column; gap:2px; max-width:280px; }
@@ -547,7 +547,7 @@ export function ShopStyles() {
     .acctp-benefits .bh{ font-size:11px; letter-spacing:1.2px; color:#a2916f; margin-bottom:12px; font-weight:700; }
     @media(min-width:881px){ .acctp-benefits{ text-align:right; } .acctp-benefit{ justify-content:flex-end; } }
     .acctp-benefit{ background:#e6ddcf; padding:11px 15px; font-size:13px; color:#4b453f; display:flex; align-items:center; gap:8px; margin-bottom:8px; border-radius:4px; }
-    .acctp-lower{ max-width:1440px; margin:0 auto; padding:30px 22px 60px; display:grid; grid-template-columns:1.4fr 1fr; gap:24px; align-items:start; }
+    .acctp-lower{ max-width:min(2200px, 94%); margin:0 auto; padding:30px 22px 60px; display:grid; grid-template-columns:1.4fr 1fr; gap:24px; align-items:start; }
     @media(max-width:880px){ .acctp-lower{ grid-template-columns:1fr; } }
     .acctp-panel{ background:#fff; border:1px solid #f0ebe3; border-radius:14px; padding:22px 24px; }
     .acctp-panel-h{ font-size:14px; font-weight:800; letter-spacing:0.5px; color:#0d1b2a; margin-bottom:6px; }
