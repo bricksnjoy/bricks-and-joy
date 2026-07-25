@@ -409,3 +409,56 @@ create policy "Public can place orders"     on orders    for insert to anon with
 -- Signed-in customers can read their OWN orders (for the account page's order history).
 drop policy if exists "Customers read own orders" on orders;
 create policy "Customers read own orders" on orders for select to authenticated using (customer_id = auth.uid());
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- ORDER ANALYSIS — the planning phase between the supplier catalog and a batch
+-- order. Kept in its own tables on purpose: nothing here reaches
+-- purchase_orders (and therefore accounting) until an analysis is explicitly
+-- converted into a batch order, and anything in here can be deleted freely.
+-- ─────────────────────────────────────────────────────────────────────────────
+create table if not exists order_analyses (
+  id uuid primary key default gen_random_uuid(),
+  name text,
+  supplier_id uuid,
+  supplier_name text,
+  status text default 'draft',                 -- draft | converted
+  notes text,
+  extra_costs jsonb default '[]'::jsonb,       -- [{ type, label, amount }]
+  target_margin numeric default 40,            -- % margin the owner wants to hit
+  batch_id text,                               -- set once converted
+  batch_no text,
+  converted_at timestamptz,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+create table if not exists order_analysis_items (
+  id uuid primary key default gen_random_uuid(),
+  analysis_id uuid references order_analyses(id) on delete cascade,
+  source text default 'catalog',               -- catalog | inventory | manual
+  supplier_product_id uuid,
+  product_id uuid,
+  product_name text not null,
+  sku text,
+  category text,
+  brand text,
+  image_url text,
+  qty integer default 1,
+  unit_cost numeric default 0,
+  sell_price numeric default 0,
+  current_stock numeric,
+  notes text,
+  sort_order integer default 0,
+  created_at timestamptz default now()
+);
+
+create index if not exists order_analysis_items_analysis_idx on order_analysis_items(analysis_id);
+create index if not exists order_analyses_status_idx on order_analyses(status);
+
+alter table order_analyses enable row level security;
+alter table order_analysis_items enable row level security;
+
+drop policy if exists "Authenticated users can do everything" on order_analyses;
+drop policy if exists "Authenticated users can do everything" on order_analysis_items;
+create policy "Authenticated users can do everything" on order_analyses       for all using (auth.role() = 'authenticated');
+create policy "Authenticated users can do everything" on order_analysis_items for all using (auth.role() = 'authenticated');

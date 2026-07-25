@@ -6,7 +6,7 @@ import {
   Plus, Trash2, Edit2, Eye, Search, Building2, Package, Truck,
   Barcode, QrCode, Upload, Download, FileSpreadsheet, Camera,
   ArrowUpDown, ChevronDown, CheckCircle, AlertTriangle, RefreshCw, X,
-  LayoutGrid, List, Percent, MoreVertical, Star
+  LayoutGrid, List, Percent, MoreVertical, Star, Calculator
 } from 'lucide-react'
 import JsBarcode from 'jsbarcode'
 import QRCode from 'qrcode'
@@ -399,6 +399,45 @@ export default function SupplierCatalog() {
   function exitSelectMode() {
     setSelectMode(false)
     setSelectedIds(new Set())
+  }
+
+  // Send the selected products to the Order Analysis page instead of ordering
+  // straight away — the numbers get checked there before anything is committed.
+  async function analyzeSelected() {
+    const chosen = catalog.filter(i => selectedIds.has(i.id))
+    if (!chosen.length) return
+    setSaving(true)
+    const supplierId = chosen[0].supplier_id || activeSupplier?.id || null
+    const supplierName = chosen[0].supplier_name || suppliers.find(s => s.id === supplierId)?.name || ''
+    const { data, error } = await supabase.from('order_analyses').insert({
+      name: `${supplierName || 'Order'} — ${localToday()}`,
+      supplier_id: supplierId, supplier_name: supplierName,
+      status: 'draft', target_margin: 40, extra_costs: [],
+    }).select()
+    if (error || !data?.[0]) {
+      setSaving(false)
+      toast.error('Could not start the analysis: ' + (error?.message || 'unknown error'))
+      return
+    }
+    const analysis = data[0]
+    const records = chosen.map((c, n) => {
+      const inv = inventoryByName.get((c.product_name || '').toLowerCase().trim())
+      return {
+        analysis_id: analysis.id, source: 'catalog', supplier_product_id: c.id,
+        product_id: inv?.id || null, product_name: c.product_name, sku: c.sku || null,
+        category: c.category || null, brand: c.brand || null, image_url: c.image_url || null,
+        qty: 1, unit_cost: parseFloat(c.cost_price) || 0, sell_price: parseFloat(c.sell_price) || 0,
+        current_stock: inv ? Number(inv.stock_qty) || 0 : null, sort_order: n,
+      }
+    })
+    const { error: itemErr } = await supabase.from('order_analysis_items').insert(records)
+    setSaving(false)
+    if (itemErr) { toast.error('Failed: ' + itemErr.message); return }
+    // The Order Analysis page opens whichever analysis is stashed here
+    localStorage.setItem('bnj_open_analysis', analysis.id)
+    exitSelectMode()
+    toast.success(`Analysing ${records.length} product${records.length > 1 ? 's' : ''}…`)
+    window.dispatchEvent(new CustomEvent('bnj-navigate', { detail: 'order-analysis' }))
   }
 
   function openBatchPO() {
@@ -1167,8 +1206,11 @@ export default function SupplierCatalog() {
                     <Button variant="ghost" onClick={deleteSelected} style={{ color:'#E24B4A', fontSize:12, padding:'4px 10px' }}>
                       <Trash2 size={13} /> Delete selected
                     </Button>
-                    <Button onClick={openBatchPO} style={{ fontSize:12, padding:'4px 10px' }}>
-                      <Truck size={13} /> Create batch PO
+                    <Button onClick={analyzeSelected} disabled={saving} style={{ fontSize:12, padding:'4px 10px' }}>
+                      <Calculator size={13} /> Analyse first
+                    </Button>
+                    <Button variant="ghost" onClick={openBatchPO} style={{ fontSize:12, padding:'4px 10px' }}>
+                      <Truck size={13} /> Straight to batch PO
                     </Button>
                     <button onClick={() => setSelectedIds(new Set())} style={{ marginLeft:'auto', background:'none', border:'none', cursor:'pointer', color:'#aaa', fontSize:12 }}>Clear</button>
                   </div>

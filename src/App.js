@@ -13,6 +13,7 @@ import Vendors from './pages/Vendors'
 import TasksCalendar from './pages/TasksCalendar'
 import Categories from './pages/Categories'
 import SupplierCatalog from './pages/SupplierCatalog'
+import OrderAnalysis from './pages/OrderAnalysis'
 import MessageCenter from './pages/MessageCenter'
 import Deliveries from './pages/Deliveries'
 import Invoices from './pages/Invoices'
@@ -29,7 +30,7 @@ import {
   LayoutDashboard, ShoppingCart, Package, Users,
   DollarSign, BarChart2, Truck, ChevronDown, ChevronRight,
   LogOut, Building2, FileText, Menu, CalendarDays, Tag, BookOpen,
-  GripVertical, Check, Settings2, MoreVertical, Sparkles, MessageSquare, LifeBuoy, TrendingUp, Scale, ClipboardList, Settings as SettingsIcon, History, Globe, Landmark
+  GripVertical, Check, Settings2, MoreVertical, Sparkles, MessageSquare, LifeBuoy, TrendingUp, Scale, ClipboardList, Settings as SettingsIcon, History, Globe, Landmark, Calculator
 } from 'lucide-react'
 
 // Catalog of every page. The sidebar layout (sections + order) is built from
@@ -47,6 +48,7 @@ const ITEMS = {
   inventory:          { label: 'Inventory',         icon: Package,         render: <Inventory /> },
   categories:         { label: 'Categories',        icon: Tag,             render: <Categories /> },
   'purchase-orders':  { label: 'Batch Orders',      icon: Truck,           render: <PurchaseOrders /> },
+  'order-analysis':   { label: 'Order Analysis',    icon: Calculator,      render: <OrderAnalysis /> },
   'supplier-catalog': { label: 'Supplier Catalog',  icon: BookOpen,        render: <SupplierCatalog /> },
   'stock-report':     { label: 'Stock Report',      icon: ClipboardList,   render: <StockReport /> },
   'future-plans':     { label: 'Future Plans',      icon: TrendingUp,      render: <FuturePlans /> },
@@ -62,7 +64,7 @@ const ITEMS = {
 const DEFAULT_NAV = [
   { id: 'main',       section: null,             items: ['dashboard', 'website'] },
   { id: 'pos',        section: 'Point of Sale',  items: ['orders', 'invoices', 'customers', 'deliveries', 'tasks', 'messages', 'planning'] },
-  { id: 'inventory',  section: 'Inventory',      items: ['inventory', 'categories', 'purchase-orders', 'supplier-catalog', 'stock-report'] },
+  { id: 'inventory',  section: 'Inventory',      items: ['inventory', 'categories', 'supplier-catalog', 'order-analysis', 'purchase-orders', 'stock-report'] },
   { id: 'accounting', section: 'Accounting',     items: ['loans', 'future-plans', 'profit-loss', 'reconciliation', 'costs', 'vendors', 'statistics', 'audit-log'] },
 ]
 
