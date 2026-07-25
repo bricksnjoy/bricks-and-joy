@@ -43,19 +43,41 @@ async function insertStrip(table, rows, select) {
 }
 
 // ── Per-product analysis maths ────────────────────────────────────────────────
-// Extra costs are shared out by each line's share of the goods total, so a
-// product that costs more of the order carries more of the freight.
-function analyse(items, extraCosts, targetMargin, velocityFor) {
-  const extrasTotal = (extraCosts || []).reduce((s, c) => s + num(c.amount), 0)
-  const goodsTotal = items.reduce((s, i) => s + num(i.qty) * num(i.unit_cost), 0)
+// One analysis can hold several orders — one per vendor. Extra costs are shared
+// out by each line's share of the goods total, so a product that costs more of
+// the order carries more of the freight. A cost tagged to a vendor is shared
+// only within that vendor's order; an untagged one spreads across everything.
+function analyse(items, extraCosts, targetMargin, velocityFor, vendorOf) {
+  const costs = extraCosts || []
+  const sharedTotal = costs.filter(c => !c.supplier_id).reduce((s, c) => s + num(c.amount), 0)
+  const vendorTotals = {}
+  costs.filter(c => c.supplier_id).forEach(c => {
+    vendorTotals[c.supplier_id] = (vendorTotals[c.supplier_id] || 0) + num(c.amount)
+  })
+
+  const lineCostOf = i => num(i.qty) * num(i.unit_cost)
+  const goodsTotal = items.reduce((s, i) => s + lineCostOf(i), 0)
+  const goodsByVendor = {}
+  items.forEach(i => {
+    const key = vendorOf(i).id || 'none'
+    goodsByVendor[key] = (goodsByVendor[key] || 0) + lineCostOf(i)
+  })
+  const countByVendor = {}
+  items.forEach(i => { const k = vendorOf(i).id || 'none'; countByVendor[k] = (countByVendor[k] || 0) + 1 })
 
   const rows = items.map(i => {
+    const vendor = vendorOf(i)
+    const vKey = vendor.id || 'none'
     const qty = num(i.qty)
     const unitCost = num(i.unit_cost)
     const sell = num(i.sell_price)
     const lineCost = qty * unitCost
-    const share = goodsTotal > 0 ? lineCost / goodsTotal : (items.length ? 1 / items.length : 0)
-    const allocated = extrasTotal * share
+    // Share of the costs that spread across the whole analysis…
+    const shareAll = goodsTotal > 0 ? lineCost / goodsTotal : (items.length ? 1 / items.length : 0)
+    // …plus the share of costs belonging only to this vendor's order
+    const vGoods = goodsByVendor[vKey] || 0
+    const shareVendor = vGoods > 0 ? lineCost / vGoods : (countByVendor[vKey] ? 1 / countByVendor[vKey] : 0)
+    const allocated = sharedTotal * shareAll + (vendorTotals[vKey] || 0) * shareVendor
     const landedLine = lineCost + allocated
     const landedUnit = qty > 0 ? landedLine / qty : unitCost
     const revenue = qty * sell
@@ -79,26 +101,40 @@ function analyse(items, extraCosts, targetMargin, velocityFor) {
     else verdict = 'good'
 
     return {
-      ...i, qty, unitCost, sell, lineCost, allocated, landedLine, landedUnit,
+      ...i, vendorId: vendor.id || null, vendorName: vendor.name,
+      qty, unitCost, sell, lineCost, allocated, landedLine, landedUnit,
       revenue, profitUnit, profit, margin, markup, roi, breakEven,
       stock: num(vel.stock), sold: vel.sold, perMonth: vel.perMonth, known: vel.known,
       stockAfter, coverDays, monthsToSell, verdict,
     }
   })
 
-  const totals = rows.reduce((t, r) => ({
-    qty: t.qty + r.qty,
-    goods: t.goods + r.lineCost,
-    landed: t.landed + r.landedLine,
-    revenue: t.revenue + r.revenue,
-    profit: t.profit + r.profit,
-  }), { qty: 0, goods: 0, landed: 0, revenue: 0, profit: 0 })
-  totals.extras = extrasTotal
-  totals.margin = totals.revenue > 0 ? (totals.profit / totals.revenue) * 100 : 0
-  totals.roi = totals.landed > 0 ? (totals.profit / totals.landed) * 100 : 0
-  totals.lines = rows.length
+  const sum = list => {
+    const t = list.reduce((a, r) => ({
+      qty: a.qty + r.qty,
+      goods: a.goods + r.lineCost,
+      extras: a.extras + r.allocated,
+      landed: a.landed + r.landedLine,
+      revenue: a.revenue + r.revenue,
+      profit: a.profit + r.profit,
+    }), { qty: 0, goods: 0, extras: 0, landed: 0, revenue: 0, profit: 0 })
+    t.margin = t.revenue > 0 ? (t.profit / t.revenue) * 100 : 0
+    t.roi = t.landed > 0 ? (t.profit / t.landed) * 100 : 0
+    t.lines = list.length
+    return t
+  }
 
-  return { rows, totals }
+  // One group per vendor — each becomes its own batch order on conversion
+  const groups = Object.values(rows.reduce((acc, r) => {
+    const key = r.vendorId || 'none'
+    if (!acc[key]) acc[key] = { key, supplierId: r.vendorId, label: r.vendorName, rows: [] }
+    acc[key].rows.push(r)
+    return acc
+  }, {}))
+  groups.forEach(g => { g.totals = sum(g.rows) })
+  groups.sort((a, b) => (b.totals.landed - a.totals.landed))
+
+  return { rows, groups, totals: sum(rows) }
 }
 
 const VERDICT = {
@@ -209,9 +245,25 @@ export default function OrderAnalysis() {
     }
   }, [orders, products])
 
-  const { rows, totals } = useMemo(
-    () => analyse(items, open?.extra_costs || [], open?.target_margin ?? 40, velocity),
-    [items, open, velocity]
+  // Which vendor an analysis line belongs to. Catalog lines carry their supplier
+  // through the catalog record; inventory lines through the product. Falls back
+  // to the analysis's default vendor so nothing lands in "No vendor" needlessly.
+  const vendorOf = useMemo(() => {
+    const catById = new Map(catalog.map(c => [c.id, c]))
+    const prodById = new Map(products.map(p => [p.id, p]))
+    const supName = id => suppliers.find(s => s.id === id)?.name
+    return item => {
+      const cat = item.supplier_product_id ? catById.get(item.supplier_product_id) : null
+      const prod = item.product_id ? prodById.get(item.product_id) : null
+      const id = item.supplier_id || cat?.supplier_id || prod?.supplier_id || open?.supplier_id || null
+      const name = (id && (supName(id) || cat?.supplier_name)) || item.supplier_name || cat?.supplier_name || 'No vendor'
+      return { id, name }
+    }
+  }, [catalog, products, suppliers, open])
+
+  const { rows, groups, totals } = useMemo(
+    () => analyse(items, open?.extra_costs || [], open?.target_margin ?? 40, velocity, vendorOf),
+    [items, open, velocity, vendorOf]
   )
 
   // ── What actually needs reordering ──────────────────────────────────────────
@@ -380,8 +432,9 @@ export default function OrderAnalysis() {
   function openPicker(kind, opts = {}) {
     setPickModal(kind)
     setPickSearch('')
-    // Default to this analysis's own supplier so the list isn't a jumble of vendors
-    setPickVendor(kind === 'catalog' && open?.supplier_id ? open.supplier_id : 'all')
+    // Start on "all" — an analysis can span several vendors, and the tabs keep
+    // the list organised without hiding anything.
+    setPickVendor('all')
     setPickNeeds(!!opts.needsOnly)
     setPicked(new Set())
   }
@@ -442,63 +495,78 @@ export default function OrderAnalysis() {
       losers ? `${losers} product${losers > 1 ? 's lose' : ' loses'} money at the planned sell price` : '',
       unpriced ? `${unpriced} product${unpriced > 1 ? 's have' : ' has'} no sell price yet` : '',
     ].filter(Boolean).join('\n')
-    const msg = `Create a batch order for ${rows.length} product${rows.length > 1 ? 's' : ''} — ${mv0(totals.landed)} total?\n\n`
-      + `This moves it into Batch Orders where it counts towards accounting.${warn ? `\n\n⚠️ ${warn}` : ''}`
+    const plural = groups.length > 1
+    const msg = `Create ${groups.length} batch order${plural ? 's' : ''} — ${mv0(totals.landed)} in total?\n\n`
+      + groups.map((g, i) => `  ${i + 1}. ${g.label} — ${g.totals.lines} product${g.totals.lines > 1 ? 's' : ''}, ${mv0(g.totals.landed)}`).join('\n')
+      + `\n\nThis moves ${plural ? 'them' : 'it'} into Batch Orders where ${plural ? 'they count' : 'it counts'} towards accounting.${warn ? `\n\n⚠️ ${warn}` : ''}`
     if (!window.confirm(msg)) return
 
     setSaving(true)
-    const batchId = (window.crypto?.randomUUID?.() || `b${Date.now()}${Math.random().toString(36).slice(2, 8)}`)
     // Next human-readable batch number, matching the Batch Orders page
     const { data: existing } = await supabase.from('purchase_orders').select('batch_no')
     let max = 1000
     ;(existing || []).forEach(p => { const m = /(\d+)/.exec(p.batch_no || ''); if (m) max = Math.max(max, parseInt(m[1], 10)) })
-    const batchNo = `PO-${max + 1}`
     const orderDate = localToday()
+    const paidCosts = extras.filter(c => num(c.amount) > 0)
 
-    const records = rows.map(r => ({
-      supplier_id: open.supplier_id || null,
-      supplier_name: open.supplier_name || '',
-      product_id: r.product_id || null,
-      product_name: r.product_name,
-      qty: r.qty,
-      unit_cost: r.unitCost,
-      status: 'pending',
-      order_date: orderDate,
-      image_url: r.image_url || null,
-      batch_id: batchId,
-      batch_no: batchNo,
-      notes: `From analysis "${open.name}" — planned sell ${mv(r.sell)} · margin ${pct(r.margin)}`,
-    }))
-    const costRecords = extras.filter(c => num(c.amount) > 0).map(c => ({
-      supplier_id: open.supplier_id || null,
-      supplier_name: open.supplier_name || '',
-      product_id: null,
-      product_name: c.type === 'Other' ? (c.label || 'Other cost') : c.type,
-      qty: 1,
-      unit_cost: num(c.amount),
-      status: 'pending',
-      order_date: orderDate,
-      cost_type: 'extra',
-      batch_id: batchId,
-      batch_no: batchNo,
-    }))
+    // Each vendor becomes its own batch order — separate batch number, separate
+    // invoice, arrives on its own.
+    const batchIds = [], batchNos = []
+    for (const g of groups) {
+      const batchId = (window.crypto?.randomUUID?.() || `b${Date.now()}${Math.random().toString(36).slice(2, 8)}`)
+      max += 1
+      const batchNo = `PO-${max}`
+      const stamp = { supplier_id: g.supplierId || null, supplier_name: g.label === 'No vendor' ? '' : g.label, status: 'pending', order_date: orderDate, batch_id: batchId, batch_no: batchNo }
 
-    const { error } = await insertStrip('purchase_orders', [...records, ...costRecords])
-    if (error) { setSaving(false); toast.error('Failed: ' + error.message); return }
+      const records = g.rows.map(r => ({
+        ...stamp,
+        product_id: r.product_id || null,
+        product_name: r.product_name,
+        qty: r.qty,
+        unit_cost: r.unitCost,
+        image_url: r.image_url || null,
+        notes: `From analysis "${open.name}" — planned sell ${mv(r.sell)} · margin ${pct(r.margin)}`,
+      }))
+      // A cost tagged to this vendor goes here whole; a shared cost is split
+      // between the orders by their share of the goods.
+      const costRecords = paidCosts
+        .filter(c => !c.supplier_id || c.supplier_id === g.supplierId)
+        .map(c => {
+          const shared = !c.supplier_id
+          const share = shared && totals.goods > 0 ? g.totals.goods / totals.goods : 1
+          const amount = num(c.amount) * (shared ? share : 1)
+          if (amount <= 0) return null
+          return {
+            ...stamp,
+            product_id: null,
+            product_name: (c.type === 'Other' ? (c.label || 'Other cost') : c.type) + (shared && groups.length > 1 ? ' (share)' : ''),
+            qty: 1,
+            unit_cost: +amount.toFixed(2),
+            cost_type: 'extra',
+          }
+        }).filter(Boolean)
 
-    await supabase.from('order_analyses').update({
-      status: 'converted', batch_id: batchId, batch_no: batchNo, converted_at: new Date().toISOString(),
-    }).eq('id', open.id)
-    setAnalyses(prev => prev.map(a => (a.id === open.id ? { ...a, status: 'converted', batch_id: batchId, batch_no: batchNo } : a)))
+      const { error } = await insertStrip('purchase_orders', [...records, ...costRecords])
+      if (error) { setSaving(false); toast.error(`Failed on ${g.label}: ${error.message}`); return }
+      batchIds.push(batchId); batchNos.push(batchNo)
+      logAudit('create', 'purchase_order', `${batchNo} — ${g.label} from analysis "${open.name}" (${g.rows.length} items)`, { total: g.totals.landed })
+    }
+
+    const patch = {
+      status: 'converted', batch_id: batchIds.join(','), batch_no: batchNos.join(', '),
+      converted_at: new Date().toISOString(),
+    }
+    await supabase.from('order_analyses').update(patch).eq('id', open.id)
+    setAnalyses(prev => prev.map(a => (a.id === open.id ? { ...a, ...patch } : a)))
     setSaving(false)
-    logAudit('create', 'purchase_order', `${batchNo} from analysis "${open.name}" (${rows.length} items)`, { total: totals.landed })
-    toast.success(`Batch order ${batchNo} created — open Batch Orders to track it`)
+    toast.success(`${batchNos.length} batch order${batchNos.length > 1 ? 's' : ''} created — ${batchNos.join(', ')}`)
   }
 
   // ── Excel ───────────────────────────────────────────────────────────────────
   function exportExcel() {
     if (!rows.length) { toast.error('Nothing to export'); return }
     const sheet = rows.map(r => ({
+      'Vendor': r.vendorName,
       'Product': r.product_name,
       'SKU': r.sku || '',
       'Category': r.category || '',
@@ -528,16 +596,35 @@ export default function OrderAnalysis() {
     }))
     sheet.push({})
     sheet.push({
-      'Product': 'TOTAL', 'Order qty': totals.qty, 'Line cost': +totals.goods.toFixed(2),
+      'Vendor': 'TOTAL', 'Order qty': totals.qty, 'Line cost': +totals.goods.toFixed(2),
       'Share of extra costs': +totals.extras.toFixed(2), 'Total landed cost': +totals.landed.toFixed(2),
       'Revenue if all sold': +totals.revenue.toFixed(2), 'Total profit': +totals.profit.toFixed(2),
       'Margin %': +totals.margin.toFixed(1), 'ROI %': +totals.roi.toFixed(1),
     })
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sheet), 'Analysis')
+    // One row per order so the vendor split is readable at a glance
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet([
+      ...groups.map((g, i) => ({
+        'Order': i + 1, 'Vendor': g.label, 'Products': g.totals.lines, 'Units': g.totals.qty,
+        'Goods cost': +g.totals.goods.toFixed(2), 'Extra costs': +g.totals.extras.toFixed(2),
+        'Total cost': +g.totals.landed.toFixed(2), 'If sold all': +g.totals.revenue.toFixed(2),
+        'Total profit': +g.totals.profit.toFixed(2), 'Margin %': +g.totals.margin.toFixed(1), 'ROI %': +g.totals.roi.toFixed(1),
+      })),
+      {
+        'Order': '', 'Vendor': 'ALL ORDERS', 'Products': totals.lines, 'Units': totals.qty,
+        'Goods cost': +totals.goods.toFixed(2), 'Extra costs': +totals.extras.toFixed(2),
+        'Total cost': +totals.landed.toFixed(2), 'If sold all': +totals.revenue.toFixed(2),
+        'Total profit': +totals.profit.toFixed(2), 'Margin %': +totals.margin.toFixed(1), 'ROI %': +totals.roi.toFixed(1),
+      },
+    ]), 'Orders')
     if (extras.length) {
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(
-        extras.map(c => ({ 'Cost': c.type === 'Other' ? c.label : c.type, 'Amount': num(c.amount) }))
+        extras.map(c => ({
+          'Cost': c.type === 'Other' ? c.label : c.type,
+          'Applies to': c.supplier_id ? (groups.find(g => g.supplierId === c.supplier_id)?.label || 'Vendor') : 'Shared — all orders',
+          'Amount': num(c.amount),
+        }))
       ), 'Extra costs')
     }
     XLSX.writeFile(wb, `order-analysis-${(open.name || 'draft').replace(/[^\w]+/g, '_')}-${localToday()}.xlsx`)
@@ -603,7 +690,7 @@ export default function OrderAnalysis() {
 
         <PageHeader
           title={open.name}
-          subtitle={`${open.supplier_name || 'No supplier set'} · ${rows.length} product${rows.length === 1 ? '' : 's'} · ${converted ? `converted to ${open.batch_no}` : 'draft — nothing has been ordered'}`}
+          subtitle={`${groups.length} vendor${groups.length === 1 ? '' : 's'} · ${rows.length} product${rows.length === 1 ? '' : 's'} · ${converted ? `ordered as ${open.batch_no}` : 'draft — nothing has been ordered'}`}
           action={
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <Button variant="ghost" onClick={exportExcel}><FileSpreadsheet size={14} /> Excel</Button>
@@ -611,7 +698,7 @@ export default function OrderAnalysis() {
               <Button variant="danger" onClick={() => deleteAnalysis(open)}><Trash2 size={14} /> Delete</Button>
               {!converted && (
                 <Button onClick={createBatchOrder} disabled={saving || !rows.length}>
-                  <Truck size={14} /> Create batch order
+                  <Truck size={14} /> Create {groups.length > 1 ? `${groups.length} batch orders` : 'batch order'}
                 </Button>
               )}
             </div>
@@ -622,7 +709,7 @@ export default function OrderAnalysis() {
           <Card style={{ marginBottom: 18, background: '#f2faf5', border: '1px solid #cfe8db', display: 'flex', alignItems: 'center', gap: 10 }}>
             <CheckCircle size={17} color="#1D9E75" />
             <span style={{ fontSize: 13, color: '#2c7a54' }}>
-              This analysis became batch order <b>{open.batch_no}</b>. Track and receive it from the Batch Orders page — editing here no longer changes the order.
+              This analysis became batch order{(open.batch_no || '').includes(',') ? 's' : ''} <b>{open.batch_no}</b>. Track and receive {(open.batch_no || '').includes(',') ? 'them' : 'it'} from the Batch Orders page — editing here no longer changes the order.
             </span>
           </Card>
         )}
@@ -630,10 +717,10 @@ export default function OrderAnalysis() {
         {/* Headline numbers */}
         <div className="grid-collapse" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 18 }}>
           {[
-            { label: 'Cash needed', value: mv0(totals.landed), sub: `${mv0(totals.goods)} goods + ${mv0(totals.extras)} costs`, color: '#0d1b2a' },
-            { label: 'Revenue if all sold', value: mv0(totals.revenue), sub: `${totals.qty} units`, color: '#378ADD' },
-            { label: 'Projected profit', value: mv0(totals.profit), sub: `${pct(totals.margin)} blended margin`, color: totals.profit >= 0 ? '#1D9E75' : '#E24B4A' },
-            { label: 'Return on the money', value: pct(totals.roi), sub: `Target margin ${target}%`, color: totals.roi >= 0 ? '#1D9E75' : '#E24B4A' },
+            { label: 'Total cost', value: mv0(totals.landed), sub: `${mv0(totals.goods)} goods + ${mv0(totals.extras)} extra costs`, color: '#0d1b2a' },
+            { label: 'If sold all', value: mv0(totals.revenue), sub: `${totals.qty} units across ${groups.length} order${groups.length === 1 ? '' : 's'}`, color: '#378ADD' },
+            { label: 'Total profit', value: mv0(totals.profit), sub: `${totals.lines} product${totals.lines === 1 ? '' : 's'}`, color: totals.profit >= 0 ? '#1D9E75' : '#E24B4A' },
+            { label: 'Total margin', value: pct(totals.margin), sub: `${pct(totals.roi)} return · target ${target}%`, color: totals.margin >= target ? '#1D9E75' : totals.margin >= 0 ? '#e6940a' : '#E24B4A' },
           ].map(m => (
             <div key={m.label} style={{ background: '#fff', border: '1px solid #eee', borderRadius: 14, padding: '16px 18px' }}>
               <div style={{ fontSize: 10.5, color: '#bbb', textTransform: 'uppercase', letterSpacing: '0.6px', fontWeight: 700, marginBottom: 5 }}>{m.label}</div>
@@ -649,12 +736,15 @@ export default function OrderAnalysis() {
             <div style={{ fontSize: 12, fontWeight: 700, color: '#0d1b2a', marginBottom: 12 }}>Analysis settings</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <Input label="Name" defaultValue={open.name} onBlur={e => patchAnalysis({ name: e.target.value })} />
-              <Select label="Supplier" value={open.supplier_id || ''}
+              <Select label="Default vendor" value={open.supplier_id || ''}
                 onChange={e => {
                   const s = suppliers.find(x => x.id === e.target.value)
                   patchAnalysis({ supplier_id: e.target.value || null, supplier_name: s?.name || '' })
                 }}
-                options={[{ value: '', label: '— Select supplier —' }, ...suppliers.map(s => ({ value: s.id, label: s.name }))]} />
+                options={[{ value: '', label: '— None —' }, ...suppliers.map(s => ({ value: s.id, label: s.name }))]} />
+              <div style={{ fontSize: 11, color: '#bbb', marginTop: -4, lineHeight: 1.5 }}>
+                Only used for products with no vendor of their own — every product keeps its own supplier and gets its own order.
+              </div>
               <Input label="Target margin %" type="number" defaultValue={target}
                 onBlur={e => patchAnalysis({ target_margin: num(e.target.value) || 40 })} />
               <Input label="Notes" defaultValue={open.notes || ''} placeholder="Why this order, what to watch…"
@@ -665,24 +755,30 @@ export default function OrderAnalysis() {
           <Card>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
               <div>
-                <div style={{ fontSize: 12, fontWeight: 700, color: '#0d1b2a' }}>Extra costs on this order</div>
-                <div style={{ fontSize: 11.5, color: '#aaa', marginTop: 2 }}>Shipping, duty and fees — shared across products by what each one costs</div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#0d1b2a' }}>Extra costs</div>
+                <div style={{ fontSize: 11.5, color: '#aaa', marginTop: 2 }}>Shipping, duty and fees — tag one to a vendor, or leave it shared across every order</div>
               </div>
               <Button size="sm" variant="ghost" onClick={addExtra}><Plus size={13} /> Add</Button>
             </div>
             {extras.length === 0 && <div style={{ fontSize: 12.5, color: '#bbb', padding: '8px 0' }}>No extra costs yet — landed cost equals the supplier price.</div>}
             {extras.map((c, idx) => (
-              <div key={idx} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+              <div key={idx} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
                 <select value={c.type} onChange={e => updateExtra(idx, 'type', e.target.value)}
-                  style={{ flex: 1, padding: '8px 10px', border: '1px solid #e0e0e0', borderRadius: 8, fontSize: 12.5, fontFamily: 'inherit', background: '#fff' }}>
+                  style={{ flex: '1 1 130px', padding: '8px 10px', border: '1px solid #e0e0e0', borderRadius: 8, fontSize: 12.5, fontFamily: 'inherit', background: '#fff' }}>
                   {COST_TYPES.map(t => <option key={t}>{t}</option>)}
                 </select>
                 {c.type === 'Other' && (
                   <input value={c.label || ''} onChange={e => updateExtra(idx, 'label', e.target.value)} placeholder="What is it?"
-                    style={{ flex: 1, padding: '8px 10px', border: '1px solid #e0e0e0', borderRadius: 8, fontSize: 12.5, fontFamily: 'inherit' }} />
+                    style={{ flex: '1 1 110px', padding: '8px 10px', border: '1px solid #e0e0e0', borderRadius: 8, fontSize: 12.5, fontFamily: 'inherit' }} />
                 )}
+                <select value={c.supplier_id || ''} onChange={e => updateExtra(idx, 'supplier_id', e.target.value || null)}
+                  title="Which order does this cost belong to?"
+                  style={{ flex: '1 1 130px', padding: '8px 10px', border: '1px solid #e0e0e0', borderRadius: 8, fontSize: 12.5, fontFamily: 'inherit', background: '#fff', color: c.supplier_id ? '#0d1b2a' : '#999' }}>
+                  <option value="">Shared — all orders</option>
+                  {groups.map(g => <option key={g.key} value={g.supplierId || ''} disabled={!g.supplierId}>{g.label}</option>)}
+                </select>
                 <input type="number" value={c.amount} onChange={e => updateExtra(idx, 'amount', e.target.value)} placeholder="MVR"
-                  style={{ width: 110, padding: '8px 10px', border: '1px solid #e0e0e0', borderRadius: 8, fontSize: 12.5, fontFamily: 'inherit' }} />
+                  style={{ width: 100, padding: '8px 10px', border: '1px solid #e0e0e0', borderRadius: 8, fontSize: 12.5, fontFamily: 'inherit' }} />
                 <button onClick={() => removeExtra(idx)} title="Remove"
                   style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 5, display: 'flex' }}>
                   <X size={15} color="#c0392b" />
@@ -735,35 +831,70 @@ export default function OrderAnalysis() {
           </Card>
         )}
 
-        {/* Products */}
-        <Card style={{ padding: 0, overflow: 'hidden' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '16px 20px', borderBottom: '1px solid #f2f2f2', flexWrap: 'wrap' }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#0d1b2a' }}>Products under consideration</div>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <Button size="sm" variant="ghost" onClick={() => openPicker('catalog')}><BookOpen size={13} /> From supplier catalog</Button>
-              <Button size="sm" variant="ghost" onClick={() => openPicker('inventory')}><Package size={13} /> From inventory</Button>
-              {items.length > 0 && <Button size="sm" variant="danger" onClick={clearItems}><Trash2 size={13} /> Clear all</Button>}
+        {/* Products — one order per vendor */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#0d1b2a' }}>
+              {groups.length > 1 ? `${groups.length} orders in this analysis` : 'Products under consideration'}
             </div>
+            {groups.length > 1 && (
+              <div style={{ fontSize: 11.5, color: '#aaa', marginTop: 2 }}>Each vendor becomes its own batch order when you confirm</div>
+            )}
           </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <Button size="sm" variant="ghost" onClick={() => openPicker('catalog')}><BookOpen size={13} /> From supplier catalog</Button>
+            <Button size="sm" variant="ghost" onClick={() => openPicker('inventory')}><Package size={13} /> From inventory</Button>
+            {items.length > 0 && <Button size="sm" variant="danger" onClick={clearItems}><Trash2 size={13} /> Clear all</Button>}
+          </div>
+        </div>
 
-          {itemsLoading ? <Spinner /> : rows.length === 0 ? (
-            <div style={{ padding: '48px 20px', textAlign: 'center', color: '#bbb' }}>
-              <Calculator size={30} color="#e0dcd4" style={{ marginBottom: 10 }} />
-              <div style={{ fontSize: 13.5 }}>Nothing to analyse yet.</div>
-              <div style={{ fontSize: 12.5, marginTop: 4 }}>Pull products in from the supplier catalog, or add ones you already stock.</div>
+        {itemsLoading ? <Spinner /> : rows.length === 0 ? (
+          <Card style={{ padding: '48px 20px', textAlign: 'center', color: '#bbb' }}>
+            <Calculator size={30} color="#e0dcd4" style={{ marginBottom: 10 }} />
+            <div style={{ fontSize: 13.5 }}>Nothing to analyse yet.</div>
+            <div style={{ fontSize: 12.5, marginTop: 4 }}>Pull products in from the supplier catalog, or add ones you already stock.</div>
+          </Card>
+        ) : groups.map((g, gi) => (
+          <Card key={g.key} style={{ padding: 0, overflow: 'hidden', marginBottom: 14 }}>
+            {/* Order header — vendor and what this one order costs and returns */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, padding: '13px 18px', background: '#fbfaf8', borderBottom: '1px solid #f0ece6', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ width: 26, height: 26, borderRadius: 8, background: '#0d1b2a', color: '#FFA500', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, flexShrink: 0 }}>{gi + 1}</span>
+                <div>
+                  <div style={{ fontSize: 13.5, fontWeight: 800, color: '#0d1b2a', display: 'flex', alignItems: 'center', gap: 7 }}>
+                    <Building2 size={14} color="#c4bcb0" /> {g.label}
+                  </div>
+                  <div style={{ fontSize: 11, color: '#aaa', marginTop: 2 }}>
+                    Order {gi + 1} of {groups.length} · {g.totals.lines} product{g.totals.lines === 1 ? '' : 's'} · {g.totals.qty} units
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+                {[
+                  ['Cost', mv0(g.totals.landed), '#0d1b2a'],
+                  ['If sold all', mv0(g.totals.revenue), '#378ADD'],
+                  ['Profit', mv0(g.totals.profit), g.totals.profit >= 0 ? '#1D9E75' : '#E24B4A'],
+                  ['Margin', pct(g.totals.margin), g.totals.margin >= target ? '#1D9E75' : g.totals.margin >= 0 ? '#e6940a' : '#E24B4A'],
+                ].map(([l, v, c]) => (
+                  <div key={l} style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: 9.5, color: '#c4bcb0', textTransform: 'uppercase', letterSpacing: '0.6px', fontWeight: 700 }}>{l}</div>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: c, marginTop: 1 }}>{v}</div>
+                  </div>
+                ))}
+              </div>
             </div>
-          ) : (
+
             <div className="x-scroll-wrap">
               <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, minWidth: 1180 }}>
                 <thead>
-                  <tr style={{ background: '#fbfaf8' }}>
+                  <tr style={{ background: '#fff' }}>
                     {['Product', 'Qty', 'Unit cost', 'Landed cost', 'Sell price', 'Profit / unit', 'Margin', 'Total cost', 'Total profit', 'ROI', 'Stock & demand', ''].map((h, i) => (
-                      <th key={h + i} style={{ padding: '10px 12px', textAlign: i === 0 || i === 10 ? 'left' : 'right', fontSize: 10.5, fontWeight: 700, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.5px', whiteSpace: 'nowrap' }}>{h}</th>
+                      <th key={h + i} style={{ padding: '10px 12px', textAlign: i === 0 || i === 10 ? 'left' : 'right', fontSize: 10.5, fontWeight: 700, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.5px', whiteSpace: 'nowrap', borderBottom: '1px solid #f2f2f2' }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map(r => {
+                  {g.rows.map(r => {
                     const v = VERDICT[r.verdict]
                     const marginColor = r.verdict === 'good' ? '#1D9E75' : r.verdict === 'thin' ? '#e6940a' : r.verdict === 'loss' ? '#E24B4A' : '#aaa'
                     const cell = { padding: '10px 12px', textAlign: 'right', whiteSpace: 'nowrap', borderTop: '1px solid #f5f5f5' }
@@ -840,23 +971,48 @@ export default function OrderAnalysis() {
                 </tbody>
                 <tfoot>
                   <tr style={{ background: '#fbfaf8', fontWeight: 700 }}>
-                    <td style={{ padding: '12px', borderTop: '2px solid #f0ece6' }}>Total</td>
-                    <td style={{ padding: '12px', textAlign: 'right', borderTop: '2px solid #f0ece6' }}>{totals.qty}</td>
+                    <td style={{ padding: '12px', borderTop: '2px solid #f0ece6' }}>{g.label} total</td>
+                    <td style={{ padding: '12px', textAlign: 'right', borderTop: '2px solid #f0ece6' }}>{g.totals.qty}</td>
                     <td colSpan={2} style={{ padding: '12px', textAlign: 'right', borderTop: '2px solid #f0ece6', color: '#aaa', fontWeight: 500, fontSize: 11.5 }}>
-                      incl. {mv0(totals.extras)} extra costs
+                      incl. {mv0(g.totals.extras)} extra costs
                     </td>
-                    <td colSpan={3} style={{ padding: '12px', textAlign: 'right', borderTop: '2px solid #f0ece6', color: totals.margin >= target ? '#1D9E75' : '#e6940a' }}>
-                      {pct(totals.margin)} blended margin
+                    <td colSpan={3} style={{ padding: '12px', textAlign: 'right', borderTop: '2px solid #f0ece6', color: g.totals.margin >= target ? '#1D9E75' : '#e6940a' }}>
+                      {pct(g.totals.margin)} margin
                     </td>
-                    <td style={{ padding: '12px', textAlign: 'right', borderTop: '2px solid #f0ece6' }}>{mv0(totals.landed)}</td>
-                    <td style={{ padding: '12px', textAlign: 'right', borderTop: '2px solid #f0ece6', color: totals.profit >= 0 ? '#1D9E75' : '#E24B4A' }}>{mv0(totals.profit)}</td>
-                    <td colSpan={3} style={{ padding: '12px', textAlign: 'right', borderTop: '2px solid #f0ece6', color: '#1D9E75' }}>{pct(totals.roi)} ROI</td>
+                    <td style={{ padding: '12px', textAlign: 'right', borderTop: '2px solid #f0ece6' }}>{mv0(g.totals.landed)}</td>
+                    <td style={{ padding: '12px', textAlign: 'right', borderTop: '2px solid #f0ece6', color: g.totals.profit >= 0 ? '#1D9E75' : '#E24B4A' }}>{mv0(g.totals.profit)}</td>
+                    <td colSpan={3} style={{ padding: '12px', textAlign: 'right', borderTop: '2px solid #f0ece6', color: g.totals.roi >= 0 ? '#1D9E75' : '#E24B4A' }}>{pct(g.totals.roi)} ROI</td>
                   </tr>
                 </tfoot>
               </table>
             </div>
-          )}
-        </Card>
+          </Card>
+        ))}
+
+        {/* Everything added up, across every order in this analysis */}
+        {groups.length > 1 && (
+          <Card style={{ background: '#0d1b2a', border: 'none', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 18, flexWrap: 'wrap' }}>
+            <div>
+              <div style={{ fontSize: 13.5, fontWeight: 800, letterSpacing: '-0.2px' }}>All {groups.length} orders together</div>
+              <div style={{ fontSize: 11.5, color: '#8fa0b0', marginTop: 3 }}>
+                {totals.lines} products · {totals.qty} units · {mv0(totals.goods)} goods + {mv0(totals.extras)} extra costs
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 26, flexWrap: 'wrap' }}>
+              {[
+                ['Total cost', mv0(totals.landed), '#fff'],
+                ['If sold all', mv0(totals.revenue), '#7ab8f5'],
+                ['Total profit', mv0(totals.profit), totals.profit >= 0 ? '#4fd39d' : '#ff8a87'],
+                ['Total margin', pct(totals.margin), totals.margin >= target ? '#4fd39d' : '#ffc266'],
+              ].map(([l, v, c]) => (
+                <div key={l} style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: 9.5, color: '#7a8b9b', textTransform: 'uppercase', letterSpacing: '0.7px', fontWeight: 700 }}>{l}</div>
+                  <div style={{ fontSize: 19, fontWeight: 800, color: c, marginTop: 2, letterSpacing: '-0.5px' }}>{v}</div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
 
         {rows.some(r => r.verdict === 'loss' || r.verdict === 'thin') && (
           <Card style={{ marginTop: 16, background: '#fffaf2', border: '1px solid #f3e4c8' }}>
@@ -1099,7 +1255,7 @@ function AnalysisCard({ a, onOpen, onDelete }) {
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 14.5, fontWeight: 700, color: '#0d1b2a', letterSpacing: '-0.2px' }}>{a.name}</div>
           <div style={{ fontSize: 11.5, color: '#bbb', marginTop: 3 }}>
-            {a.supplier_name || 'No supplier'} · {(a.created_at || '').slice(0, 10)}
+            {a.supplier_name ? `${a.supplier_name} · ` : ''}{(a.created_at || '').slice(0, 10)}
           </div>
         </div>
         {converted
