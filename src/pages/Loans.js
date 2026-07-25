@@ -4,7 +4,7 @@ import { localToday } from '../lib/dates'
 import { PageHeader, Card, Button, Input, Select, Modal, Spinner, FormRow, useToast, Toasts, Badge } from '../components/UI'
 import {
   Plus, Trash2, Landmark, CreditCard, Paperclip, ChevronDown, ChevronRight,
-  Calendar, FileText, X, Edit2, AlertTriangle, Percent, Wallet, Scale
+  Calendar, FileText, X, Edit2, AlertTriangle, Percent, Wallet, Scale, Eye
 } from 'lucide-react'
 
 const num = v => { const n = parseFloat(v); return isNaN(n) ? 0 : n }
@@ -83,6 +83,10 @@ function buildSchedule(loan, payments) {
 
   const sorted = [...payments].sort((a, b) => (a.paid_on || '').localeCompare(b.paid_on || ''))
   const today = localToday()
+  // Whether the loan is actually cleared — judged on money really paid, not on
+  // the projected balance, which always winds down to zero on the last row.
+  const totalPaid = payments.reduce((s, p) => s + num(p.amount), 0)
+  const settled = totalPayable > 0 && totalPaid >= totalPayable - 0.005
   const rows = []
   let balance = totalPayable
   let idx = 0
@@ -106,8 +110,8 @@ function buildSchedule(loan, payments) {
     balance = Math.max(0, balance - consumed)
 
     let status
-    if (paid >= due - 0.005 && due > 0) status = 'paid'
-    else if (balance <= 0.005) status = 'paid'
+    if (settled) status = 'paid'
+    else if (due > 0 && paid >= due - 0.005) status = 'paid'
     else if (paid > 0) status = 'partial'
     else if (dues[i] && dues[i] < today) status = 'overdue'
     else status = 'upcoming'
@@ -215,6 +219,7 @@ export default function Loans() {
   const [editing, setEditing] = useState(null)
   const [loanForm, setLoanForm] = useState(EMPTY_LOAN)
   const [payModal, setPayModal] = useState(null)
+  const [detail, setDetail] = useState(null)     // { loan, inst } — that month's payments
   const [payForm, setPayForm] = useState({ amount: '', paid_on: localToday(), method: 'Bank transfer', account: '', reference: '', notes: '', slips: [], due_date: null })
   const [viewSlip, setViewSlip] = useState(null)
   const [saving, setSaving] = useState(false)
@@ -397,6 +402,18 @@ export default function Loans() {
     setPayModal({ loan, instalment })
   }
 
+  // Reopen an existing payment with its details so it can be corrected
+  function editPayment(loan, instalment, p) {
+    setPayForm({
+      amount: num(p.amount), paid_on: p.paid_on || localToday(),
+      method: p.method || 'Bank transfer', account: p.account || '',
+      reference: p.reference || '', notes: p.notes || '',
+      slips: Array.isArray(p.slips) ? p.slips : [], due_date: p.due_date || instalment?.due || null,
+    })
+    setDetail(null)
+    setPayModal({ loan, instalment, payment: p })
+  }
+
   async function savePayment() {
     if (!payForm.amount) { toast.error('Enter the amount'); return }
     const loan = payModal.loan
@@ -417,11 +434,11 @@ export default function Loans() {
       reference: payForm.reference || null,
       notes: payForm.notes || null,
       slips: payForm.slips || [],
-    })
+    }, payModal.payment?.id)
     setSaving(false)
     if (error) { toast.error('Failed: ' + error.message); return }
     if (dropped?.length) toast.error(`Saved, but missing columns: ${dropped.join(', ')} — run the loans SQL`)
-    else toast.success('Payment recorded')
+    else toast.success(payModal.payment ? 'Payment updated' : 'Payment recorded')
     setPayModal(null); load()
   }
 
@@ -678,9 +695,15 @@ export default function Loans() {
                                   ? <div style={{ display: 'flex', justifyContent: 'flex-end' }}><Slips slips={slips} onView={setViewSlip} size={34} /></div>
                                   : <span style={{ color: '#ddd' }}>—</span>}
                               </td>
-                              <td>
+                              <td style={{ whiteSpace: 'nowrap' }}>
+                                {r.payments.length > 0 && (
+                                  <Button size="sm" variant="ghost" title="View / edit this month's payment"
+                                    onClick={() => setDetail({ loan: l, inst: r })}>
+                                    <Eye size={12} /> Details
+                                  </Button>
+                                )}
                                 {r.status !== 'paid' && !l.closed && (
-                                  <Button size="sm" variant="ghost" onClick={() => openPay(l, r)}>Pay</Button>
+                                  <Button size="sm" variant="ghost" style={{ marginLeft: 4 }} onClick={() => openPay(l, r)}>Pay</Button>
                                 )}
                               </td>
                             </tr>
@@ -691,45 +714,6 @@ export default function Loans() {
                   </div>
                 )}
 
-                {/* every payment, in full */}
-                {l.payments.length > 0 && (
-                  <div style={{ marginTop: 18 }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: '#0d1b2a', marginBottom: 8 }}>Payments recorded ({l.payments.length})</div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      {[...l.payments].sort((a, b) => (b.paid_on || '').localeCompare(a.paid_on || '')).map(p => (
-                        <div key={p.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10, padding: '11px 13px' }}>
-                          {Array.isArray(p.slips) && p.slips.length > 0
-                            ? <Slips slips={p.slips} onView={setViewSlip} size={54} />
-                            : <div style={{ width: 54, height: 54, borderRadius: 7, background: '#faf9f7', border: '1px dashed #eee', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                <Paperclip size={14} color="#ddd" />
-                              </div>}
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                              <span style={{ fontWeight: 800, fontSize: 14, color: '#1D9E75' }}>{money(p.amount)}</span>
-                              <span style={{ fontSize: 12, color: '#666' }}>{p.paid_on}</span>
-                              {p.method && <Badge color="gray">{p.method}</Badge>}
-                            </div>
-                            <div style={{ fontSize: 11.5, color: '#999', marginTop: 5, display: 'flex', gap: 14, flexWrap: 'wrap' }}>
-                              {p.account && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Wallet size={11} color="#c4bcb0" /> {p.account}</span>}
-                              {p.reference && <span>Ref {p.reference}</span>}
-                              {p.due_date && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Calendar size={11} color="#c4bcb0" /> for {p.due_date}</span>}
-                            </div>
-                            {num(p.profit) > 0 && (
-                              <div style={{ fontSize: 11, color: '#7F77DD', marginTop: 4 }}>
-                                {money(p.principal)} principal + {money(p.profit)} profit
-                              </div>
-                            )}
-                            {p.notes && <div style={{ fontSize: 11.5, color: '#bbb', marginTop: 4, fontStyle: 'italic' }}>{p.notes}</div>}
-                          </div>
-                          <button onClick={() => delPayment(p)} title="Delete payment"
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3, display: 'flex', flexShrink: 0 }}>
-                            <Trash2 size={13} color="#d5cfc6" />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
               </div>
             )}
           </Card>
@@ -879,7 +863,7 @@ export default function Loans() {
 
       {/* ── Record a payment ── */}
       {payModal && (
-        <Modal title="Record a payment"
+        <Modal title={payModal.payment ? 'Edit payment' : 'Record a payment'}
           subtitle={payModal.instalment
             ? `Instalment ${payModal.instalment.n} · due ${payModal.instalment.due} · ${payModal.loan.lender || 'loan'}`
             : (payModal.loan.purpose || payModal.loan.lender || 'Loan repayment')}
@@ -928,9 +912,66 @@ export default function Loans() {
               onAdd={fl => attach('pay', fl)} onRemove={i => setPayForm(f => ({ ...f, slips: f.slips.filter((_, x) => x !== i) }))} />
           </div>
 
-          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', alignItems: 'center' }}>
+            {payModal.payment && (
+              <Button variant="danger" style={{ marginRight: 'auto' }}
+                onClick={() => { const p = payModal.payment; setPayModal(null); delPayment(p) }}>
+                <Trash2 size={13} /> Delete
+              </Button>
+            )}
             <Button variant="ghost" onClick={() => setPayModal(null)}>Cancel</Button>
-            <Button onClick={savePayment} disabled={saving || !payForm.amount}>{saving ? 'Saving…' : 'Record payment'}</Button>
+            <Button onClick={savePayment} disabled={saving || !payForm.amount}>
+              {saving ? 'Saving…' : payModal.payment ? 'Save changes' : 'Record payment'}
+            </Button>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── That month's payments, in full ── */}
+      {detail && (
+        <Modal title={`Instalment ${detail.inst.n}`}
+          subtitle={`Due ${detail.inst.due} · ${money(detail.inst.amount)} asked · ${money(detail.inst.paid)} paid`}
+          onClose={() => setDetail(null)} width={560}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {detail.inst.payments.map(p => (
+              <div key={p.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, border: '1px solid #f0f0f0', borderRadius: 10, padding: '12px 14px' }}>
+                {Array.isArray(p.slips) && p.slips.length > 0
+                  ? <Slips slips={p.slips} onView={setViewSlip} size={72} />
+                  : <div style={{ width: 72, height: 72, borderRadius: 7, background: '#faf9f7', border: '1px dashed #eee', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 3, flexShrink: 0 }}>
+                      <Paperclip size={15} color="#ddd" /><span style={{ fontSize: 9, color: '#ccc' }}>No slip</span>
+                    </div>}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                    <span style={{ fontWeight: 800, fontSize: 15, color: '#1D9E75' }}>{money(p.amount)}</span>
+                    <span style={{ fontSize: 12.5, color: '#666' }}>{p.paid_on}</span>
+                    {p.method && <Badge color="gray">{p.method}</Badge>}
+                  </div>
+                  <div style={{ fontSize: 11.5, color: '#999', marginTop: 6, display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+                    {p.account && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Wallet size={11} color="#c4bcb0" /> {p.account}</span>}
+                    {p.reference && <span>Ref {p.reference}</span>}
+                    {p.due_date && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Calendar size={11} color="#c4bcb0" /> for {p.due_date}</span>}
+                  </div>
+                  {num(p.profit) > 0 && (
+                    <div style={{ fontSize: 11.5, color: '#7F77DD', marginTop: 5 }}>
+                      {money(p.principal)} principal + {money(p.profit)} profit
+                    </div>
+                  )}
+                  {p.notes && <div style={{ fontSize: 11.5, color: '#bbb', marginTop: 5, fontStyle: 'italic' }}>{p.notes}</div>}
+                  <div style={{ marginTop: 9, display: 'flex', gap: 6 }}>
+                    <Button size="sm" variant="ghost" onClick={() => editPayment(detail.loan, detail.inst, p)}><Edit2 size={12} /> Edit</Button>
+                    <Button size="sm" variant="danger" onClick={() => { setDetail(null); delPayment(p) }}><Trash2 size={12} /> Delete</Button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
+            {detail.inst.status !== 'paid' && !detail.loan.closed && (
+              <Button onClick={() => { const d = detail; setDetail(null); openPay(d.loan, d.inst) }}>
+                <CreditCard size={13} /> Add another payment
+              </Button>
+            )}
+            <Button variant="ghost" onClick={() => setDetail(null)}>Close</Button>
           </div>
         </Modal>
       )}
