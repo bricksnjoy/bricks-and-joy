@@ -332,12 +332,15 @@ export default function Accounting() {
 
   function downloadLoansCSV() {
     downloadCSV('loans-statement.csv',
-      ['Lender', 'Reference', 'Used for', 'Received', 'Tenure (months)', 'Grace (months)', 'Rate %', 'Rate type', 'Amount', 'Total payable', 'Profit cost', 'Monthly', 'Paid', 'Remaining', 'Status'],
+      ['Loan no.', 'Lender(s)', 'Lender detail', 'Used for', 'Received', 'Tenure (months)', 'Grace (months)', 'Rate %', 'Rate type', 'Amount', 'Total payable', 'Profit cost', 'Monthly', 'Paid', 'Remaining', 'Status'],
       loans.map(l => {
         const paid = loanPays.filter(p => p.loan_id === l.id).reduce((s, p) => s + num(p.amount), 0)
         const payable = num(l.total_payable) || num(l.amount)
+        const detail = Array.isArray(l.lenders)
+          ? l.lenders.map(x => [x.name, x.type, num(x.amount) ? `MVR ${num(x.amount)}` : '', x.phone].filter(Boolean).join(' ')).join(' | ')
+          : ''
         return [
-          l.lender || '', l.reference || '', l.purpose || '',
+          l.reference || '', l.lender || '', detail, l.purpose || '',
           l.received_date || l.taken_on || '', l.tenure_months || '', l.grace_months || 0,
           num(l.profit_rate), l.rate_type || '', num(l.amount).toFixed(2), payable.toFixed(2),
           Math.max(0, payable - num(l.amount)).toFixed(2), num(l.monthly_payment).toFixed(2),

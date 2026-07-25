@@ -493,3 +493,8 @@ alter table loans alter column payment_day set default 28;
 update loans set payment_day = 28 where payment_day is null or payment_day = 25;
 alter table loans add column if not exists monthly_auto   boolean default true;
 alter table loan_payments add column if not exists account text;
+
+-- A loan can come from several people at once (three relatives each chipping in
+-- for one stock order). `lender` stays as the joined names so existing reports
+-- keep working; `lenders` holds the detail.
+alter table loans add column if not exists lenders jsonb default '[]'::jsonb;

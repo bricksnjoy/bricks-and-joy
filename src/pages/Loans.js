@@ -17,11 +17,13 @@ const RATE_TYPES = [
   { value: 'none', label: 'No profit / interest' },
 ]
 const METHODS = ['Bank transfer', 'Cash', 'Cheque', 'Standing order', 'Other']
+const LENDER_TYPES = ['Family', 'Friend', 'Bank', 'Investor', 'Business', 'Other']
+const EMPTY_LENDER = { name: '', type: 'Family', amount: '', phone: '' }
 const PAYMENT_DAY = 28          // payments go out on the 28th
 const RECONCILE_DAY = 29        // and are checked the next morning
 
 const EMPTY_LOAN = {
-  lender: '', reference: '', amount: '', purpose: '',
+  lender: '', lenders: [{ ...EMPTY_LENDER }], reference: '', amount: '', purpose: '',
   taken_on: localToday(), received_date: localToday(),
   tenure_months: 12, grace_months: 0, profit_rate: '', rate_type: 'flat',
   monthly_auto: true, monthly_payment: '', payment_day: PAYMENT_DAY,
@@ -94,7 +96,14 @@ function buildSchedule(loan, payments) {
     while (idx < sorted.length && (sorted[idx].paid_on || '9999-12-31') < cutoff) { mine.push(sorted[idx]); idx++ }
     const paid = mine.reduce((s, p) => s + num(p.amount), 0)
     const openingBalance = balance
-    balance = Math.max(0, balance - paid)
+    // A month that hasn't fallen due yet is assumed to be paid in full, so the
+    // schedule stays flat at total ÷ tenure until something actually changes.
+    // Pay extra and the balance drops further, lowering every month after it;
+    // miss a month that has already fallen due and the shortfall stays owed,
+    // raising the months that follow.
+    const notYetDue = !dues[i] || dues[i] >= today
+    const consumed = notYetDue ? Math.max(paid, due) : paid
+    balance = Math.max(0, balance - consumed)
 
     let status
     if (paid >= due - 0.005 && due > 0) status = 'paid'
@@ -223,7 +232,7 @@ export default function Loans() {
     // rather than silently showing an empty schedule.
     const sample = rows[0]
     if (sample) {
-      const need = ['tenure_months', 'received_date', 'grace_months', 'profit_rate', 'slips', 'received_slips', 'payment_day']
+      const need = ['tenure_months', 'received_date', 'grace_months', 'profit_rate', 'slips', 'received_slips', 'payment_day', 'lenders']
       setMissingCols(need.filter(c => !(c in sample)))
     }
     const { data: lp } = await supabase.from('loan_payments').select('*')
@@ -245,8 +254,12 @@ export default function Loans() {
     const profitPaid = mine.reduce((s, p) => s + num(p.profit), 0)
     const overdue = schedule.rows.filter(r => r.status === 'overdue')
     const nextDue = schedule.rows.find(r => r.status !== 'paid')
+    // Older loans kept a single name in `lender`; show it the same way
+    const lenderList = Array.isArray(l.lenders) && l.lenders.length
+      ? l.lenders
+      : (l.lender ? [{ name: l.lender, type: 'Bank', amount: num(l.amount), phone: '' }] : [])
     return {
-      ...l, payments: mine, paid, ...m, schedule,
+      ...l, lenderList, payments: mine, paid, ...m, schedule,
       remaining: Math.max(0, m.totalPayable - paid),
       progress: m.totalPayable > 0 ? Math.min(100, (paid / m.totalPayable) * 100) : 0,
       profitPaid, overdue, nextDue,
@@ -275,11 +288,27 @@ export default function Loans() {
   const reconcileTime = dayOfMonth >= RECONCILE_DAY
 
   // ── Loan add / edit ─────────────────────────────────────────────────────────
-  function openAdd() { setEditing(null); setLoanForm({ ...EMPTY_LOAN }); setLoanModal(true) }
+  // Short, sequential loan number — L-01, L-02 … — so you never have to invent one.
+  function nextLoanNo() {
+    let max = 0
+    loans.forEach(l => { const m = /^L-(\d+)$/.exec((l.reference || '').trim()); if (m) max = Math.max(max, parseInt(m[1], 10)) })
+    return `L-${String(max + 1).padStart(2, '0')}`
+  }
+
+  function openAdd() {
+    setEditing(null)
+    setLoanForm({ ...EMPTY_LOAN, lenders: [{ ...EMPTY_LENDER }], reference: nextLoanNo() })
+    setLoanModal(true)
+  }
   function openEdit(l) {
     setEditing(l)
     setLoanForm({
-      lender: l.lender || '', reference: l.reference || '', amount: l.amount ?? '', purpose: l.purpose || '',
+      lender: l.lender || '',
+      // Older loans stored one lender as plain text — show it as a single row
+      lenders: Array.isArray(l.lenders) && l.lenders.length
+        ? l.lenders
+        : [{ ...EMPTY_LENDER, name: l.lender || '', type: 'Bank', amount: l.amount ?? '' }],
+      reference: l.reference || '', amount: l.amount ?? '', purpose: l.purpose || '',
       taken_on: l.taken_on || localToday(), received_date: l.received_date || l.taken_on || localToday(),
       tenure_months: l.tenure_months ?? 12, grace_months: l.grace_months ?? 0,
       profit_rate: l.profit_rate ?? '', rate_type: l.rate_type || 'flat',
@@ -292,6 +321,15 @@ export default function Loans() {
     setLoanModal(true)
   }
 
+  // ── Lender rows ─────────────────────────────────────────────────────────────
+  const formLenders = loanForm.lenders || []
+  const setLenders = next => setLoanForm(f => ({ ...f, lenders: next }))
+  const addLender = () => setLenders([...formLenders, { ...EMPTY_LENDER }])
+  const updateLender = (i, key, value) => setLenders(formLenders.map((x, n) => (n === i ? { ...x, [key]: value } : x)))
+  const removeLender = i => setLenders(formLenders.length > 1 ? formLenders.filter((_, n) => n !== i) : [{ ...EMPTY_LENDER }])
+  const lendersTotal = formLenders.reduce((s, x) => s + num(x.amount), 0)
+  const namedLenders = formLenders.filter(x => (x.name || '').trim())
+
   const formMaths = loanMaths(loanForm)
   // Auto mode keeps the monthly figure in step with amount, months and rate;
   // manual mode leaves whatever was typed alone.
@@ -300,9 +338,15 @@ export default function Loans() {
   async function saveLoan() {
     if (!loanForm.amount) { toast.error('Enter the amount'); return }
     setSaving(true)
+    const cleanLenders = namedLenders.map(x => ({
+      name: x.name.trim(), type: x.type || 'Other',
+      amount: num(x.amount), phone: (x.phone || '').trim(),
+    }))
     const payload = {
-      lender: loanForm.lender || null,
-      reference: loanForm.reference || null,
+      lenders: cleanLenders,
+      // Keep the plain-text name in step — every report and the ledger read it
+      lender: cleanLenders.map(x => x.name).join(', ') || null,
+      reference: loanForm.reference?.trim() || nextLoanNo(),
       amount: num(loanForm.amount),
       purpose: loanForm.purpose || null,
       taken_on: loanForm.taken_on || null,
@@ -491,7 +535,10 @@ export default function Loans() {
                 </button>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 15, fontWeight: 800, color: '#0d1b2a' }}>{l.lender || 'Lender not set'}</span>
+                    <span style={{ fontSize: 15, fontWeight: 800, color: '#0d1b2a' }}>
+                      {l.lenderList.length ? l.lenderList[0].name : (l.lender || 'Lender not set')}
+                      {l.lenderList.length > 1 && <span style={{ fontWeight: 600, color: '#999', fontSize: 13 }}> +{l.lenderList.length - 1}</span>}
+                    </span>
                     {l.closed ? <Badge color="green">Settled</Badge>
                       : l.overdue.length > 0 ? <Badge color="red">{l.overdue.length} overdue</Badge>
                         : <Badge color="blue">Active</Badge>}
@@ -546,6 +593,28 @@ export default function Loans() {
             {/* detail */}
             {isOpen && (
               <div style={{ borderTop: '1px solid #f2f2f2', background: '#fcfbf9', padding: '14px 20px 18px' }}>
+                {l.lenderList.length > 0 && (
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: 10.5, fontWeight: 700, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 7 }}>
+                      Who lent it{l.lenderList.length > 1 ? ` (${l.lenderList.length} people)` : ''}
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      {l.lenderList.map((x, i) => (
+                        <div key={i} style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10, padding: '9px 13px', minWidth: 150 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+                            <span style={{ fontSize: 13, fontWeight: 700, color: '#0d1b2a' }}>{x.name}</span>
+                            {x.type && <Badge color={x.type === 'Bank' ? 'blue' : x.type === 'Family' ? 'purple' : 'gray'}>{x.type}</Badge>}
+                          </div>
+                          <div style={{ fontSize: 11.5, color: '#999', marginTop: 4, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                            {num(x.amount) > 0 && <span style={{ fontWeight: 700, color: '#2f6fc0' }}>{money(x.amount)}</span>}
+                            {x.phone && <a href={`tel:${x.phone}`} style={{ color: '#999', textDecoration: 'none' }}>{x.phone}</a>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 <div style={{ display: 'flex', gap: 26, flexWrap: 'wrap', marginBottom: 16 }}>
                   {Array.isArray(l.received_slips) && l.received_slips.length > 0 && (
                     <div>
@@ -670,10 +739,53 @@ export default function Loans() {
       {/* ── Add / edit loan ── */}
       {loanModal && (
         <Modal title={editing ? 'Edit loan' : 'Add a loan'} subtitle="Who lent it, for how long, and what it costs" onClose={() => setLoanModal(false)} width={640}>
-          <FormRow>
-            <Input label="Who lent it *" value={loanForm.lender} onChange={e => setLoanForm(f => ({ ...f, lender: e.target.value }))} placeholder="e.g. BML, MIB, family" />
-            <Input label="Loan / account number" value={loanForm.reference} onChange={e => setLoanForm(f => ({ ...f, reference: e.target.value }))} placeholder="optional" />
-          </FormRow>
+          {/* who lent it — one row per person, so a loan can be split between several */}
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 7, gap: 10, flexWrap: 'wrap' }}>
+              <label style={{ fontSize: 11, color: '#888', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Who lent it *</label>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#bbb' }}>
+                Loan no.
+                <input value={loanForm.reference} onChange={e => setLoanForm(f => ({ ...f, reference: e.target.value }))}
+                  title="Generated for you — type over it if the lender has their own reference"
+                  style={{ width: 82, padding: '4px 8px', border: '1px solid #eee', borderRadius: 7, fontSize: 11.5, fontFamily: 'inherit', fontWeight: 700, color: '#666', background: '#faf9f7', textAlign: 'center' }} />
+              </span>
+            </div>
+
+            {formLenders.map((x, i) => (
+              <div key={i} style={{ display: 'flex', gap: 7, marginBottom: 7, alignItems: 'center', flexWrap: 'wrap' }}>
+                <input value={x.name} onChange={e => updateLender(i, 'name', e.target.value)} placeholder="Name"
+                  style={{ flex: '2 1 130px', minWidth: 0, padding: '9px 11px', border: '1px solid #e0e0e0', borderRadius: 9, fontSize: 13, fontFamily: 'inherit' }} />
+                <select value={x.type} onChange={e => updateLender(i, 'type', e.target.value)}
+                  style={{ flex: '1 1 96px', minWidth: 0, padding: '9px 8px', border: '1px solid #e0e0e0', borderRadius: 9, fontSize: 12.5, fontFamily: 'inherit', background: '#fff' }}>
+                  {LENDER_TYPES.map(t => <option key={t}>{t}</option>)}
+                </select>
+                <input type="number" value={x.amount} onChange={e => updateLender(i, 'amount', e.target.value)} placeholder="Amount"
+                  style={{ flex: '1 1 92px', minWidth: 0, padding: '9px 11px', border: '1px solid #e0e0e0', borderRadius: 9, fontSize: 13, fontFamily: 'inherit' }} />
+                <input value={x.phone} onChange={e => updateLender(i, 'phone', e.target.value)} placeholder="Phone" inputMode="tel"
+                  style={{ flex: '1 1 96px', minWidth: 0, padding: '9px 11px', border: '1px solid #e0e0e0', borderRadius: 9, fontSize: 13, fontFamily: 'inherit' }} />
+                <button type="button" onClick={() => removeLender(i)} title="Remove"
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 5, display: 'flex', flexShrink: 0 }}>
+                  <X size={14} color="#d5cfc6" />
+                </button>
+              </div>
+            ))}
+
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginTop: 4 }}>
+              <Button size="sm" variant="ghost" onClick={addLender}><Plus size={12} /> Add another lender</Button>
+              {lendersTotal > 0 && (
+                <span style={{ fontSize: 11.5, color: '#999' }}>
+                  Lenders add up to <b style={{ color: '#0d1b2a' }}>{money(lendersTotal)}</b>
+                  {num(loanForm.amount) > 0 && Math.abs(lendersTotal - num(loanForm.amount)) < 0.01
+                    ? <span style={{ color: '#1D9E75', fontWeight: 700 }}> ✓ matches</span>
+                    : <button type="button" onClick={() => setLoanForm(f => ({ ...f, amount: lendersTotal }))}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#FFA500', fontWeight: 700, fontSize: 11.5, fontFamily: 'inherit', textDecoration: 'underline', padding: '0 0 0 6px' }}>
+                        use as loan amount
+                      </button>}
+                </span>
+              )}
+            </div>
+          </div>
+
           <FormRow>
             <Input label="Amount (MVR) *" type="number" value={loanForm.amount} onChange={e => setLoanForm(f => ({ ...f, amount: e.target.value }))} />
             <Input label="Received date" type="date" value={loanForm.received_date} onChange={e => setLoanForm(f => ({ ...f, received_date: e.target.value }))} />
