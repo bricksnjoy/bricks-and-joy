@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Button, Spinner, useToast, Toasts } from '../components/UI'
-import { ClipboardList, TrendingUp, Package, ShoppingBag, Boxes, AlertTriangle, Truck } from 'lucide-react'
+import { ClipboardList, TrendingUp, Package, ShoppingBag, Boxes, AlertTriangle, Truck, Calculator } from 'lucide-react'
 import { getSettings } from '../lib/settings'
 
 const PERIODS = [{ d: 30, label: '30 days' }, { d: 60, label: '60 days' }, { d: 90, label: '90 days' }]
@@ -17,6 +17,7 @@ export default function StockReport() {
   const [coverDays, setCoverDays] = useState(30)
   const [leadDays, setLeadDays] = useState(90)
   const [budgetInput, setBudgetInput] = useState('')
+  const [sending, setSending] = useState(false)
   const toast = useToast()
 
   const currency = getSettings().currency || 'MVR'
@@ -27,7 +28,7 @@ export default function StockReport() {
     setLoading(true)
     const [o, p] = await Promise.all([
       supabase.from('orders').select('product_id, product_name, qty, unit_price, total_price, status, order_date'),
-      supabase.from('products').select('id, name, cost_price, sell_price, stock_qty, discontinued, low_stock_threshold, category'),
+      supabase.from('products').select('id, name, sku, cost_price, sell_price, stock_qty, discontinued, low_stock_threshold, category, brand, photo_url, supplier_id'),
     ])
     setOrders(o.data || [])
     setProducts(p.data || [])
@@ -73,7 +74,9 @@ export default function StockReport() {
       const stockoutRisk = dailyRate > 0 && daysCover < leadDays // will run out before a new order can arrive
       const unitCost = Number(p.cost_price || 0)
       return {
-        id, name: p.name || 'Unknown', category: p.category || '', supplierId: p.supplier_id || null,
+        id, name: p.name || 'Unknown', category: p.category || '', brand: p.brand || '',
+        sku: p.sku || null, photo: p.photo_url || null, sellPrice: Number(p.sell_price || 0),
+        supplierId: p.supplier_id || null,
         units, revenue: a.revenue, profit, margin: a.revenue > 0 ? Math.round(profit / a.revenue * 100) : 0,
         stock, daysCover, weeklyRate, leadDemand, reorderPoint, reorderNow, stockoutRisk,
         reorderQty, unitCost, reorderCost: reorderQty * unitCost,
@@ -104,6 +107,36 @@ export default function StockReport() {
     const newBudget = Math.max(0, remaining)
     return { budget, fundedTotal, funded, newBudget, estNew: avgCost > 0 ? Math.floor(newBudget / avgCost) : 0, reorderTotal: summary.reorderTotal, fundedCount: funded.length, reorderCount: cands.length }
   }, [rows, budgetInput, summary, avgCost])
+
+  // Preferred route: send the reorder list into Order Analysis so the margins,
+  // landed cost and quantities get checked before a real order exists.
+  async function analyseReorders() {
+    const items = rows.filter(r => r.reorderQty > 0)
+    if (!items.length) { toast.error('Nothing needs reordering right now'); return }
+    setSending(true)
+    const { data, error } = await supabase.from('order_analyses').insert({
+      name: `Restock — ${new Date().toISOString().slice(0, 10)}`,
+      status: 'draft', target_margin: 40, extra_costs: [],
+      notes: `From the Stock Report — ${leadDays}-day lead time, ${coverDays} days of cover after arrival.`,
+    }).select()
+    if (error || !data?.[0]) {
+      setSending(false)
+      toast.error('Could not start the analysis: ' + (error?.message || 'unknown error'))
+      return
+    }
+    const analysis = data[0]
+    const { error: itemErr } = await supabase.from('order_analysis_items').insert(items.map((r, n) => ({
+      analysis_id: analysis.id, source: 'inventory', product_id: r.id,
+      product_name: r.name, sku: r.sku, category: r.category || null, brand: r.brand || null,
+      image_url: r.photo, qty: r.reorderQty, unit_cost: r.unitCost, sell_price: r.sellPrice,
+      current_stock: r.stock, sort_order: n,
+    })))
+    setSending(false)
+    if (itemErr) { toast.error('Failed: ' + itemErr.message); return }
+    localStorage.setItem('bnj_open_analysis', analysis.id)
+    toast.success(`Analysing ${items.length} restock${items.length > 1 ? 's' : ''}…`)
+    setTimeout(() => window.dispatchEvent(new CustomEvent('bnj-navigate', { detail: 'order-analysis' })), 400)
+  }
 
   // One-click: pre-fill the Batch Orders "Create batch order" modal with the
   // reorder list, so it can be reviewed/edited before anything is saved.
@@ -213,9 +246,14 @@ export default function StockReport() {
                 {reorderNowCount > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: '#E24B4A', background: '#FDECEC', padding: '3px 10px', borderRadius: 99 }}>{reorderNowCount} to order now</span>}
               </div>
               {reorderCount > 0 && (
-                <Button onClick={createBatchOrder}>
-                  <Truck size={14} /> Create batch order ({reorderCount})
-                </Button>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <Button onClick={analyseReorders} disabled={sending}>
+                    <Calculator size={14} /> Analyse first ({reorderCount})
+                  </Button>
+                  <Button variant="ghost" onClick={createBatchOrder}>
+                    <Truck size={14} /> Straight to batch order
+                  </Button>
+                </div>
               )}
             </div>
             {rows.length === 0 ? (

@@ -5,13 +5,18 @@ import { logAudit } from '../lib/audit'
 import { PageHeader, Card, Button, Input, Select, Modal, Spinner, useToast, Toasts, Badge, ImageTile } from '../components/UI'
 import {
   Plus, Trash2, Calculator, Search, Package, BookOpen, TrendingUp, TrendingDown,
-  ArrowLeft, Truck, FileSpreadsheet, AlertTriangle, CheckCircle, Copy, Percent, X
+  ArrowLeft, Truck, FileSpreadsheet, AlertTriangle, CheckCircle, Copy, Percent, X, Building2
 } from 'lucide-react'
 import * as XLSX from 'xlsx'
 
 // Extra (landed) costs that apply to the whole order and get shared across the
 // products in proportion to what each product costs.
 const COST_TYPES = ['Shipping / Freight', 'Customs / Duty', 'Transaction charge', 'Local delivery', 'Other']
+
+// How long stock takes to reach us, and how long the order should last after it
+// lands — matches the Stock Report so both pages suggest the same quantities.
+const LEAD_DAYS = 90
+const COVER_DAYS = 30
 
 const num = v => (v === '' || v == null || isNaN(Number(v)) ? 0 : Number(v))
 const mv = n => 'MVR ' + num(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -103,6 +108,23 @@ const VERDICT = {
   unpriced: { color: 'gray',  label: 'No sell price' },
 }
 
+// Most urgent first when listing what to reorder
+const URGENCY_RANK = { out: 0, now: 1, low: 2 }
+
+const NEED = {
+  out: { color: 'red',   label: 'Out of stock' },
+  now: { color: 'amber', label: 'Order now' },
+  low: { color: 'blue',  label: 'Running low' },
+}
+
+const chipStyle = active => ({
+  padding: '5px 11px', borderRadius: 99, cursor: 'pointer', fontFamily: 'inherit',
+  fontSize: 11.5, fontWeight: active ? 700 : 600, whiteSpace: 'nowrap',
+  border: `1px solid ${active ? '#FFA500' : '#eee'}`,
+  background: active ? '#FFA500' : '#fff',
+  color: active ? '#fff' : '#888',
+})
+
 export default function OrderAnalysis() {
   const [analyses, setAnalyses] = useState([])
   const [openId, setOpenId] = useState(() => localStorage.getItem('bnj_open_analysis') || null)
@@ -118,6 +140,8 @@ export default function OrderAnalysis() {
   const [newForm, setNewForm] = useState({ name: '', supplier_id: '', supplier_name: '', target_margin: 40 })
   const [pickModal, setPickModal] = useState(null) // 'catalog' | 'inventory'
   const [pickSearch, setPickSearch] = useState('')
+  const [pickVendor, setPickVendor] = useState('all')
+  const [pickNeeds, setPickNeeds] = useState(false)
   const [picked, setPicked] = useState(() => new Set())
   const toast = useToast()
 
@@ -190,6 +214,56 @@ export default function OrderAnalysis() {
     [items, open, velocity]
   )
 
+  // ── What actually needs reordering ──────────────────────────────────────────
+  // Same lead-time maths as the Stock Report: order enough to cover the wait for
+  // the shipment plus a month after it lands. Anything out of stock, past its
+  // reorder point, or below its low-stock threshold gets surfaced.
+  const reorderInfo = useMemo(() => {
+    const m = new Map()
+    products.filter(p => !p.discontinued).forEach(p => {
+      const v = velocity({ product_id: p.id, product_name: p.name })
+      const stock = num(p.stock_qty)
+      const threshold = p.low_stock_threshold ?? 10
+      const perDay = v.perDay
+      const reorderPoint = Math.ceil(perDay * LEAD_DAYS * 1.2)     // lead-time demand + 20% buffer
+      let qty = perDay > 0 ? Math.max(0, Math.ceil(perDay * (LEAD_DAYS + COVER_DAYS) - stock)) : 0
+      // No recent sales but the shelf is empty/low — top up to about 2× the threshold
+      if (qty <= 0 && stock <= threshold) qty = Math.max(threshold * 2 - stock, threshold)
+      const urgency = stock <= 0 ? 'out'
+        : (perDay > 0 && stock <= reorderPoint) ? 'now'
+          : stock <= threshold ? 'low' : null
+      if (qty > 0 && urgency) m.set(p.id, { qty, urgency, stock, perMonth: v.perMonth, threshold })
+    })
+    return m
+  }, [products, velocity])
+
+  const recommendations = useMemo(() => {
+    const inAnalysis = new Set(items.map(i => i.product_id).filter(Boolean))
+    return products
+      .filter(p => reorderInfo.has(p.id) && !inAnalysis.has(p.id))
+      .map(p => ({ product: p, ...reorderInfo.get(p.id) }))
+      .sort((a, b) => (URGENCY_RANK[a.urgency] - URGENCY_RANK[b.urgency]) || (b.perMonth - a.perMonth))
+  }, [products, reorderInfo, items])
+
+  // Pull inventory products straight in at their suggested reorder quantity
+  async function addProducts(list) {
+    if (!list.length) return
+    const records = list.map((p, n) => ({
+      analysis_id: open.id, source: 'inventory', product_id: p.id, supplier_product_id: null,
+      product_name: p.name, sku: p.sku || null, category: p.category || null, brand: p.brand || null,
+      image_url: p.photo_url || null,
+      qty: reorderInfo.get(p.id)?.qty || 1,
+      unit_cost: num(p.cost_price), sell_price: num(p.sell_price),
+      current_stock: num(p.stock_qty), sort_order: items.length + n,
+    }))
+    setSaving(true)
+    const { error } = await insertStrip('order_analysis_items', records)
+    setSaving(false)
+    if (error) { toast.error('Failed: ' + error.message); return }
+    loadItems(open.id)
+    toast.success(`Added ${records.length} product${records.length > 1 ? 's' : ''} at the suggested quantity`)
+  }
+
   // ── Analysis CRUD ───────────────────────────────────────────────────────────
   async function createAnalysis() {
     const supplier = suppliers.find(s => s.id === newForm.supplier_id)
@@ -228,6 +302,30 @@ export default function OrderAnalysis() {
     setAnalyses(prev => prev.filter(x => x.id !== a.id))
     if (openId === a.id) setOpenId(null)
     toast.success('Analysis deleted')
+  }
+
+  // Start an analysis pre-loaded with everything the shelves say needs restocking
+  async function startRestockAnalysis() {
+    if (!recommendations.length) return
+    setSaving(true)
+    const { data, error } = await insertStrip('order_analyses', {
+      name: `Restock — ${localToday()}`, status: 'draft', target_margin: 40, extra_costs: [],
+      notes: `Products that hit their reorder point — quantities cover the ${LEAD_DAYS}-day wait plus ${COVER_DAYS} days after arrival.`,
+    }, true)
+    if (error || !data?.[0]) { setSaving(false); toast.error('Failed: ' + (error?.message || '')); return }
+    const analysis = data[0]
+    const { error: itemErr } = await insertStrip('order_analysis_items', recommendations.map((r, n) => ({
+      analysis_id: analysis.id, source: 'inventory', product_id: r.product.id,
+      product_name: r.product.name, sku: r.product.sku || null, category: r.product.category || null,
+      brand: r.product.brand || null, image_url: r.product.photo_url || null,
+      qty: r.qty, unit_cost: num(r.product.cost_price), sell_price: num(r.product.sell_price),
+      current_stock: num(r.product.stock_qty), sort_order: n,
+    })))
+    setSaving(false)
+    if (itemErr) { toast.error('Failed: ' + itemErr.message); return }
+    setAnalyses(prev => [analysis, ...prev])
+    setOpenId(analysis.id)
+    toast.success(`Analysing ${recommendations.length} restocks`)
   }
 
   async function duplicateAnalysis(a) {
@@ -279,9 +377,12 @@ export default function OrderAnalysis() {
     toast.success('Cleared')
   }
 
-  function openPicker(kind) {
+  function openPicker(kind, opts = {}) {
     setPickModal(kind)
     setPickSearch('')
+    // Default to this analysis's own supplier so the list isn't a jumble of vendors
+    setPickVendor(kind === 'catalog' && open?.supplier_id ? open.supplier_id : 'all')
+    setPickNeeds(!!opts.needsOnly)
     setPicked(new Set())
   }
 
@@ -307,7 +408,9 @@ export default function OrderAnalysis() {
         analysis_id: open.id, source: 'inventory', product_id: p.id, supplier_product_id: null,
         product_name: p.name, sku: p.sku || null, category: p.category || null, brand: p.brand || null,
         image_url: p.photo_url || null,
-        qty: 1, unit_cost: num(p.cost_price), sell_price: num(p.sell_price),
+        // Start at the suggested reorder quantity when we know it needs restocking
+        qty: reorderInfo.get(p.id)?.qty || 1,
+        unit_cost: num(p.cost_price), sell_price: num(p.sell_price),
         current_stock: num(p.stock_qty), sort_order: items.length + n,
       }))
     }
@@ -448,12 +551,47 @@ export default function OrderAnalysis() {
   if (open) {
     const converted = open.status === 'converted'
     const target = num(open.target_margin) || 40
-    const pickList = (pickModal === 'catalog' ? catalog : products).filter(x => {
-      const name = pickModal === 'catalog' ? x.product_name : x.name
-      const q = pickSearch.toLowerCase()
-      return !q || name?.toLowerCase().includes(q) || x.sku?.toLowerCase().includes(q) || x.category?.toLowerCase().includes(q)
-    })
     const alreadyIn = new Set(items.map(i => i.supplier_product_id || i.product_id).filter(Boolean))
+
+    // ── Picker: filtered, then grouped under the vendor each product comes from ──
+    const vendorNameOf = x => (pickModal === 'catalog'
+      ? (x.supplier_name || suppliers.find(s => s.id === x.supplier_id)?.name)
+      : suppliers.find(s => s.id === x.supplier_id)?.name) || 'No vendor'
+    const pickSource = pickModal === 'catalog' ? catalog : products.filter(p => !p.discontinued)
+    const matchesSearch = x => {
+      const q = pickSearch.toLowerCase().trim()
+      if (!q) return true
+      const name = pickModal === 'catalog' ? x.product_name : x.name
+      return name?.toLowerCase().includes(q) || x.sku?.toLowerCase().includes(q) || x.category?.toLowerCase().includes(q)
+    }
+    const matchesNeeds = x => !pickNeeds || (pickModal === 'inventory' && reorderInfo.has(x.id))
+    const searched = pickSource.filter(x => matchesSearch(x) && matchesNeeds(x))
+    // Vendor tabs are counted off the searched set so the numbers reflect the search
+    const vendorTabs = suppliers
+      .map(s => ({ id: s.id, name: s.name, count: searched.filter(x => x.supplier_id === s.id).length }))
+      .filter(v => v.count > 0)
+      .sort((a, b) => b.count - a.count)
+    const looseCount = searched.filter(x => !x.supplier_id || !suppliers.some(s => s.id === x.supplier_id)).length
+    const pickFiltered = searched.filter(x => pickVendor === 'all' || x.supplier_id === pickVendor)
+    const pickGroups = Object.values(
+      pickFiltered.reduce((acc, x) => {
+        const key = x.supplier_id || 'none'
+        if (!acc[key]) acc[key] = { key, label: vendorNameOf(x), items: [] }
+        acc[key].items.push(x)
+        return acc
+      }, {})
+    ).sort((a, b) => {
+      // This analysis's own vendor sits at the top, unassigned products at the bottom
+      if (a.key === open.supplier_id) return -1
+      if (b.key === open.supplier_id) return 1
+      if (a.key === 'none') return 1
+      if (b.key === 'none') return -1
+      return a.label.localeCompare(b.label)
+    })
+    pickGroups.forEach(g => g.items.sort((a, b) =>
+      (pickModal === 'catalog' ? a.product_name : a.name || '').localeCompare(pickModal === 'catalog' ? b.product_name : b.name || '')))
+    const needsCount = products.filter(p => !p.discontinued && reorderInfo.has(p.id) && !alreadyIn.has(p.id)).length
+    const selectableIn = g => g.items.filter(x => !alreadyIn.has(x.id)).map(x => x.id)
 
     return (
       <div>
@@ -558,6 +696,44 @@ export default function OrderAnalysis() {
             )}
           </Card>
         </div>
+
+        {/* Suggested restocks — what your own shelves say you should be buying */}
+        {!converted && recommendations.length > 0 && (
+          <Card style={{ marginBottom: 18, background: '#fffdf8', border: '1px solid #f4e7cd' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
+              <div>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: '#0d1b2a', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <AlertTriangle size={14} color="#e6940a" /> {recommendations.length} product{recommendations.length > 1 ? 's' : ''} you should probably reorder
+                </div>
+                <div style={{ fontSize: 11.5, color: '#a9a094', marginTop: 3 }}>
+                  Out of stock, past the reorder point, or running low — quantities cover the {LEAD_DAYS}-day wait plus {COVER_DAYS} days after arrival.
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Button size="sm" variant="ghost" onClick={() => openPicker('inventory', { needsOnly: true })}>Browse all</Button>
+                <Button size="sm" onClick={() => addProducts(recommendations.slice(0, 12).map(r => r.product))} disabled={saving}>
+                  <Plus size={13} /> Add {Math.min(recommendations.length, 12)}
+                </Button>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {recommendations.slice(0, 10).map(r => (
+                <button key={r.product.id} onClick={() => addProducts([r.product])} disabled={saving}
+                  title={`${r.stock} in stock · sells ${r.perMonth.toFixed(1)}/month · suggest ordering ${r.qty}`}
+                  style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px 7px 8px', borderRadius: 99, border: '1px solid #f0e4cd', background: '#fff', cursor: 'pointer', fontFamily: 'inherit' }}>
+                  <span style={{ width: 24, height: 24, borderRadius: '50%', overflow: 'hidden', background: '#f7f5f2', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    {r.product.photo_url
+                      ? <img src={r.product.photo_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      : <Package size={11} color="#d5cfc6" />}
+                  </span>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: '#0d1b2a', maxWidth: 170, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.product.name}</span>
+                  <Badge color={NEED[r.urgency].color}>{r.urgency === 'out' ? 'Out' : r.urgency === 'now' ? 'Order now' : 'Low'}</Badge>
+                  <span style={{ fontSize: 11.5, fontWeight: 700, color: '#FFA500' }}>+{r.qty}</span>
+                </button>
+              ))}
+            </div>
+          </Card>
+        )}
 
         {/* Products */}
         <Card style={{ padding: 0, overflow: 'hidden' }}>
@@ -711,34 +887,86 @@ export default function OrderAnalysis() {
               <input value={pickSearch} onChange={e => setPickSearch(e.target.value)} placeholder="Search by name, SKU or category…" autoFocus
                 style={{ width: '100%', padding: '10px 12px 10px 34px', border: '1px solid #e0e0e0', borderRadius: 9, fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box' }} />
             </div>
-            <div style={{ maxHeight: 380, overflowY: 'auto', border: '1px solid #f0f0f0', borderRadius: 10 }}>
-              {pickList.length === 0 && <div style={{ padding: 24, textAlign: 'center', color: '#bbb', fontSize: 13 }}>Nothing found.</div>}
-              {pickList.map(x => {
-                const id = x.id
-                const name = pickModal === 'catalog' ? x.product_name : x.name
-                const img = pickModal === 'catalog' ? x.image_url : x.photo_url
-                const cost = num(x.cost_price), sell = num(x.sell_price)
-                const inAlready = alreadyIn.has(id)
-                const on = picked.has(id)
+            {/* Vendor tabs — products are listed under the vendor they come from */}
+            <div className="x-scroll" style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+              <button onClick={() => setPickVendor('all')} style={chipStyle(pickVendor === 'all')}>
+                All vendors <span style={{ opacity: 0.65 }}>{searched.length}</span>
+              </button>
+              {vendorTabs.map(v => (
+                <button key={v.id} onClick={() => setPickVendor(v.id)} style={chipStyle(pickVendor === v.id)}>
+                  {v.name} <span style={{ opacity: 0.65 }}>{v.count}</span>
+                </button>
+              ))}
+              {looseCount > 0 && (
+                <button onClick={() => setPickVendor('none')} style={chipStyle(pickVendor === 'none')}>
+                  No vendor <span style={{ opacity: 0.65 }}>{looseCount}</span>
+                </button>
+              )}
+              {pickModal === 'inventory' && (
+                <button onClick={() => setPickNeeds(n => !n)}
+                  style={{ ...chipStyle(pickNeeds), marginLeft: 'auto', background: pickNeeds ? '#E24B4A' : '#fff', borderColor: pickNeeds ? '#E24B4A' : '#f0d9d7', color: pickNeeds ? '#fff' : '#c0392b' }}>
+                  <AlertTriangle size={11} style={{ verticalAlign: -1 }} /> Needs reordering {needsCount > 0 && <span style={{ opacity: 0.8 }}>{needsCount}</span>}
+                </button>
+              )}
+            </div>
+
+            <div style={{ maxHeight: 360, overflowY: 'auto', border: '1px solid #f0f0f0', borderRadius: 10 }}>
+              {pickGroups.length === 0 && <div style={{ padding: 24, textAlign: 'center', color: '#bbb', fontSize: 13 }}>Nothing found.</div>}
+              {pickGroups.map(g => {
+                const ids = selectableIn(g)
+                const allOn = ids.length > 0 && ids.every(id => picked.has(id))
                 return (
-                  <label key={id} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '9px 12px', borderBottom: '1px solid #f7f7f7', cursor: inAlready ? 'default' : 'pointer', opacity: inAlready ? 0.45 : 1, background: on ? '#fffaf0' : '#fff' }}>
-                    <input type="checkbox" checked={on} disabled={inAlready}
-                      onChange={() => setPicked(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })} />
-                    <div style={{ width: 34, height: 34, borderRadius: 7, background: '#f7f5f2', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-                      {img ? <img src={img} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} /> : <Package size={14} color="#d5cfc6" />}
+                  <div key={g.key}>
+                    <div style={{ position: 'sticky', top: 0, zIndex: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '7px 12px', background: '#f8f7f4', borderBottom: '1px solid #f0ece6' }}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 800, color: '#8a8378', textTransform: 'uppercase', letterSpacing: '0.6px' }}>
+                        <Building2 size={12} color="#c4bcb0" /> {g.label}
+                        <span style={{ color: '#c4bcb0', fontWeight: 600 }}>({g.items.length})</span>
+                      </span>
+                      {ids.length > 0 && (
+                        <button onClick={() => setPicked(prev => {
+                          const n = new Set(prev)
+                          allOn ? ids.forEach(id => n.delete(id)) : ids.forEach(id => n.add(id))
+                          return n
+                        })}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: '#FFA500', fontFamily: 'inherit', padding: 0 }}>
+                          {allOn ? 'Clear' : 'Select all'}
+                        </button>
+                      )}
                     </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: '#0d1b2a' }}>{name}</div>
-                      <div style={{ fontSize: 11, color: '#bbb' }}>
-                        {[x.sku, x.category, pickModal === 'catalog' ? x.supplier_name : `${num(x.stock_qty)} in stock`].filter(Boolean).join(' · ')}
-                        {inAlready ? ' · already added' : ''}
-                      </div>
-                    </div>
-                    <div style={{ textAlign: 'right', fontSize: 11.5, color: '#888', whiteSpace: 'nowrap' }}>
-                      <div>cost {cost ? mv(cost) : '—'}</div>
-                      <div style={{ color: '#bbb' }}>sell {sell ? mv(sell) : '—'}</div>
-                    </div>
-                  </label>
+                    {g.items.map(x => {
+                      const id = x.id
+                      const name = pickModal === 'catalog' ? x.product_name : x.name
+                      const img = pickModal === 'catalog' ? x.image_url : x.photo_url
+                      const cost = num(x.cost_price), sell = num(x.sell_price)
+                      const inAlready = alreadyIn.has(id)
+                      const on = picked.has(id)
+                      const need = pickModal === 'inventory' ? reorderInfo.get(id) : null
+                      return (
+                        <label key={id} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '9px 12px', borderBottom: '1px solid #f7f7f7', cursor: inAlready ? 'default' : 'pointer', opacity: inAlready ? 0.45 : 1, background: on ? '#fffaf0' : '#fff' }}>
+                          <input type="checkbox" checked={on} disabled={inAlready}
+                            onChange={() => setPicked(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })} />
+                          <div style={{ width: 34, height: 34, borderRadius: 7, background: '#f7f5f2', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                            {img ? <img src={img} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} /> : <Package size={14} color="#d5cfc6" />}
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: '#0d1b2a', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                              {name}
+                              {need && <Badge color={NEED[need.urgency].color}>{NEED[need.urgency].label}</Badge>}
+                            </div>
+                            <div style={{ fontSize: 11, color: '#bbb' }}>
+                              {[x.sku, x.category, pickModal === 'inventory' ? `${num(x.stock_qty)} in stock` : null].filter(Boolean).join(' · ')}
+                              {need ? ` · suggest +${need.qty}` : ''}
+                              {inAlready ? ' · already added' : ''}
+                            </div>
+                          </div>
+                          <div style={{ textAlign: 'right', fontSize: 11.5, color: '#888', whiteSpace: 'nowrap' }}>
+                            <div>cost {cost ? mv(cost) : '—'}</div>
+                            <div style={{ color: '#bbb' }}>sell {sell ? mv(sell) : '—'}</div>
+                          </div>
+                        </label>
+                      )
+                    })}
+                  </div>
                 )
               })}
             </div>
@@ -779,6 +1007,27 @@ export default function OrderAnalysis() {
           <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Package size={14} color="#bbb" /> Inventory</span>
         </div>
       </Card>
+
+      {recommendations.length > 0 && (
+        <Card style={{ marginBottom: 20, background: '#fffdf8', border: '1px solid #f4e7cd', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+            <AlertTriangle size={17} color="#e6940a" style={{ flexShrink: 0, marginTop: 2 }} />
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#0d1b2a' }}>
+                {recommendations.length} product{recommendations.length > 1 ? 's need' : ' needs'} reordering
+              </div>
+              <div style={{ fontSize: 12, color: '#a9a094', marginTop: 3 }}>
+                {[['out', 'out of stock'], ['now', 'past the reorder point'], ['low', 'running low']]
+                  .map(([k, label]) => { const n = recommendations.filter(r => r.urgency === k).length; return n ? `${n} ${label}` : null })
+                  .filter(Boolean).join(' · ')}
+              </div>
+            </div>
+          </div>
+          <Button onClick={startRestockAnalysis} disabled={saving}>
+            <Calculator size={14} /> Analyse the restock
+          </Button>
+        </Card>
+      )}
 
       {analyses.length === 0 && (
         <Card style={{ textAlign: 'center', padding: '56px 24px' }}>
