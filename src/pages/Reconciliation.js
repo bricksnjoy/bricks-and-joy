@@ -62,7 +62,8 @@ export default function Reconciliation() {
   const [editLines, setEditLines] = useState([])    // working copy of its lines
   const [reconFilter, setReconFilter] = useState('all') // all | matched | unmatched
   const [savingEdit, setSavingEdit] = useState(false)
-  const [workFilter, setWorkFilter] = useState('all')   // all | review | matched | ignored
+  // Opens on what still needs you, not on the whole statement
+  const [workFilter, setWorkFilter] = useState('review') // review | all | matched | ignored
   const [search, setSearch] = useState('')
   const [expenseModal, setExpenseModal] = useState(null) // record a missing expense from a line
   const fileRef = useRef(null)
@@ -307,6 +308,35 @@ export default function Reconciliation() {
         || String(m.amt).includes(q))
   }, [matches, workFilter, search])
 
+  // Rows grouped under the day they happened, oldest first, with that day's
+  // running totals — a statement reads far better by date than as one long list.
+  const workDays = useMemo(() => {
+    const byDay = new Map()
+    workRows.forEach(r => {
+      const key = ymd(r.m.stmt.date) || 'No date'
+      if (!byDay.has(key)) byDay.set(key, { key, date: r.m.stmt.date, rows: [], in: 0, out: 0, review: 0 })
+      const g = byDay.get(key)
+      g.rows.push(r)
+      if (r.m.isIn) g.in += r.m.amt; else g.out += r.m.amt
+      if (!r.m.matchId && !r.m.ignored) g.review += 1
+    })
+    return [...byDay.values()].sort((a, b) => a.key.localeCompare(b.key))
+  }, [workRows])
+
+  // Everything still unaccounted for, by day — the shortlist to work through
+  const unexplainedDays = useMemo(() => {
+    const byDay = new Map()
+    matches.forEach((m, idx) => {
+      if (m.matchId || m.ignored) return
+      const key = ymd(m.stmt.date) || 'No date'
+      if (!byDay.has(key)) byDay.set(key, { key, rows: [], in: 0, out: 0 })
+      const g = byDay.get(key)
+      g.rows.push({ m, idx })
+      if (m.isIn) g.in += m.amt; else g.out += m.amt
+    })
+    return [...byDay.values()].sort((a, b) => a.key.localeCompare(b.key))
+  }, [matches])
+
   async function finish() {
     const cleared = matches.filter(m => m.matchId).map(m => m.matchId)
     if (!cleared.length && !sum.ignoredCount) { toast.error('Nothing matched to reconcile'); return }
@@ -502,6 +532,8 @@ export default function Reconciliation() {
         .rec-table th { text-align:left; font-size:11px; font-weight:700; color:#999; text-transform:uppercase; letter-spacing:0.4px; padding:9px 10px; border-bottom:2px solid #f0f0f0; white-space:nowrap; }
         .rec-table td { padding:9px 10px; border-bottom:1px solid #f5f5f5; vertical-align:middle; }
         .rec-table tr.unmatched td { background:#FFFBF2; }
+        .rec-table tr.rec-day td { background:#f8f7f4; border-bottom:1px solid #efece6; padding:7px 10px;
+          font-size:11px; font-weight:800; color:#8a8378; text-transform:uppercase; letter-spacing:0.5px; white-space:nowrap; }
         .rec-in { color:#1D9E75; font-weight:700; }
         .rec-out { color:#E24B4A; font-weight:700; }
         .rec-pill { font-size:11px; font-weight:700; padding:3px 9px; border-radius:99px; display:inline-flex; align-items:center; gap:4px; white-space:nowrap; }
@@ -644,6 +676,77 @@ export default function Reconciliation() {
             )}
           </Card>
 
+          {/* Still unexplained — the shortlist, day by day */}
+          {sum.unmatchedCount > 0 && (
+            <Card style={{ marginBottom: 16, background: '#fffdf8', border: '1px solid #f4e7cd' }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#0d1b2a', display: 'flex', alignItems: 'center', gap: 7 }}>
+                    <AlertTriangle size={14} color="#e6940a" />
+                    {sum.unmatchedCount} bank line{sum.unmatchedCount > 1 ? 's' : ''} still unexplained
+                  </div>
+                  <div style={{ fontSize: 11.5, color: '#a9a094', marginTop: 3 }}>
+                    Money the bank moved that your books don't know about — across {unexplainedDays.length} day{unexplainedDays.length > 1 ? 's' : ''}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 22 }}>
+                  {sum.needsReviewOut > 0 && (
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: 9.5, color: '#c4bcb0', textTransform: 'uppercase', letterSpacing: '0.6px', fontWeight: 700 }}>Went out</div>
+                      <div style={{ fontSize: 16, fontWeight: 800, color: '#E24B4A' }}>{money(sum.needsReviewOut)}</div>
+                    </div>
+                  )}
+                  {sum.needsReviewIn > 0 && (
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: 9.5, color: '#c4bcb0', textTransform: 'uppercase', letterSpacing: '0.6px', fontWeight: 700 }}>Came in</div>
+                      <div style={{ fontSize: 16, fontWeight: 800, color: '#1D9E75' }}>{money(sum.needsReviewIn)}</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {unexplainedDays.map(d => (
+                  <div key={d.key}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
+                      <span style={{ fontSize: 11, fontWeight: 800, color: '#8a8378', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{fmtDate(d.key)}</span>
+                      <span style={{ flex: 1, height: 1, background: '#f0e8d8' }} />
+                      {d.out > 0 && <span style={{ fontSize: 11, color: '#E24B4A', fontWeight: 700 }}>−{money(d.out)}</span>}
+                      {d.in > 0 && <span style={{ fontSize: 11, color: '#1D9E75', fontWeight: 700 }}>+{money(d.in)}</span>}
+                    </div>
+                    {d.rows.map(({ m, idx }) => (
+                      <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#fff', border: '1px solid #f2eee6', borderRadius: 9, padding: '8px 12px', marginBottom: 5, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 12.5, fontWeight: 600, color: '#0d1b2a', flex: '1 1 160px', minWidth: 0 }}>
+                          {m.stmt.party || m.stmt.type || 'Transaction'}
+                          {m.stmt.ref && <span style={{ color: '#c4bcb0', fontWeight: 400 }}> · {m.stmt.ref}</span>}
+                        </span>
+                        <span style={{ fontSize: 13, fontWeight: 800, color: m.isIn ? '#1D9E75' : '#E24B4A', whiteSpace: 'nowrap' }}>
+                          {m.isIn ? '+' : '−'}{money(m.amt)}
+                        </span>
+                        {!m.isIn && (
+                          <Button size="sm" variant="ghost" onClick={() => openAddExpense(idx)}><Plus size={11} /> Record expense</Button>
+                        )}
+                        <select className="rec-sel" style={{ maxWidth: 170 }} value=""
+                          onChange={e => e.target.value && setMatch(idx, e.target.value)}>
+                          <option value="">Match to…</option>
+                          {candidates(m, idx).map(b => (
+                            <option key={b.id} value={b.id}>{money(b.amount)} · {fmtDate(b.date)} · {b.label}</option>
+                          ))}
+                        </select>
+                        <select className="rec-sel" style={{ maxWidth: 140 }} value=""
+                          onChange={e => { if (e.target.value) ignoreLine(idx, e.target.value === '__other' ? (window.prompt('What is this line?') || 'Not in the books') : e.target.value) }}>
+                          <option value="">Explain…</option>
+                          {IGNORE_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+                          <option value="__other">Something else…</option>
+                        </select>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+
           {/* Match table */}
           <Card>
             {/* filter + search */}
@@ -669,17 +772,32 @@ export default function Reconciliation() {
                 <thead><tr>
                   <th>Date</th><th>Bank line</th><th style={{ textAlign: 'right' }}>Amount</th><th>Matched to</th>
                 </tr></thead>
-                <tbody>
-                  {workRows.length === 0 && (
-                    <tr><td colSpan={4} style={{ textAlign: 'center', color: '#bbb', padding: '26px 0' }}>
-                      {workFilter === 'review' ? 'Nothing left to review — every line is accounted for. 🎉' : 'No lines here.'}
-                    </td></tr>
-                  )}
-                  {workRows.map(({ m, idx }) => {
+                {workRows.length === 0 && (
+                  <tbody><tr><td colSpan={4} style={{ textAlign: 'center', color: '#bbb', padding: '26px 0' }}>
+                    {workFilter === 'review' ? 'Nothing left to review — every line is accounted for. 🎉' : 'No lines here.'}
+                  </td></tr></tbody>
+                )}
+                {workDays.map(day => (
+                <tbody key={day.key}>
+                  {/* one heading per day, with what moved that day */}
+                  <tr className="rec-day">
+                    <td colSpan={2}>
+                      {fmtDate(day.key)}
+                      <span style={{ color: '#c4bcb0', fontWeight: 500 }}> · {day.rows.length} line{day.rows.length > 1 ? 's' : ''}</span>
+                      {day.review > 0 && <span style={{ color: '#b8740a', fontWeight: 700 }}> · {day.review} to review</span>}
+                    </td>
+                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      {day.in > 0 && <span style={{ color: '#1D9E75', fontWeight: 700 }}>+{money(day.in)}</span>}
+                      {day.in > 0 && day.out > 0 && <span style={{ color: '#ddd' }}> / </span>}
+                      {day.out > 0 && <span style={{ color: '#E24B4A', fontWeight: 700 }}>−{money(day.out)}</span>}
+                    </td>
+                    <td />
+                  </tr>
+                  {day.rows.map(({ m, idx }) => {
                     const matched = m.matchId ? bookById[m.matchId] : null
                     return (
                       <tr key={idx} className={m.matchId || m.ignored ? '' : 'unmatched'}>
-                        <td style={{ whiteSpace: 'nowrap', color: '#666' }}>{fmtDate(m.stmt.date)}</td>
+                        <td style={{ whiteSpace: 'nowrap', color: '#bbb', fontSize: 11.5 }}>{fmtDate(m.stmt.date)}</td>
                         <td>
                           <div style={{ fontWeight: 600, color: '#0d1b2a' }}>{m.stmt.party || m.stmt.type || 'Transaction'}</div>
                           <div style={{ fontSize: 11, color: '#aaa' }}>{m.stmt.type}{m.stmt.ref ? ` · ${m.stmt.ref}` : ''}</div>
@@ -732,6 +850,7 @@ export default function Reconciliation() {
                     )
                   })}
                 </tbody>
+                ))}
               </table>
             </div>
             <div style={{ fontSize: 12, color: '#aaa', marginTop: 12, lineHeight: 1.6 }}>
@@ -750,6 +869,18 @@ export default function Reconciliation() {
         const shown = editLines
           .map((l, idx) => ({ l, idx }))
           .filter(({ l }) => reconFilter === 'all' ? true : reconFilter === 'matched' ? !!l.matchId : (!l.matchId && !l.ignored))
+        // Same day-by-day grouping as the working view
+        const shownDays = (() => {
+          const byDay = new Map()
+          shown.forEach(r => {
+            const key = r.l.date || 'No date'
+            if (!byDay.has(key)) byDay.set(key, { key, rows: [], in: 0, out: 0 })
+            const g = byDay.get(key)
+            g.rows.push(r)
+            if (r.l.isIn) g.in += Number(r.l.amount) || 0; else g.out += Number(r.l.amount) || 0
+          })
+          return [...byDay.values()].sort((a, b) => String(a.key).localeCompare(String(b.key)))
+        })()
         const dirty = JSON.stringify(editLines) !== JSON.stringify(viewRecon.lines || [])
         return (
           <Modal title={`${viewRecon.account || 'Reconciliation'} — ${fmtDate(viewRecon.period_start)} to ${fmtDate(viewRecon.period_end)}`}
@@ -784,12 +915,22 @@ export default function Reconciliation() {
                     <thead><tr>
                       <th>Date</th><th>Bank line</th><th style={{ textAlign: 'right' }}>Amount</th><th>Matched to</th>
                     </tr></thead>
-                    <tbody>
-                      {shown.map(({ l, idx }) => {
+                    {shownDays.map(day => (
+                    <tbody key={day.key}>
+                      <tr className="rec-day">
+                        <td colSpan={2}>{fmtDate(day.key)}<span style={{ color: '#c4bcb0', fontWeight: 500 }}> · {day.rows.length} line{day.rows.length > 1 ? 's' : ''}</span></td>
+                        <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                          {day.in > 0 && <span style={{ color: '#1D9E75', fontWeight: 700 }}>+{money(day.in)}</span>}
+                          {day.in > 0 && day.out > 0 && <span style={{ color: '#ddd' }}> / </span>}
+                          {day.out > 0 && <span style={{ color: '#E24B4A', fontWeight: 700 }}>−{money(day.out)}</span>}
+                        </td>
+                        <td />
+                      </tr>
+                      {day.rows.map(({ l, idx }) => {
                         const matched = l.matchId ? bookById[l.matchId] : null
                         return (
-                          <tr key={idx} className={l.matchId ? '' : 'unmatched'}>
-                            <td style={{ whiteSpace: 'nowrap', color: '#666' }}>{fmtDate(l.date)}</td>
+                          <tr key={idx} className={l.matchId || l.ignored ? '' : 'unmatched'}>
+                            <td style={{ whiteSpace: 'nowrap', color: '#bbb', fontSize: 11.5 }}>{fmtDate(l.date)}</td>
                             <td>
                               <div style={{ fontWeight: 600, color: '#0d1b2a' }}>{l.party || l.type || 'Transaction'}</div>
                               <div style={{ fontSize: 11, color: '#aaa' }}>{l.type}{l.ref ? ` · ${l.ref}` : ''}</div>
@@ -832,12 +973,13 @@ export default function Reconciliation() {
                           </tr>
                         )
                       })}
-                      {shown.length === 0 && (
-                        <tr><td colSpan={4} style={{ textAlign: 'center', color: '#bbb', padding: '22px 0' }}>
-                          {reconFilter === 'unmatched' ? 'Nothing left to review — every line is matched. 🎉' : 'No lines here.'}
-                        </td></tr>
-                      )}
                     </tbody>
+                    ))}
+                    {shown.length === 0 && (
+                      <tbody><tr><td colSpan={4} style={{ textAlign: 'center', color: '#bbb', padding: '22px 0' }}>
+                        {reconFilter === 'unmatched' ? 'Nothing left to review — every line is matched. 🎉' : 'No lines here.'}
+                      </td></tr></tbody>
+                    )}
                   </table>
                 </div>
                 <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 16 }}>
