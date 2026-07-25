@@ -17,8 +17,8 @@ const RATE_TYPES = [
   { value: 'none', label: 'No profit / interest' },
 ]
 const METHODS = ['Bank transfer', 'Cash', 'Cheque', 'Standing order', 'Other']
-const PAYMENT_DAY = 25          // payments go out on the 25th
-const RECONCILE_DAY = 26        // and are checked the next morning
+const PAYMENT_DAY = 28          // payments go out on the 28th
+const RECONCILE_DAY = 29        // and are checked the next morning
 
 const EMPTY_LOAN = {
   lender: '', reference: '', amount: '', purpose: '',
@@ -32,7 +32,7 @@ const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')
 
 // The nth instalment falls on the payment day of the month that many months
 // after the grace period ends — so a loan received on the 23rd with no grace
-// has its first payment on the 25th of the following month.
+// has its first payment on the 28th of the following month.
 function dueDateFor(startISO, graceMonths, n, day) {
   if (!startISO) return null
   const d = new Date(startISO + 'T00:00:00')
@@ -68,7 +68,7 @@ export function loanMaths(l) {
 // Each month's figure is what is still owed spread over the months left to run,
 // so paying extra one month lowers every month after it, and paying short
 // raises them. Payments belong to the month they were made in — a payment made
-// on the 28th still counts for that month's 25th.
+// on the 30th still counts for that month's 28th.
 function buildSchedule(loan, payments) {
   const { months, totalPayable } = loanMaths(loan)
   const start = loan.received_date || loan.taken_on
@@ -266,7 +266,7 @@ export default function Loans() {
     overdue: t.overdue + l.overdue.reduce((s, r) => s + Math.max(0, r.amount - r.paid), 0),
   }), { amount: 0, payable: 0, profit: 0, monthly: 0, paid: 0, remaining: 0, overdue: 0 })
 
-  // ── Reconciliation (the 26th) ───────────────────────────────────────────────
+  // ── Reconciliation (the 29th) ───────────────────────────────────────────────
   const today = localToday()
   const dayOfMonth = parseInt(today.slice(8, 10), 10)
   const dueThisCycle = rows.flatMap(l => l.closed ? [] : l.schedule.rows
@@ -440,7 +440,7 @@ export default function Loans() {
         ))}
       </div>
 
-      {/* reconciliation — what should have gone out on the 25th */}
+      {/* reconciliation — what should have gone out on the payment day */}
       {dueThisCycle.length > 0 && (
         <Card style={{ marginBottom: 18, background: reconcileTime ? '#fdf2f2' : '#fbfaf8', border: `1px solid ${reconcileTime ? '#f4d4d2' : '#f0ece6'}` }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
