@@ -462,3 +462,25 @@ drop policy if exists "Authenticated users can do everything" on order_analyses;
 drop policy if exists "Authenticated users can do everything" on order_analysis_items;
 create policy "Authenticated users can do everything" on order_analyses       for all using (auth.role() = 'authenticated');
 create policy "Authenticated users can do everything" on order_analysis_items for all using (auth.role() = 'authenticated');
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- LOANS — tenure, grace period, profit rate, monthly schedule and payment slips
+-- ─────────────────────────────────────────────────────────────────────────────
+alter table loans add column if not exists received_date   date;      -- when the money actually landed
+alter table loans add column if not exists tenure_months   integer;   -- how many monthly payments
+alter table loans add column if not exists grace_months    integer default 0;
+alter table loans add column if not exists profit_rate     numeric default 0;   -- % profit / interest
+alter table loans add column if not exists rate_type       text default 'flat'; -- flat | reducing | none
+alter table loans add column if not exists total_payable   numeric;   -- principal + profit
+alter table loans add column if not exists reference       text;      -- loan / account number
+alter table loans add column if not exists status          text default 'active'; -- active | closed
+alter table loans add column if not exists slips           jsonb default '[]'::jsonb; -- agreement documents
+
+alter table loan_payments add column if not exists principal numeric;
+alter table loan_payments add column if not exists profit    numeric;
+alter table loan_payments add column if not exists method    text;
+alter table loan_payments add column if not exists reference text;
+alter table loan_payments add column if not exists due_date  date;    -- which instalment it covers
+alter table loan_payments add column if not exists slips     jsonb default '[]'::jsonb;
+
+create index if not exists loan_payments_loan_idx on loan_payments(loan_id);

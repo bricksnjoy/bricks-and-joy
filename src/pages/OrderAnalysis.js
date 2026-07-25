@@ -179,6 +179,7 @@ export default function OrderAnalysis() {
   const [pickVendor, setPickVendor] = useState('all')
   const [pickNeeds, setPickNeeds] = useState(false)
   const [picked, setPicked] = useState(() => new Set())
+  const [selected, setSelected] = useState(() => new Set())   // analysis lines ticked for deletion
   const toast = useToast()
 
   const open = analyses.find(a => a.id === openId) || null
@@ -417,8 +418,21 @@ export default function OrderAnalysis() {
 
   async function removeItem(it) {
     setItems(prev => prev.filter(i => i.id !== it.id))
+    setSelected(prev => { const n = new Set(prev); n.delete(it.id); return n })
     const { error } = await supabase.from('order_analysis_items').delete().eq('id', it.id)
     if (error) { toast.error('Failed: ' + error.message); loadItems(open.id) }
+  }
+
+  // Bulk delete — used by the tick boxes and by "clear this order"
+  async function removeIds(ids, label) {
+    if (!ids.length) return
+    if (!window.confirm(`Remove ${ids.length} product${ids.length > 1 ? 's' : ''}${label ? ` from ${label}` : ''}?\n\nPlanning only — nothing in accounting or inventory changes.`)) return
+    const set = new Set(ids)
+    setItems(prev => prev.filter(i => !set.has(i.id)))
+    setSelected(prev => { const n = new Set(prev); ids.forEach(id => n.delete(id)); return n })
+    const { error } = await supabase.from('order_analysis_items').delete().in('id', ids)
+    if (error) { toast.error('Failed: ' + error.message); loadItems(open.id); return }
+    toast.success(`Removed ${ids.length} product${ids.length > 1 ? 's' : ''}`)
   }
 
   async function clearItems() {
@@ -426,8 +440,16 @@ export default function OrderAnalysis() {
     if (!window.confirm(`Remove all ${items.length} products from this analysis?`)) return
     await supabase.from('order_analysis_items').delete().eq('analysis_id', open.id)
     setItems([])
+    setSelected(new Set())
     toast.success('Cleared')
   }
+
+  const toggleSelect = id => setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+  const toggleSelectMany = ids => setSelected(prev => {
+    const n = new Set(prev)
+    ids.every(id => n.has(id)) ? ids.forEach(id => n.delete(id)) : ids.forEach(id => n.add(id))
+    return n
+  })
 
   function openPicker(kind, opts = {}) {
     setPickModal(kind)
@@ -848,6 +870,18 @@ export default function OrderAnalysis() {
           </div>
         </div>
 
+        {/* Selection bar — appears once anything is ticked */}
+        {selected.size > 0 && !converted && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', background: '#FFF8E1', border: '1px solid #FAEEDA', borderRadius: 12, marginBottom: 12, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: '#854F0B' }}>{selected.size} selected</span>
+            <Button size="sm" variant="danger" onClick={() => removeIds([...selected])}>
+              <Trash2 size={13} /> Delete selected
+            </Button>
+            <button onClick={() => setSelected(new Set())}
+              style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#aaa', fontSize: 12, fontFamily: 'inherit' }}>Clear selection</button>
+          </div>
+        )}
+
         {itemsLoading ? <Spinner /> : rows.length === 0 ? (
           <Card style={{ padding: '48px 20px', textAlign: 'center', color: '#bbb' }}>
             <Calculator size={30} color="#e0dcd4" style={{ marginBottom: 10 }} />
@@ -869,7 +903,7 @@ export default function OrderAnalysis() {
                   </div>
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
                 {[
                   ['Cost', mv0(g.totals.landed), '#0d1b2a'],
                   ['If sold all', mv0(g.totals.revenue), '#378ADD'],
@@ -881,6 +915,12 @@ export default function OrderAnalysis() {
                     <div style={{ fontSize: 14, fontWeight: 800, color: c, marginTop: 1 }}>{v}</div>
                   </div>
                 ))}
+                {!converted && (
+                  <Button size="sm" variant="danger" title={`Remove every product in the ${g.label} order`}
+                    onClick={() => removeIds(g.rows.map(r => r.id), `the ${g.label} order`)}>
+                    <Trash2 size={13} /> Clear order
+                  </Button>
+                )}
               </div>
             </div>
 
@@ -888,6 +928,13 @@ export default function OrderAnalysis() {
               <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, minWidth: 1180 }}>
                 <thead>
                   <tr style={{ background: '#fff' }}>
+                    {!converted && (
+                      <th style={{ padding: '10px 0 10px 14px', width: 30, borderBottom: '1px solid #f2f2f2' }}>
+                        <input type="checkbox" title={`Select every product from ${g.label}`}
+                          checked={g.rows.every(r => selected.has(r.id))}
+                          onChange={() => toggleSelectMany(g.rows.map(r => r.id))} />
+                      </th>
+                    )}
                     {['Product', 'Qty', 'Unit cost', 'Landed cost', 'Sell price', 'Profit / unit', 'Margin', 'Total cost', 'Total profit', 'ROI', 'Stock & demand', ''].map((h, i) => (
                       <th key={h + i} style={{ padding: '10px 12px', textAlign: i === 0 || i === 10 ? 'left' : 'right', fontSize: 10.5, fontWeight: 700, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.5px', whiteSpace: 'nowrap', borderBottom: '1px solid #f2f2f2' }}>{h}</th>
                     ))}
@@ -899,8 +946,14 @@ export default function OrderAnalysis() {
                     const marginColor = r.verdict === 'good' ? '#1D9E75' : r.verdict === 'thin' ? '#e6940a' : r.verdict === 'loss' ? '#E24B4A' : '#aaa'
                     const cell = { padding: '10px 12px', textAlign: 'right', whiteSpace: 'nowrap', borderTop: '1px solid #f5f5f5' }
                     const editStyle = { width: 82, padding: '6px 8px', border: '1px solid #e6e2da', borderRadius: 7, fontSize: 12.5, fontFamily: 'inherit', textAlign: 'right' }
+                    const ticked = selected.has(r.id)
                     return (
-                      <tr key={r.id}>
+                      <tr key={r.id} style={ticked ? { background: '#fffaf0' } : undefined}>
+                        {!converted && (
+                          <td style={{ ...cell, textAlign: 'center', padding: '10px 0 10px 14px' }}>
+                            <input type="checkbox" checked={ticked} onChange={() => toggleSelect(r.id)} />
+                          </td>
+                        )}
                         <td style={{ ...cell, textAlign: 'left', minWidth: 230 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                             <ImageTile src={r.image_url} style={{ width: 38, height: 38, borderRadius: 8, background: '#f7f5f2', flexShrink: 0, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -971,6 +1024,7 @@ export default function OrderAnalysis() {
                 </tbody>
                 <tfoot>
                   <tr style={{ background: '#fbfaf8', fontWeight: 700 }}>
+                    {!converted && <td style={{ borderTop: '2px solid #f0ece6' }} />}
                     <td style={{ padding: '12px', borderTop: '2px solid #f0ece6' }}>{g.label} total</td>
                     <td style={{ padding: '12px', textAlign: 'right', borderTop: '2px solid #f0ece6' }}>{g.totals.qty}</td>
                     <td colSpan={2} style={{ padding: '12px', textAlign: 'right', borderTop: '2px solid #f0ece6', color: '#aaa', fontWeight: 500, fontSize: 11.5 }}>

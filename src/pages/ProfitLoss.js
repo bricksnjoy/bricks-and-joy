@@ -6,6 +6,7 @@ import { exportBusinessSummary } from '../lib/business'
 import { FileText, BookOpen, Calendar, Download, TrendingUp, TrendingDown, Receipt, CheckCircle, AlertTriangle, Info, Table2 } from 'lucide-react'
 
 const MVR_RATE = 15.42
+const num = v => { const n = parseFloat(v); return isNaN(n) ? 0 : n }
 
 export default function Accounting() {
   const [orders, setOrders] = useState([])
@@ -74,7 +75,31 @@ export default function Accounting() {
   const expByCat = {}
   periodExp.forEach(e => { expByCat[e.category] = (expByCat[e.category] || 0) + Number(e.amount) })
   const totalOpEx = Object.values(expByCat).reduce((s, v) => s + v, 0)
-  const netIncome = grossProfit - totalOpEx
+
+  // ── Loans ───────────────────────────────────────────────────────────────────
+  // Money borrowed is cash in (financing), never income. A repayment is cash out,
+  // but only its profit/interest half is a cost — the rest just pays the debt down.
+  const loanPaysInPeriod = loanPays.filter(p => inPeriod(p.paid_on))
+  const loanRepaid = loanPaysInPeriod.reduce((s, p) => s + num(p.amount), 0)
+  const financeCost = loanPaysInPeriod.reduce((s, p) => {
+    if (p.profit != null) return s + num(p.profit)
+    // Older payments with no split recorded — fall back to the loan's own ratio
+    const l = loans.find(x => x.id === p.loan_id)
+    const payable = num(l?.total_payable) || num(l?.amount)
+    const profitShare = payable > 0 ? Math.max(0, payable - num(l?.amount)) / payable : 0
+    return s + num(p.amount) * profitShare
+  }, 0)
+  const loanPrincipalRepaid = Math.max(0, loanRepaid - financeCost)
+  const loanReceived = loans
+    .filter(l => inPeriod(l.received_date || l.taken_on))
+    .reduce((s, l) => s + num(l.amount), 0)
+  const loanOutstanding = loans.reduce((s, l) => {
+    const payable = num(l.total_payable) || num(l.amount)
+    const paid = loanPays.filter(p => p.loan_id === l.id).reduce((a, p) => a + num(p.amount), 0)
+    return s + Math.max(0, payable - paid)
+  }, 0)
+
+  const netIncome = grossProfit - totalOpEx - financeCost
   const grossMargin = revenue > 0 ? (grossProfit / revenue * 100).toFixed(1) : '0.0'
   const netMargin = revenue > 0 ? (netIncome / revenue * 100).toFixed(1) : '0.0'
 
@@ -216,7 +241,6 @@ export default function Accounting() {
   }
 
   // ── extra reports ──────────────────────────────────────────────────────────────
-  const num = v => { const n = parseFloat(v); return isNaN(n) ? 0 : n }
   const activeProducts = products.filter(p => !p.discontinued)
   const periodOrders = orders.filter(o => o.status !== 'cancelled' && inPeriod(o.order_date))
 
@@ -308,10 +332,30 @@ export default function Accounting() {
 
   function downloadLoansCSV() {
     downloadCSV('loans-statement.csv',
-      ['Lender', 'Used for', 'Taken on', 'Amount', 'Monthly', 'Paid', 'Remaining'],
+      ['Lender', 'Reference', 'Used for', 'Received', 'Tenure (months)', 'Grace (months)', 'Rate %', 'Rate type', 'Amount', 'Total payable', 'Profit cost', 'Monthly', 'Paid', 'Remaining', 'Status'],
       loans.map(l => {
         const paid = loanPays.filter(p => p.loan_id === l.id).reduce((s, p) => s + num(p.amount), 0)
-        return [l.lender || '', l.purpose || '', l.taken_on || '', num(l.amount).toFixed(2), num(l.monthly_payment).toFixed(2), paid.toFixed(2), Math.max(0, num(l.amount) - paid).toFixed(2)]
+        const payable = num(l.total_payable) || num(l.amount)
+        return [
+          l.lender || '', l.reference || '', l.purpose || '',
+          l.received_date || l.taken_on || '', l.tenure_months || '', l.grace_months || 0,
+          num(l.profit_rate), l.rate_type || '', num(l.amount).toFixed(2), payable.toFixed(2),
+          Math.max(0, payable - num(l.amount)).toFixed(2), num(l.monthly_payment).toFixed(2),
+          paid.toFixed(2), Math.max(0, payable - paid).toFixed(2), l.status || 'active',
+        ]
+      })
+    )
+  }
+
+  // Every loan repayment with its slip link — one row per payment
+  function downloadLoanPaymentsCSV() {
+    downloadCSV('loan-payments.csv',
+      ['Paid on', 'Lender', 'Reference', 'Amount', 'Principal', 'Profit', 'Method', 'Note', 'Slips'],
+      [...loanPays].sort((a, b) => (b.paid_on || '').localeCompare(a.paid_on || '')).map(p => {
+        const l = loans.find(x => x.id === p.loan_id)
+        const slips = Array.isArray(p.slips) ? p.slips.map(s => s.url).join(' | ') : ''
+        return [p.paid_on || '', l?.lender || '', p.reference || '', num(p.amount).toFixed(2),
+          num(p.principal).toFixed(2), num(p.profit).toFixed(2), p.method || '', p.notes || '', slips]
       })
     )
   }
@@ -644,6 +688,15 @@ export default function Accounting() {
                   <td style={{ fontWeight: 600 }}>Total Operating Expenses</td>
                   <td style={{ textAlign: 'right', fontWeight: 700, color: '#c62828' }}>({fmt(totalOpEx)})</td>
                 </tr>
+                {financeCost > 0 && (
+                  <>
+                    <tr><td style={{ fontWeight: 700, color: '#0d1b2a', paddingTop: 16 }}>FINANCE COSTS</td><td></td></tr>
+                    <tr>
+                      <td style={{ paddingLeft: 24 }}>Loan profit / interest paid</td>
+                      <td style={{ textAlign: 'right', color: '#c62828' }}>({fmt(financeCost)})</td>
+                    </tr>
+                  </>
+                )}
                 <tr style={{ borderTop: '3px double #0d1b2a' }}>
                   <td style={{ fontWeight: 800, fontSize: 15, paddingTop: 14 }}>NET INCOME <span style={{ fontWeight: 400, fontSize: 11, color: '#999' }}>({netMargin}%)</span></td>
                   <td style={{ textAlign: 'right', fontWeight: 800, fontSize: 16, paddingTop: 14, color: netIncome >= 0 ? '#1D9E75' : '#c62828' }}>{fmt(netIncome)}</td>
@@ -682,7 +735,7 @@ export default function Accounting() {
         const cashFromSales = delivered.reduce((s, o) => s + Number(o.total_price || 0), 0)
         const totalAssets = inventory + cashFromSales
         const accountsPayable = purchaseOrders.filter(po => po.status !== 'received').reduce((s, po) => s + Number(po.total_cost || 0), 0)
-        const totalLiabilities = accountsPayable
+        const totalLiabilities = accountsPayable + loanOutstanding
         const equity = totalAssets - totalLiabilities
         return (
           <div className="grid-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
@@ -701,6 +754,7 @@ export default function Accounting() {
                 <tr style={{ borderTop: '2px solid #0d1b2a' }}><td style={{ fontWeight: 800, fontSize: 14, paddingTop: 10 }}>TOTAL ASSETS</td><td style={{ textAlign: 'right', fontWeight: 800, fontSize: 14, paddingTop: 10, color: '#1D9E75' }}>{fmt(totalAssets)}</td></tr>
                 <tr><td style={{ fontWeight: 700, color: '#0d1b2a', paddingTop: 20 }}>LIABILITIES</td><td></td></tr>
                 <tr><td style={{ paddingLeft: 24 }}>Accounts Payable (open POs)</td><td style={{ textAlign: 'right', fontWeight: 500, color: '#c62828' }}>{fmt(accountsPayable)}</td></tr>
+                {loanOutstanding > 0 && <tr><td style={{ paddingLeft: 24 }}>Loans outstanding</td><td style={{ textAlign: 'right', fontWeight: 500, color: '#c62828' }}>{fmt(loanOutstanding)}</td></tr>}
                 <tr style={{ borderTop: '2px solid #0d1b2a' }}><td style={{ fontWeight: 800, fontSize: 14, paddingTop: 10 }}>TOTAL LIABILITIES</td><td style={{ textAlign: 'right', fontWeight: 800, fontSize: 14, paddingTop: 10, color: '#c62828' }}>{fmt(totalLiabilities)}</td></tr>
                 <tr><td style={{ fontWeight: 700, color: '#0d1b2a', paddingTop: 20 }}>EQUITY</td><td></td></tr>
                 <tr><td style={{ paddingLeft: 24 }}>Retained Earnings</td><td style={{ textAlign: 'right', fontWeight: 500 }}>{fmt(netIncome)}</td></tr>
@@ -734,14 +788,19 @@ export default function Accounting() {
         const receivedPOs = purchaseOrders.filter(po => po.status === 'received' && inPeriod(po.order_date))
         const cashOutPurchases = receivedPOs.filter(po => po.cost_type !== 'extra').reduce((s, po) => s + Number(po.total_cost || 0), 0)
         const cashOutImportCosts = receivedPOs.filter(po => po.cost_type === 'extra').reduce((s, po) => s + Number(po.total_cost || 0), 0)
+        // Finance costs are cash out too, but they sit under financing rather than
+        // operating so the day-to-day trading picture stays clean.
         const operatingCashFlow = cashIn - cashOutExpenses - cashOutImportCosts
         const investingCashFlow = -cashOutPurchases
-        const netCashFlow = operatingCashFlow + investingCashFlow
+        const financingCashFlow = loanReceived - loanRepaid
+        const netCashFlow = operatingCashFlow + investingCashFlow + financingCashFlow
 
         const monthlyFlow = {}
         delivered.forEach(o => { const m = o.order_date?.slice(0,7); if(m) { if(!monthlyFlow[m]) monthlyFlow[m]={in:0,out:0}; monthlyFlow[m].in += Number(o.total_price||0) } })
         expenses.forEach(e => { const m = e.expense_date?.slice(0,7); if(m) { if(!monthlyFlow[m]) monthlyFlow[m]={in:0,out:0}; monthlyFlow[m].out += Number(e.amount||0) } })
         purchaseOrders.filter(po=>po.status==='received').forEach(po => { const m = po.order_date?.slice(0,7); if(m) { if(!monthlyFlow[m]) monthlyFlow[m]={in:0,out:0}; monthlyFlow[m].out += Number(po.total_cost||0) } })
+        loans.forEach(l => { const m = (l.received_date || l.taken_on || '').slice(0,7); if(m) { if(!monthlyFlow[m]) monthlyFlow[m]={in:0,out:0}; monthlyFlow[m].in += num(l.amount) } })
+        loanPays.forEach(p => { const m = (p.paid_on || '').slice(0,7); if(m) { if(!monthlyFlow[m]) monthlyFlow[m]={in:0,out:0}; monthlyFlow[m].out += num(p.amount) } })
 
         return (
           <div className="grid-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
@@ -760,6 +819,15 @@ export default function Accounting() {
                 <tr><td style={{ fontWeight: 700, color: '#0d1b2a', paddingTop: 20 }}>INVESTING ACTIVITIES</td><td></td></tr>
                 <tr><td style={{ paddingLeft: 24 }}>Purchase of inventory</td><td style={{ textAlign: 'right', color: '#c62828', fontWeight: 500 }}>({fmt(cashOutPurchases)})</td></tr>
                 <tr style={{ borderTop: '1px solid #eee' }}><td style={{ fontWeight: 700 }}>Net Investing Cash Flow</td><td style={{ textAlign: 'right', fontWeight: 700, color: '#c62828' }}>{fmt(Math.abs(investingCashFlow))}</td></tr>
+                {(loanReceived > 0 || loanRepaid > 0) && (
+                  <>
+                    <tr><td style={{ fontWeight: 700, color: '#0d1b2a', paddingTop: 20 }}>FINANCING ACTIVITIES</td><td></td></tr>
+                    {loanReceived > 0 && <tr><td style={{ paddingLeft: 24 }}>Loans received</td><td style={{ textAlign: 'right', color: '#1D9E75', fontWeight: 500 }}>{fmt(loanReceived)}</td></tr>}
+                    {loanPrincipalRepaid > 0 && <tr><td style={{ paddingLeft: 24 }}>Loan principal repaid</td><td style={{ textAlign: 'right', color: '#c62828', fontWeight: 500 }}>({fmt(loanPrincipalRepaid)})</td></tr>}
+                    {financeCost > 0 && <tr><td style={{ paddingLeft: 24 }}>Loan profit / interest paid</td><td style={{ textAlign: 'right', color: '#c62828', fontWeight: 500 }}>({fmt(financeCost)})</td></tr>}
+                    <tr style={{ borderTop: '1px solid #eee' }}><td style={{ fontWeight: 700 }}>Net Financing Cash Flow</td><td style={{ textAlign: 'right', fontWeight: 700, color: financingCashFlow >= 0 ? '#1D9E75' : '#c62828' }}>{fmt(financingCashFlow)}</td></tr>
+                  </>
+                )}
                 <tr style={{ borderTop: '3px double #0d1b2a' }}><td style={{ fontWeight: 800, fontSize: 15, paddingTop: 14 }}>NET CASH FLOW</td><td style={{ textAlign: 'right', fontWeight: 800, fontSize: 16, paddingTop: 14, color: netCashFlow >= 0 ? '#1D9E75' : '#c62828' }}>{fmt(netCashFlow)}</td></tr>
               </tbody></table>
             </Card>
@@ -807,6 +875,20 @@ export default function Accounting() {
               : `Purchase: ${po.product_name} ×${po.qty} from ${supName(po)}`,
             amount: Number(po.total_cost || 0), direction: 'out', status: po.status, payment: po.status === 'received' ? 'paid' : 'pending'
           })),
+          ...loans.filter(l => inPeriod(l.received_date || l.taken_on)).map(l => ({
+            date: l.received_date || l.taken_on, type: 'loan', ref: l.reference || `LOAN-${l.id?.slice(0,6)}`,
+            description: `Loan received from ${l.lender || 'lender'}${l.purpose ? ` — ${l.purpose}` : ''}`,
+            amount: num(l.amount), direction: 'in', status: 'received', payment: 'paid'
+          })),
+          ...loanPays.filter(p => inPeriod(p.paid_on)).map(p => {
+            const l = loans.find(x => x.id === p.loan_id)
+            return {
+              date: p.paid_on, type: 'repayment', ref: p.reference || `LP-${p.id?.slice(0,6)}`,
+              description: `Loan repayment to ${l?.lender || 'lender'}`
+                + (num(p.profit) > 0 ? ` (${fmt(num(p.principal))} principal + ${fmt(num(p.profit))} profit)` : ''),
+              amount: num(p.amount), direction: 'out', status: 'done', payment: 'paid'
+            }
+          }),
         ].sort((a,b) => new Date(b.date) - new Date(a.date))
 
         const totalIn = allTxn.filter(t=>t.direction==='in').reduce((s,t)=>s+t.amount,0)
@@ -1003,7 +1085,8 @@ export default function Accounting() {
               { title: 'Low Stock / Reorder', desc: 'Products at or below their low-stock alert', icon: '⚠️', action: downloadLowStockCSV, label: 'Download CSV' },
               { title: 'Supplier Purchases', desc: 'All batch orders bought from suppliers', icon: '🚚', action: downloadPurchasesCSV, label: 'Download CSV' },
               { title: 'Price List', desc: 'In-stock products & prices — shareable', icon: '📋', action: downloadPriceListCSV, label: 'Download CSV' },
-              { title: 'Loan Statement', desc: 'Loans with amount, paid & remaining', icon: '🏦', action: downloadLoansCSV, label: 'Download CSV' },
+              { title: 'Loan Statement', desc: 'Tenure, grace, rate, payable, paid & remaining', icon: '🏦', action: downloadLoansCSV, label: 'Download CSV' },
+              { title: 'Loan Payments', desc: 'Every repayment with its principal/profit split & slip', icon: '🧾', action: downloadLoanPaymentsCSV, label: 'Download CSV' },
             ].map((doc, i) => (
               <div key={i} className="dl-card">
                 <div style={{ fontSize: 28 }}>{doc.icon}</div>

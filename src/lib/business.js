@@ -88,10 +88,12 @@ export function computeBusiness(data) {
   })
   const categorySummary = Object.values(catMap).map(c => ({ ...c, covered: c.revenue >= c.spent })).sort((a, b) => b.revenue - a.revenue)
 
-  // loans
+  // loans — what is owed is the total payable (principal + profit), not just the
+  // amount borrowed, so the remaining figure matches the repayment schedule
   const loanRows = loans.map(l => {
     const paid = loanPays.filter(lp => lp.loan_id === l.id).reduce((s, lp) => s + num(lp.amount), 0)
-    return { ...l, paid, remaining: Math.max(0, num(l.amount) - paid) }
+    const payable = num(l.total_payable) || num(l.amount)
+    return { ...l, payable, profitCost: Math.max(0, payable - num(l.amount)), paid, remaining: Math.max(0, payable - paid) }
   })
 
   return { monthly, totals, inventory, adBreakdown, productAnalysis, categorySummary, loanRows }
@@ -125,8 +127,12 @@ export function exportBusinessExcel(data, opening = getOpening()) {
   adv.push(['Total', r2(c.totals.ad)])
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(adv), 'Advertising')
 
-  const loanRows = [['Lender', 'Used for', 'Taken on', 'Amount', 'Monthly', 'Paid', 'Left']]
-  c.loanRows.forEach(l => loanRows.push([l.lender || '', l.purpose || '', l.taken_on || '', r2(l.amount), r2(l.monthly_payment), r2(l.paid), r2(l.remaining)]))
+  const loanRows = [['Lender', 'Used for', 'Received', 'Tenure', 'Grace', 'Rate %', 'Amount', 'Payable', 'Profit cost', 'Monthly', 'Paid', 'Left']]
+  c.loanRows.forEach(l => loanRows.push([
+    l.lender || '', l.purpose || '', l.received_date || l.taken_on || '',
+    l.tenure_months || '', l.grace_months || 0, num(l.profit_rate),
+    r2(l.amount), r2(l.payable), r2(l.profitCost), r2(l.monthly_payment), r2(l.paid), r2(l.remaining),
+  ]))
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(loanRows), 'Loans')
 
   const prod = [['Product', 'Category', 'Sold', 'In stock', 'Spent on stock', 'Revenue', 'Profit', 'Cost covered?']]
