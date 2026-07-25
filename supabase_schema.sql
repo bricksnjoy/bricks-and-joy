@@ -484,3 +484,10 @@ alter table loan_payments add column if not exists due_date  date;    -- which i
 alter table loan_payments add column if not exists slips     jsonb default '[]'::jsonb;
 
 create index if not exists loan_payments_loan_idx on loan_payments(loan_id);
+
+-- Loans, second pass: disbursement slip, which account a payment came from,
+-- the day of the month payments are due, and auto/manual monthly toggle.
+alter table loans add column if not exists received_slips jsonb default '[]'::jsonb;
+alter table loans add column if not exists payment_day    integer default 25;
+alter table loans add column if not exists monthly_auto   boolean default true;
+alter table loan_payments add column if not exists account text;

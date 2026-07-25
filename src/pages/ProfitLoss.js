@@ -350,12 +350,12 @@ export default function Accounting() {
   // Every loan repayment with its slip link — one row per payment
   function downloadLoanPaymentsCSV() {
     downloadCSV('loan-payments.csv',
-      ['Paid on', 'Lender', 'Reference', 'Amount', 'Principal', 'Profit', 'Method', 'Note', 'Slips'],
+      ['Paid on', 'Lender', 'For instalment', 'Reference', 'Amount', 'Principal', 'Profit', 'Method', 'From account', 'Note', 'Slips'],
       [...loanPays].sort((a, b) => (b.paid_on || '').localeCompare(a.paid_on || '')).map(p => {
         const l = loans.find(x => x.id === p.loan_id)
         const slips = Array.isArray(p.slips) ? p.slips.map(s => s.url).join(' | ') : ''
-        return [p.paid_on || '', l?.lender || '', p.reference || '', num(p.amount).toFixed(2),
-          num(p.principal).toFixed(2), num(p.profit).toFixed(2), p.method || '', p.notes || '', slips]
+        return [p.paid_on || '', l?.lender || '', p.due_date || '', p.reference || '', num(p.amount).toFixed(2),
+          num(p.principal).toFixed(2), num(p.profit).toFixed(2), p.method || '', p.account || '', p.notes || '', slips]
       })
     )
   }
@@ -885,6 +885,7 @@ export default function Accounting() {
             return {
               date: p.paid_on, type: 'repayment', ref: p.reference || `LP-${p.id?.slice(0,6)}`,
               description: `Loan repayment to ${l?.lender || 'lender'}`
+                + (p.account ? ` from ${p.account}` : '')
                 + (num(p.profit) > 0 ? ` (${fmt(num(p.principal))} principal + ${fmt(num(p.profit))} profit)` : ''),
               amount: num(p.amount), direction: 'out', status: 'done', payment: 'paid'
             }

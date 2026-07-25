@@ -4,7 +4,7 @@ import { localToday } from '../lib/dates'
 import { PageHeader, Card, Button, Input, Select, Modal, Spinner, FormRow, useToast, Toasts, Badge } from '../components/UI'
 import {
   Plus, Trash2, Landmark, CreditCard, Paperclip, ChevronDown, ChevronRight,
-  Calendar, FileText, X, Edit2, CheckCircle, Clock, AlertTriangle, Percent
+  Calendar, FileText, X, Edit2, AlertTriangle, Percent, Wallet, Scale
 } from 'lucide-react'
 
 const num = v => { const n = parseFloat(v); return isNaN(n) ? 0 : n }
@@ -17,25 +17,30 @@ const RATE_TYPES = [
   { value: 'none', label: 'No profit / interest' },
 ]
 const METHODS = ['Bank transfer', 'Cash', 'Cheque', 'Standing order', 'Other']
+const PAYMENT_DAY = 25          // payments go out on the 25th
+const RECONCILE_DAY = 26        // and are checked the next morning
 
 const EMPTY_LOAN = {
   lender: '', reference: '', amount: '', purpose: '',
   taken_on: localToday(), received_date: localToday(),
   tenure_months: 12, grace_months: 0, profit_rate: '', rate_type: 'flat',
-  monthly_payment: '', notes: '', slips: [],
+  monthly_auto: true, monthly_payment: '', payment_day: PAYMENT_DAY,
+  notes: '', slips: [], received_slips: [],
 }
 
-// Add whole months to an ISO date, clamping the day so 31 Jan + 1 month lands on
-// the last day of February rather than spilling into March.
-function addMonths(iso, n) {
-  if (!iso) return null
-  const d = new Date(iso + 'T00:00:00')
+const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+
+// The nth instalment falls on the payment day of the month that many months
+// after the grace period ends — so a loan received on the 23rd with no grace
+// has its first payment on the 25th of the following month.
+function dueDateFor(startISO, graceMonths, n, day) {
+  if (!startISO) return null
+  const d = new Date(startISO + 'T00:00:00')
   if (isNaN(d)) return null
-  const day = d.getDate()
-  d.setDate(1)
-  d.setMonth(d.getMonth() + n)
-  d.setDate(Math.min(day, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()))
-  return d.toISOString().slice(0, 10)
+  const base = new Date(d.getFullYear(), d.getMonth() + (graceMonths || 0) + n, 1)
+  const lastDay = new Date(base.getFullYear(), base.getMonth() + 1, 0).getDate()
+  base.setDate(Math.min(day || PAYMENT_DAY, lastDay))
+  return iso(base)
 }
 
 // What the loan costs in total, and what one month comes to.
@@ -59,59 +64,63 @@ export function loanMaths(l) {
   return { principal, months, rate, type, totalPayable, profit, suggestedMonthly }
 }
 
-// The monthly instalments, with any recorded payments applied oldest-first.
-// A payment can cover several instalments, or only part of one.
+// ── The monthly schedule ──────────────────────────────────────────────────────
+// Each month's figure is what is still owed spread over the months left to run,
+// so paying extra one month lowers every month after it, and paying short
+// raises them. Payments belong to the month they were made in — a payment made
+// on the 28th still counts for that month's 25th.
 function buildSchedule(loan, payments) {
   const { months, totalPayable } = loanMaths(loan)
-  const monthly = num(loan.monthly_payment) || (months > 0 ? totalPayable / months : 0)
   const start = loan.received_date || loan.taken_on
   const grace = Math.max(0, parseInt(loan.grace_months) || 0)
-  if (!months || !start) return { rows: [], monthly, overpaid: 0 }
+  const day = parseInt(loan.payment_day) || PAYMENT_DAY
+  if (!months || !start) return { rows: [], monthly: 0, extraPaid: 0 }
 
-  const rows = []
-  let allocated = 0
-  for (let i = 1; i <= months; i++) {
-    // Payments begin the month after the grace period ends
-    const due = addMonths(start, grace + i)
-    // The last instalment absorbs the rounding so the schedule sums to the total
-    const amount = i === months ? Math.max(0, totalPayable - allocated) : monthly
-    allocated += amount
-    rows.push({ n: i, due, amount, paid: 0, payments: [] })
-  }
+  const dues = []
+  for (let i = 1; i <= months; i++) dues.push(dueDateFor(start, grace, i, day))
 
   const sorted = [...payments].sort((a, b) => (a.paid_on || '').localeCompare(b.paid_on || ''))
+  const today = localToday()
+  const rows = []
+  let balance = totalPayable
   let idx = 0
-  let overpaid = 0
-  for (const p of sorted) {
-    let remaining = num(p.amount)
-    while (remaining > 0.005 && idx < rows.length) {
-      const inst = rows[idx]
-      const need = inst.amount - inst.paid
-      const take = Math.min(need, remaining)
-      inst.paid += take
-      remaining -= take
-      inst.payments.push({ ...p, applied: take })
-      if (inst.paid >= inst.amount - 0.005) idx++
-      else break
-    }
-    if (remaining > 0.005) overpaid += remaining
+
+  for (let i = 0; i < months; i++) {
+    const monthsLeft = months - i
+    const due = Math.max(0, balance / monthsLeft)
+    // Everything paid before the next instalment falls due belongs to this month
+    const cutoff = dues[i + 1] || '9999-12-31'
+    const mine = []
+    while (idx < sorted.length && (sorted[idx].paid_on || '9999-12-31') < cutoff) { mine.push(sorted[idx]); idx++ }
+    const paid = mine.reduce((s, p) => s + num(p.amount), 0)
+    const openingBalance = balance
+    balance = Math.max(0, balance - paid)
+
+    let status
+    if (paid >= due - 0.005 && due > 0) status = 'paid'
+    else if (balance <= 0.005) status = 'paid'
+    else if (paid > 0) status = 'partial'
+    else if (dues[i] && dues[i] < today) status = 'overdue'
+    else status = 'upcoming'
+
+    rows.push({
+      n: i + 1, due: dues[i], amount: due, paid, payments: mine, status,
+      openingBalance, closingBalance: balance,
+      // How much of this month's payment went beyond what was asked for
+      extra: Math.max(0, paid - due),
+    })
   }
 
-  const today = localToday()
-  rows.forEach(r => {
-    if (r.paid >= r.amount - 0.005) r.status = 'paid'
-    else if (r.paid > 0) r.status = 'partial'
-    else if (r.due && r.due < today) r.status = 'overdue'
-    else r.status = 'upcoming'
-  })
-  return { rows, monthly, overpaid }
+  // Anything still sitting in `balance` after the last month is arrears
+  const nextMonthly = rows.find(r => r.status === 'upcoming' || r.status === 'overdue')?.amount || 0
+  return { rows, monthly: nextMonthly, remainingBalance: balance }
 }
 
 const STATUS = {
-  paid:     { color: 'green', label: 'Paid', Icon: CheckCircle },
-  partial:  { color: 'amber', label: 'Part paid', Icon: Clock },
-  overdue:  { color: 'red',   label: 'Overdue', Icon: AlertTriangle },
-  upcoming: { color: 'gray',  label: 'Upcoming', Icon: Calendar },
+  paid:     { color: 'green', label: 'Paid' },
+  partial:  { color: 'amber', label: 'Part paid' },
+  overdue:  { color: 'red',   label: 'Overdue' },
+  upcoming: { color: 'gray',  label: 'Upcoming' },
 }
 
 // Upload to storage, falling back to an inline data URL when the bucket isn't
@@ -136,28 +145,30 @@ async function readFiles(fileList) {
 // Save, quietly dropping any column the database doesn't have yet.
 async function writeStrip(table, payload, where) {
   let body = { ...payload }
+  const dropped = []
   const run = () => (where ? supabase.from(table).update(body).eq('id', where) : supabase.from(table).insert(body))
   let res = await run()
   while (res.error && /column .* does not exist|could not find/i.test(res.error.message || '')) {
     const col = (res.error.message.match(/'([a-z_]+)' column/i) || res.error.message.match(/column "?([a-z_]+)"?/i) || [])[1]
     if (!col || !(col in body)) break
+    dropped.push(col)
     delete body[col]
     res = await run()
   }
-  return res
+  return { ...res, dropped }
 }
 
-function SlipStrip({ slips = [], onRemove, onView }) {
+function Slips({ slips = [], onRemove, onView, size = 62 }) {
   if (!slips.length) return null
   return (
-    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
       {slips.map((s, i) => (
-        <div key={i} style={{ position: 'relative', border: '1px solid #eee', borderRadius: 8, overflow: 'hidden', width: 62, height: 62, background: '#faf9f7', cursor: 'pointer' }}
+        <div key={i} style={{ position: 'relative', border: '1px solid #eee', borderRadius: 7, overflow: 'hidden', width: size, height: size, background: '#faf9f7', cursor: 'pointer', flexShrink: 0 }}
           title={s.name} onClick={() => onView?.(s)}>
           {(s.type || '').startsWith('image/')
             ? <img src={s.url} alt={s.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-            : <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 3 }}>
-                <FileText size={17} color="#bbb" /><span style={{ fontSize: 8, color: '#bbb' }}>PDF</span>
+            : <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 2 }}>
+                <FileText size={size > 45 ? 17 : 13} color="#bbb" /><span style={{ fontSize: 8, color: '#bbb' }}>PDF</span>
               </div>}
           {onRemove && (
             <button onClick={e => { e.stopPropagation(); onRemove(i) }}
@@ -171,17 +182,31 @@ function SlipStrip({ slips = [], onRemove, onView }) {
   )
 }
 
+function Attach({ label, slips, onAdd, onRemove, onView, uploading }) {
+  return (
+    <div>
+      <label style={{ fontSize: 11, color: '#888', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: 6 }}>{label}</label>
+      <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', border: '1px dashed #ddd', borderRadius: 9, cursor: 'pointer', fontSize: 12.5, color: '#888' }}>
+        <Paperclip size={13} /> {uploading ? 'Uploading…' : 'Attach file'}
+        <input type="file" accept="image/*,application/pdf" multiple onChange={e => { onAdd(e.target.files); e.target.value = '' }} style={{ display: 'none' }} />
+      </label>
+      <div style={{ marginTop: 8 }}><Slips slips={slips} onRemove={onRemove} onView={onView} /></div>
+    </div>
+  )
+}
+
 export default function Loans() {
   const [loans, setLoans] = useState([])
   const [pays, setPays] = useState([])
   const [loading, setLoading] = useState(true)
   const [needsSetup, setNeedsSetup] = useState(false)
+  const [missingCols, setMissingCols] = useState([])
   const [expanded, setExpanded] = useState(() => new Set())
   const [loanModal, setLoanModal] = useState(false)
   const [editing, setEditing] = useState(null)
   const [loanForm, setLoanForm] = useState(EMPTY_LOAN)
-  const [payModal, setPayModal] = useState(null)     // { loan, instalment? }
-  const [payForm, setPayForm] = useState({ amount: '', paid_on: localToday(), method: 'Bank transfer', reference: '', notes: '', slips: [], due_date: null })
+  const [payModal, setPayModal] = useState(null)
+  const [payForm, setPayForm] = useState({ amount: '', paid_on: localToday(), method: 'Bank transfer', account: '', reference: '', notes: '', slips: [], due_date: null })
   const [viewSlip, setViewSlip] = useState(null)
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState(false)
@@ -192,11 +217,25 @@ export default function Loans() {
     setLoading(true)
     const { data, error } = await supabase.from('loans').select('*').order('taken_on', { ascending: false })
     if (error && /relation|does not exist|schema cache/i.test(error.message)) { setNeedsSetup(true); setLoading(false); return }
-    setLoans(data || [])
+    const rows = data || []
+    setLoans(rows)
+    // Tell the owner plainly when the newer columns haven't been added yet,
+    // rather than silently showing an empty schedule.
+    const sample = rows[0]
+    if (sample) {
+      const need = ['tenure_months', 'received_date', 'grace_months', 'profit_rate', 'slips', 'received_slips', 'payment_day']
+      setMissingCols(need.filter(c => !(c in sample)))
+    }
     const { data: lp } = await supabase.from('loan_payments').select('*')
     setPays(lp || [])
     setLoading(false)
   }
+
+  // Accounts already used, so the next payment can be picked from a list
+  const knownAccounts = useMemo(
+    () => [...new Set(pays.map(p => (p.account || '').trim()).filter(Boolean))].sort(),
+    [pays]
+  )
 
   const rows = useMemo(() => loans.map(l => {
     const mine = pays.filter(p => p.loan_id === l.id)
@@ -211,7 +250,8 @@ export default function Loans() {
       remaining: Math.max(0, m.totalPayable - paid),
       progress: m.totalPayable > 0 ? Math.min(100, (paid / m.totalPayable) * 100) : 0,
       profitPaid, overdue, nextDue,
-      monthly: num(l.monthly_payment) || m.suggestedMonthly,
+      // What the next month actually comes to after any over/under payment
+      monthly: schedule.monthly || num(l.monthly_payment) || m.suggestedMonthly,
       closed: l.status === 'closed' || (m.totalPayable > 0 && paid >= m.totalPayable - 0.5),
     }
   }), [loans, pays])
@@ -223,8 +263,16 @@ export default function Loans() {
     monthly: t.monthly + (l.closed ? 0 : l.monthly),
     paid: t.paid + l.paid,
     remaining: t.remaining + (l.closed ? 0 : l.remaining),
-    overdue: t.overdue + l.overdue.reduce((s, r) => s + (r.amount - r.paid), 0),
+    overdue: t.overdue + l.overdue.reduce((s, r) => s + Math.max(0, r.amount - r.paid), 0),
   }), { amount: 0, payable: 0, profit: 0, monthly: 0, paid: 0, remaining: 0, overdue: 0 })
+
+  // ── Reconciliation (the 26th) ───────────────────────────────────────────────
+  const today = localToday()
+  const dayOfMonth = parseInt(today.slice(8, 10), 10)
+  const dueThisCycle = rows.flatMap(l => l.closed ? [] : l.schedule.rows
+    .filter(r => r.due && r.due.slice(0, 7) === today.slice(0, 7) && r.status !== 'paid')
+    .map(r => ({ loan: l, inst: r })))
+  const reconcileTime = dayOfMonth >= RECONCILE_DAY
 
   // ── Loan add / edit ─────────────────────────────────────────────────────────
   function openAdd() { setEditing(null); setLoanForm({ ...EMPTY_LOAN }); setLoanModal(true) }
@@ -235,13 +283,19 @@ export default function Loans() {
       taken_on: l.taken_on || localToday(), received_date: l.received_date || l.taken_on || localToday(),
       tenure_months: l.tenure_months ?? 12, grace_months: l.grace_months ?? 0,
       profit_rate: l.profit_rate ?? '', rate_type: l.rate_type || 'flat',
-      monthly_payment: l.monthly_payment ?? '', notes: l.notes || '',
+      monthly_auto: l.monthly_auto !== false,
+      monthly_payment: l.monthly_payment ?? '', payment_day: l.payment_day ?? PAYMENT_DAY,
+      notes: l.notes || '',
       slips: Array.isArray(l.slips) ? l.slips : [],
+      received_slips: Array.isArray(l.received_slips) ? l.received_slips : [],
     })
     setLoanModal(true)
   }
 
   const formMaths = loanMaths(loanForm)
+  // Auto mode keeps the monthly figure in step with amount, months and rate;
+  // manual mode leaves whatever was typed alone.
+  const effectiveMonthly = loanForm.monthly_auto ? formMaths.suggestedMonthly : num(loanForm.monthly_payment)
 
   async function saveLoan() {
     if (!loanForm.amount) { toast.error('Enter the amount'); return }
@@ -258,14 +312,18 @@ export default function Loans() {
       profit_rate: num(loanForm.profit_rate),
       rate_type: loanForm.rate_type || 'flat',
       total_payable: formMaths.totalPayable,
-      monthly_payment: num(loanForm.monthly_payment) || formMaths.suggestedMonthly,
+      monthly_auto: !!loanForm.monthly_auto,
+      monthly_payment: effectiveMonthly,
+      payment_day: parseInt(loanForm.payment_day) || PAYMENT_DAY,
       notes: loanForm.notes || null,
       slips: loanForm.slips || [],
+      received_slips: loanForm.received_slips || [],
     }
-    const { error } = await writeStrip('loans', payload, editing?.id)
+    const { error, dropped } = await writeStrip('loans', payload, editing?.id)
     setSaving(false)
     if (error) { toast.error('Failed: ' + error.message); return }
-    toast.success(editing ? 'Loan updated' : 'Loan added')
+    if (dropped?.length) toast.error(`Saved, but your database is missing: ${dropped.join(', ')} — run the loans SQL`)
+    else toast.success(editing ? 'Loan updated' : 'Loan added')
     setLoanModal(false)
     load()
   }
@@ -286,11 +344,10 @@ export default function Loans() {
 
   // ── Payments ────────────────────────────────────────────────────────────────
   function openPay(loan, instalment) {
-    // Split the payment into profit and principal using the loan's own ratio, so
-    // accounting can tell the finance cost apart from paying the money back.
     setPayForm({
-      amount: instalment ? (instalment.amount - instalment.paid).toFixed(2) : (loan.monthly || '').toString(),
-      paid_on: localToday(), method: 'Bank transfer', reference: '', notes: '', slips: [],
+      amount: instalment ? Math.max(0, instalment.amount - instalment.paid).toFixed(2) : (loan.monthly || 0).toFixed(2),
+      paid_on: localToday(), method: 'Bank transfer',
+      account: knownAccounts[0] || '', reference: '', notes: '', slips: [],
       due_date: instalment?.due || null,
     })
     setPayModal({ loan, instalment })
@@ -300,9 +357,11 @@ export default function Loans() {
     if (!payForm.amount) { toast.error('Enter the amount'); return }
     const loan = payModal.loan
     const amount = num(payForm.amount)
+    // Split by the loan's own profit ratio so accounting can tell the finance
+    // cost apart from paying the money back.
     const profitShare = loan.totalPayable > 0 ? loan.profit / loan.totalPayable : 0
     setSaving(true)
-    const { error } = await writeStrip('loan_payments', {
+    const { error, dropped } = await writeStrip('loan_payments', {
       loan_id: loan.id,
       amount,
       profit: +(amount * profitShare).toFixed(2),
@@ -310,13 +369,16 @@ export default function Loans() {
       paid_on: payForm.paid_on,
       due_date: payForm.due_date,
       method: payForm.method,
+      account: payForm.account || null,
       reference: payForm.reference || null,
       notes: payForm.notes || null,
       slips: payForm.slips || [],
     })
     setSaving(false)
     if (error) { toast.error('Failed: ' + error.message); return }
-    toast.success('Payment recorded'); setPayModal(null); load()
+    if (dropped?.length) toast.error(`Saved, but missing columns: ${dropped.join(', ')} — run the loans SQL`)
+    else toast.success('Payment recorded')
+    setPayModal(null); load()
   }
 
   async function delPayment(p) {
@@ -331,8 +393,8 @@ export default function Loans() {
     const files = await readFiles(fileList)
     setUploading(false)
     if (!files.length) { toast.error('Could not read the file'); return }
-    if (target === 'loan') setLoanForm(f => ({ ...f, slips: [...(f.slips || []), ...files] }))
-    else setPayForm(f => ({ ...f, slips: [...(f.slips || []), ...files] }))
+    if (target === 'pay') setPayForm(f => ({ ...f, slips: [...(f.slips || []), ...files] }))
+    else setLoanForm(f => ({ ...f, [target]: [...(f[target] || []), ...files] }))
   }
 
   const toggleExpand = id => setExpanded(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
@@ -340,23 +402,35 @@ export default function Loans() {
   return (
     <div>
       <style>{`
-        table.ln { width:100%; border-collapse:collapse; font-size:12.5px; min-width:640px; }
+        table.ln { width:100%; border-collapse:collapse; font-size:12.5px; min-width:820px; }
         .ln th { text-align:right; font-size:10px; font-weight:700; color:#aaa; text-transform:uppercase; letter-spacing:0.4px; padding:8px 10px; border-bottom:1px solid #f0f0f0; white-space:nowrap; }
         .ln th:first-child, .ln td:first-child { text-align:left; }
-        .ln td { padding:9px 10px; border-bottom:1px solid #f7f7f7; text-align:right; white-space:nowrap; }
+        .ln td { padding:9px 10px; border-bottom:1px solid #f7f7f7; text-align:right; white-space:nowrap; vertical-align:middle; }
         .ln tr.od td { background:#fffaf9; }
+        .ln tr.pd td { background:#fbfdfc; }
       `}</style>
-      <PageHeader title="Loans" subtitle="Tenure, grace period, monthly payments and slips — all feeding the accounts"
+      <PageHeader title="Loans" subtitle={`Payments on the ${PAYMENT_DAY}th, reconciled on the ${RECONCILE_DAY}th — feeding straight into the accounts`}
         action={<Button onClick={openAdd} disabled={needsSetup}><Plus size={15} /> Add loan</Button>} />
 
+      {missingCols.length > 0 && (
+        <Card style={{ marginBottom: 16, background: '#fffaf2', border: '1px solid #f3e4c8', display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+          <AlertTriangle size={17} color="#e6940a" style={{ flexShrink: 0, marginTop: 1 }} />
+          <div style={{ fontSize: 12.5, color: '#8a6a2a', lineHeight: 1.6 }}>
+            <b>Your database is missing {missingCols.length} loan column{missingCols.length > 1 ? 's' : ''}</b> ({missingCols.join(', ')}),
+            so tenure, grace period and slips can't be saved and the monthly schedule stays empty.
+            Run the loans <code>alter table</code> block from <code>supabase_schema.sql</code> in the Supabase SQL editor, then reload.
+          </div>
+        </Card>
+      )}
+
       {/* summary */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12, marginBottom: 22 }} className="grid-collapse">
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12, marginBottom: 18 }} className="grid-collapse">
         {[
           ['Borrowed', money0(totals.amount), '#2f6fc0', '#EAF2FD', `${rows.length} loan${rows.length === 1 ? '' : 's'}`],
           ['Total payable', money0(totals.payable), '#7F77DD', '#EFEDFB', `incl. ${money0(totals.profit)} profit`],
           ['Paid so far', money0(totals.paid), '#1D9E75', '#E9F7F1', null],
           ['Outstanding', money0(totals.remaining), '#E24B4A', '#FDECEC', totals.overdue > 0 ? `${money0(totals.overdue)} overdue` : null],
-          ['Monthly commitment', money0(totals.monthly), '#b8740a', '#FFF6E2', 'across active loans'],
+          ['Next month', money0(totals.monthly), '#b8740a', '#FFF6E2', `due on the ${PAYMENT_DAY}th`],
         ].map(([label, value, color, bg, sub]) => (
           <div key={label} style={{ background: bg, borderRadius: 14, padding: '15px 17px' }}>
             <div style={{ fontSize: 20, fontWeight: 800, color, letterSpacing: '-0.5px' }}>{value}</div>
@@ -365,6 +439,38 @@ export default function Loans() {
           </div>
         ))}
       </div>
+
+      {/* reconciliation — what should have gone out on the 25th */}
+      {dueThisCycle.length > 0 && (
+        <Card style={{ marginBottom: 18, background: reconcileTime ? '#fdf2f2' : '#fbfaf8', border: `1px solid ${reconcileTime ? '#f4d4d2' : '#f0ece6'}` }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+            <Scale size={17} color={reconcileTime ? '#E24B4A' : '#bbb'} style={{ flexShrink: 0, marginTop: 1 }} />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#0d1b2a' }}>
+                {reconcileTime
+                  ? `Reconciliation — ${dueThisCycle.length} payment${dueThisCycle.length > 1 ? 's' : ''} still unmatched this month`
+                  : `${dueThisCycle.length} payment${dueThisCycle.length > 1 ? 's' : ''} due on the ${PAYMENT_DAY}th`}
+              </div>
+              <div style={{ fontSize: 11.5, color: '#a9a094', marginTop: 3, marginBottom: 10 }}>
+                {reconcileTime
+                  ? `It's the ${dayOfMonth}th — anything below hasn't been recorded against this month's instalment yet.`
+                  : `Checked automatically on the ${RECONCILE_DAY}th.`}
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {dueThisCycle.map(({ loan, inst }) => (
+                  <div key={loan.id + inst.n} style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#fff', border: '1px solid #f0f0f0', borderRadius: 9, padding: '8px 12px', flexWrap: 'wrap' }}>
+                    <span style={{ fontWeight: 700, fontSize: 12.5, color: '#0d1b2a' }}>{loan.lender || 'Loan'}</span>
+                    <span style={{ fontSize: 11.5, color: '#999' }}>instalment {inst.n} · due {inst.due}</span>
+                    <span style={{ fontSize: 12.5, fontWeight: 700, color: '#E24B4A' }}>{money(Math.max(0, inst.amount - inst.paid))}</span>
+                    {inst.paid > 0 && <span style={{ fontSize: 11.5, color: '#1D9E75' }}>{money(inst.paid)} already in</span>}
+                    <Button size="sm" style={{ marginLeft: 'auto' }} onClick={() => openPay(loan, inst)}><CreditCard size={12} /> Record</Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
 
       {needsSetup ? (
         <Card><p style={{ color: '#667', fontSize: 14, lineHeight: 1.6 }}>The loans tables aren't set up yet in your database. If this persists, let me know and I'll create them.</p></Card>
@@ -399,7 +505,7 @@ export default function Loans() {
                     {l.months > 0 && <span>{l.months} months</span>}
                     {num(l.grace_months) > 0 && <span>{l.grace_months}-month grace</span>}
                     {l.nextDue && !l.closed && <span style={{ color: l.nextDue.status === 'overdue' ? '#E24B4A' : '#bbb', fontWeight: l.nextDue.status === 'overdue' ? 700 : 400 }}>
-                      Next {money0(l.nextDue.amount - l.nextDue.paid)} due {l.nextDue.due}
+                      Next {money0(Math.max(0, l.nextDue.amount - l.nextDue.paid))} due {l.nextDue.due}
                     </span>}
                   </div>
                 </div>
@@ -409,7 +515,7 @@ export default function Loans() {
                 {[
                   ['Borrowed', money0(l.principal), '#0d1b2a'],
                   ['Payable', money0(l.totalPayable), '#7F77DD'],
-                  ['Monthly', money0(l.monthly), '#b8740a'],
+                  ['Next month', money0(l.monthly), '#b8740a'],
                   ['Paid', money0(l.paid), '#1D9E75'],
                   ['Left', money0(l.remaining), l.remaining > 0 ? '#E24B4A' : '#1D9E75'],
                 ].map(([lab, v, c]) => (
@@ -431,25 +537,38 @@ export default function Loans() {
               <div style={{ height: 7, background: '#f2f0ec', borderRadius: 99, overflow: 'hidden' }}>
                 <div style={{ width: `${l.progress}%`, height: '100%', background: l.progress >= 100 ? '#1D9E75' : 'linear-gradient(90deg,#FFA500,#ff8c00)', borderRadius: 99, transition: 'width .3s' }} />
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#bbb', marginTop: 5 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#bbb', marginTop: 5, flexWrap: 'wrap', gap: 8 }}>
                 <span>{l.progress.toFixed(0)}% repaid · {l.schedule.rows.filter(r => r.status === 'paid').length}/{l.schedule.rows.length} instalments</span>
                 {l.profit > 0 && <span>Profit cost {money0(l.profit)} · {money0(l.profitPaid)} paid</span>}
               </div>
             </div>
 
-            {/* schedule */}
+            {/* detail */}
             {isOpen && (
               <div style={{ borderTop: '1px solid #f2f2f2', background: '#fcfbf9', padding: '14px 20px 18px' }}>
-                {Array.isArray(l.slips) && l.slips.length > 0 && (
-                  <div style={{ marginBottom: 14 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Loan documents</div>
-                    <SlipStrip slips={l.slips} onView={setViewSlip} />
-                  </div>
-                )}
+                <div style={{ display: 'flex', gap: 26, flexWrap: 'wrap', marginBottom: 16 }}>
+                  {Array.isArray(l.received_slips) && l.received_slips.length > 0 && (
+                    <div>
+                      <div style={{ fontSize: 10.5, fontWeight: 700, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 6 }}>Slip for money received</div>
+                      <Slips slips={l.received_slips} onView={setViewSlip} />
+                    </div>
+                  )}
+                  {Array.isArray(l.slips) && l.slips.length > 0 && (
+                    <div>
+                      <div style={{ fontSize: 10.5, fontWeight: 700, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 6 }}>Loan documents</div>
+                      <Slips slips={l.slips} onView={setViewSlip} />
+                    </div>
+                  )}
+                </div>
                 {l.notes && <div style={{ fontSize: 12.5, color: '#888', marginBottom: 14, lineHeight: 1.6 }}>{l.notes}</div>}
 
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: '#0d1b2a' }}>Monthly schedule</div>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#0d1b2a' }}>Monthly schedule</div>
+                    <div style={{ fontSize: 11, color: '#bbb', marginTop: 2 }}>
+                      Each month is what's still owed spread over the months left — pay extra and every month after it drops.
+                    </div>
+                  </div>
                   <Button size="sm" variant="ghost" onClick={() => toggleClosed(l)}>
                     {l.status === 'closed' ? 'Reopen loan' : 'Mark as settled'}
                   </Button>
@@ -462,25 +581,32 @@ export default function Loans() {
                 ) : (
                   <div style={{ overflowX: 'auto' }}>
                     <table className="ln">
-                      <thead><tr><th>#</th><th>Due date</th><th>Amount due</th><th>Paid</th><th>Status</th><th>Paid on</th><th>Slip</th><th></th></tr></thead>
+                      <thead><tr>
+                        <th>#</th><th>Due date</th><th>Amount due</th><th>Paid</th><th>Balance left</th>
+                        <th>Status</th><th>Paid on</th><th>Account</th><th>Slip</th><th></th>
+                      </tr></thead>
                       <tbody>
                         {l.schedule.rows.map(r => {
                           const st = STATUS[r.status]
                           const slips = r.payments.flatMap(p => (Array.isArray(p.slips) ? p.slips : []))
                           return (
-                            <tr key={r.n} className={r.status === 'overdue' ? 'od' : ''}>
+                            <tr key={r.n} className={r.status === 'overdue' ? 'od' : r.status === 'paid' ? 'pd' : ''}>
                               <td style={{ color: '#bbb', fontWeight: 700 }}>{r.n}</td>
                               <td style={{ textAlign: 'right' }}>{r.due}</td>
                               <td>{money(r.amount)}</td>
-                              <td style={{ color: r.paid > 0 ? '#1D9E75' : '#ccc' }}>{r.paid > 0 ? money(r.paid) : '—'}</td>
+                              <td style={{ color: r.paid > 0 ? '#1D9E75' : '#ccc', fontWeight: r.paid > 0 ? 700 : 400 }}>
+                                {r.paid > 0 ? money(r.paid) : '—'}
+                                {r.extra > 0.005 && <div style={{ fontSize: 9.5, color: '#7F77DD', fontWeight: 600 }}>+{money0(r.extra)} extra</div>}
+                              </td>
+                              <td style={{ color: '#999' }}>{money(r.closingBalance)}</td>
                               <td><Badge color={st.color}>{st.label}</Badge></td>
                               <td style={{ color: '#999' }}>{r.payments.map(p => p.paid_on).filter(Boolean).join(', ') || '—'}</td>
+                              <td style={{ color: '#999', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {[...new Set(r.payments.map(p => p.account).filter(Boolean))].join(', ') || '—'}
+                              </td>
                               <td>
                                 {slips.length > 0
-                                  ? <button onClick={() => setViewSlip(slips[0])} title={`${slips.length} slip${slips.length > 1 ? 's' : ''}`}
-                                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#378ADD', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, fontFamily: 'inherit' }}>
-                                      <Paperclip size={12} /> {slips.length}
-                                    </button>
+                                  ? <div style={{ display: 'flex', justifyContent: 'flex-end' }}><Slips slips={slips} onView={setViewSlip} size={34} /></div>
                                   : <span style={{ color: '#ddd' }}>—</span>}
                               </td>
                               <td>
@@ -496,27 +622,38 @@ export default function Loans() {
                   </div>
                 )}
 
-                {/* what was actually paid, so a slip can be found or a mistake undone */}
+                {/* every payment, in full */}
                 {l.payments.length > 0 && (
-                  <div style={{ marginTop: 16 }}>
+                  <div style={{ marginTop: 18 }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: '#0d1b2a', marginBottom: 8 }}>Payments recorded ({l.payments.length})</div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                       {[...l.payments].sort((a, b) => (b.paid_on || '').localeCompare(a.paid_on || '')).map(p => (
-                        <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#fff', border: '1px solid #f0f0f0', borderRadius: 9, padding: '9px 12px', flexWrap: 'wrap' }}>
-                          <span style={{ fontWeight: 700, fontSize: 13, color: '#1D9E75' }}>{money(p.amount)}</span>
-                          <span style={{ fontSize: 12, color: '#999' }}>{p.paid_on}</span>
-                          {p.method && <span style={{ fontSize: 11.5, color: '#bbb' }}>{p.method}</span>}
-                          {p.reference && <span style={{ fontSize: 11.5, color: '#bbb' }}>Ref {p.reference}</span>}
-                          {num(p.profit) > 0 && <span style={{ fontSize: 11, color: '#7F77DD' }}>{money0(p.principal)} principal + {money0(p.profit)} profit</span>}
-                          {p.notes && <span style={{ fontSize: 11.5, color: '#bbb', fontStyle: 'italic' }}>{p.notes}</span>}
-                          {Array.isArray(p.slips) && p.slips.length > 0 && (
-                            <button onClick={() => setViewSlip(p.slips[0])}
-                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#378ADD', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, fontFamily: 'inherit' }}>
-                              <Paperclip size={12} /> View slip
-                            </button>
-                          )}
+                        <div key={p.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, background: '#fff', border: '1px solid #f0f0f0', borderRadius: 10, padding: '11px 13px' }}>
+                          {Array.isArray(p.slips) && p.slips.length > 0
+                            ? <Slips slips={p.slips} onView={setViewSlip} size={54} />
+                            : <div style={{ width: 54, height: 54, borderRadius: 7, background: '#faf9f7', border: '1px dashed #eee', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                <Paperclip size={14} color="#ddd" />
+                              </div>}
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                              <span style={{ fontWeight: 800, fontSize: 14, color: '#1D9E75' }}>{money(p.amount)}</span>
+                              <span style={{ fontSize: 12, color: '#666' }}>{p.paid_on}</span>
+                              {p.method && <Badge color="gray">{p.method}</Badge>}
+                            </div>
+                            <div style={{ fontSize: 11.5, color: '#999', marginTop: 5, display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+                              {p.account && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Wallet size={11} color="#c4bcb0" /> {p.account}</span>}
+                              {p.reference && <span>Ref {p.reference}</span>}
+                              {p.due_date && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Calendar size={11} color="#c4bcb0" /> for {p.due_date}</span>}
+                            </div>
+                            {num(p.profit) > 0 && (
+                              <div style={{ fontSize: 11, color: '#7F77DD', marginTop: 4 }}>
+                                {money(p.principal)} principal + {money(p.profit)} profit
+                              </div>
+                            )}
+                            {p.notes && <div style={{ fontSize: 11.5, color: '#bbb', marginTop: 4, fontStyle: 'italic' }}>{p.notes}</div>}
+                          </div>
                           <button onClick={() => delPayment(p)} title="Delete payment"
-                            style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', padding: 3, display: 'flex' }}>
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3, display: 'flex', flexShrink: 0 }}>
                             <Trash2 size={13} color="#d5cfc6" />
                           </button>
                         </div>
@@ -546,7 +683,7 @@ export default function Loans() {
             <Input label="Grace period (months)" type="number" value={loanForm.grace_months} onChange={e => setLoanForm(f => ({ ...f, grace_months: e.target.value }))} />
           </FormRow>
           <FormRow>
-            <Input label="Profit / interest rate (% a year)" type="number" value={loanForm.profit_rate} onChange={e => setLoanForm(f => ({ ...f, profit_rate: e.target.value }))} placeholder="0" />
+            <Input label="Profit / interest rate (% a year)" type="number" value={loanForm.profit_rate} onChange={e => setLoanForm(f => ({ ...f, profit_rate: e.target.value }))} placeholder="0 for no profit" />
             <Select label="How the rate works" value={loanForm.rate_type} options={RATE_TYPES}
               onChange={e => setLoanForm(f => ({ ...f, rate_type: e.target.value }))} />
           </FormRow>
@@ -555,18 +692,55 @@ export default function Loans() {
           <div style={{ background: '#f8f7f4', borderRadius: 10, padding: '12px 15px', margin: '4px 0 14px', fontSize: 12.5, color: '#666', lineHeight: 1.7 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Total payable</span><b style={{ color: '#0d1b2a' }}>{money(formMaths.totalPayable)}</b></div>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Profit / interest cost</span><b style={{ color: '#7F77DD' }}>{money(formMaths.profit)}</b></div>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Suggested monthly</span><b style={{ color: '#b8740a' }}>{money(formMaths.suggestedMonthly)}</b></div>
             {loanForm.received_date && parseInt(loanForm.tenure_months) > 0 && (
               <div style={{ display: 'flex', justifyContent: 'space-between', color: '#999' }}>
-                <span>First payment due</span><span>{addMonths(loanForm.received_date, (parseInt(loanForm.grace_months) || 0) + 1)}</span>
+                <span>First payment due</span>
+                <span>{dueDateFor(loanForm.received_date, parseInt(loanForm.grace_months) || 0, 1, parseInt(loanForm.payment_day) || PAYMENT_DAY)}</span>
               </div>
             )}
           </div>
 
+          {/* monthly: auto from the numbers above, or typed by hand */}
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, flexWrap: 'wrap', gap: 8 }}>
+              <label style={{ fontSize: 11, color: '#888', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Monthly payment (MVR)</label>
+              <div style={{ display: 'flex', gap: 4 }}>
+                {[[true, 'Auto'], [false, 'Manual']].map(([mode, label]) => (
+                  <button key={label} type="button"
+                    onClick={() => setLoanForm(f => ({
+                      ...f, monthly_auto: mode,
+                      // Switching to manual starts from whatever auto was showing
+                      monthly_payment: mode ? f.monthly_payment : (num(f.monthly_payment) || formMaths.suggestedMonthly.toFixed(2)),
+                    }))}
+                    style={{
+                      padding: '4px 12px', borderRadius: 99, cursor: 'pointer', fontFamily: 'inherit', fontSize: 11.5,
+                      fontWeight: loanForm.monthly_auto === mode ? 700 : 600,
+                      border: `1px solid ${loanForm.monthly_auto === mode ? '#FFA500' : '#e6e2da'}`,
+                      background: loanForm.monthly_auto === mode ? '#FFA500' : '#fff',
+                      color: loanForm.monthly_auto === mode ? '#fff' : '#999',
+                    }}>{label}</button>
+                ))}
+              </div>
+            </div>
+            <input
+              type="number" disabled={loanForm.monthly_auto}
+              value={loanForm.monthly_auto ? (formMaths.suggestedMonthly ? formMaths.suggestedMonthly.toFixed(2) : '') : loanForm.monthly_payment}
+              onChange={e => setLoanForm(f => ({ ...f, monthly_payment: e.target.value }))}
+              style={{
+                width: '100%', boxSizing: 'border-box', padding: '10px 13px', borderRadius: 9, fontSize: 13, fontFamily: 'inherit',
+                border: '1px solid #e0e0e0', background: loanForm.monthly_auto ? '#f8f7f4' : '#fff',
+                color: loanForm.monthly_auto ? '#666' : '#0d1b2a', fontWeight: loanForm.monthly_auto ? 700 : 400,
+              }} />
+            <div style={{ fontSize: 11, color: '#bbb', marginTop: 5, lineHeight: 1.5 }}>
+              {loanForm.monthly_auto
+                ? `Worked out from the amount, tenure and rate — ${money(formMaths.totalPayable)} ÷ ${loanForm.tenure_months || 0} months. It re-adjusts by itself if you over- or under-pay a month.`
+                : 'You set the figure. The schedule still re-spreads what is left if a month is over- or under-paid.'}
+            </div>
+          </div>
+
           <FormRow>
-            <Input label="Monthly payment (MVR)" type="number" value={loanForm.monthly_payment}
-              placeholder={formMaths.suggestedMonthly ? formMaths.suggestedMonthly.toFixed(2) : ''}
-              onChange={e => setLoanForm(f => ({ ...f, monthly_payment: e.target.value }))} />
+            <Input label="Payment day of month" type="number" value={loanForm.payment_day}
+              onChange={e => setLoanForm(f => ({ ...f, payment_day: e.target.value }))} />
             <Input label="Agreement date" type="date" value={loanForm.taken_on} onChange={e => setLoanForm(f => ({ ...f, taken_on: e.target.value }))} />
           </FormRow>
 
@@ -575,15 +749,13 @@ export default function Loans() {
             <textarea value={loanForm.purpose} onChange={e => setLoanForm(f => ({ ...f, purpose: e.target.value }))} rows={2} placeholder="e.g. Stock purchase for Eid, new shelves"
               style={{ width: '100%', boxSizing: 'border-box', padding: '10px 13px', border: '1px solid #e0e0e0', borderRadius: 9, fontSize: 13, fontFamily: 'inherit', resize: 'vertical' }} />
           </div>
-          <Input label="Notes" value={loanForm.notes} onChange={e => setLoanForm(f => ({ ...f, notes: e.target.value }))} style={{ marginBottom: 14 }} />
+          <Input label="Notes" value={loanForm.notes} onChange={e => setLoanForm(f => ({ ...f, notes: e.target.value }))} style={{ marginBottom: 16 }} />
 
-          <div style={{ marginBottom: 16 }}>
-            <label style={{ fontSize: 11, color: '#888', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: 6 }}>Loan documents</label>
-            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', border: '1px dashed #ddd', borderRadius: 9, cursor: 'pointer', fontSize: 12.5, color: '#888' }}>
-              <Paperclip size={13} /> {uploading ? 'Uploading…' : 'Attach agreement / offer letter'}
-              <input type="file" accept="image/*,application/pdf" multiple onChange={e => { attach('loan', e.target.files); e.target.value = '' }} style={{ display: 'none' }} />
-            </label>
-            <SlipStrip slips={loanForm.slips} onView={setViewSlip} onRemove={i => setLoanForm(f => ({ ...f, slips: f.slips.filter((_, x) => x !== i) }))} />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 18 }} className="grid-collapse">
+            <Attach label="Loan documents" slips={loanForm.slips} uploading={uploading} onView={setViewSlip}
+              onAdd={fl => attach('slips', fl)} onRemove={i => setLoanForm(f => ({ ...f, slips: f.slips.filter((_, x) => x !== i) }))} />
+            <Attach label="Slip — money received" slips={loanForm.received_slips} uploading={uploading} onView={setViewSlip}
+              onAdd={fl => attach('received_slips', fl)} onRemove={i => setLoanForm(f => ({ ...f, received_slips: f.received_slips.filter((_, x) => x !== i) }))} />
           </div>
 
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
@@ -606,9 +778,30 @@ export default function Loans() {
           </FormRow>
           <FormRow>
             <Select label="Method" value={payForm.method} options={METHODS} onChange={e => setPayForm(f => ({ ...f, method: e.target.value }))} />
-            <Input label="Reference" value={payForm.reference} onChange={e => setPayForm(f => ({ ...f, reference: e.target.value }))} placeholder="transaction no." />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+              <label style={{ fontSize: 11, color: '#888', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Which account did you send from</label>
+              <input list="bnj-loan-accounts" value={payForm.account} placeholder="e.g. BML 7730000819195"
+                onChange={e => setPayForm(f => ({ ...f, account: e.target.value }))}
+                style={{ padding: '10px 13px', border: '1px solid #e0e0e0', borderRadius: 9, fontSize: 13, fontFamily: 'inherit', width: '100%', boxSizing: 'border-box' }} />
+              <datalist id="bnj-loan-accounts">{knownAccounts.map(a => <option key={a} value={a} />)}</datalist>
+            </div>
           </FormRow>
-          <Input label="Note (optional)" value={payForm.notes} onChange={e => setPayForm(f => ({ ...f, notes: e.target.value }))} style={{ marginBottom: 14 }} />
+          <FormRow>
+            <Input label="Reference" value={payForm.reference} onChange={e => setPayForm(f => ({ ...f, reference: e.target.value }))} placeholder="transaction no." />
+            <Input label="Note (optional)" value={payForm.notes} onChange={e => setPayForm(f => ({ ...f, notes: e.target.value }))} />
+          </FormRow>
+
+          {payModal.instalment && (
+            <div style={{ background: '#f8f7f4', borderRadius: 9, padding: '10px 13px', margin: '14px 0', fontSize: 12, color: '#888', lineHeight: 1.6 }}>
+              This month asks for <b style={{ color: '#0d1b2a' }}>{money(payModal.instalment.amount)}</b>.
+              {num(payForm.amount) > payModal.instalment.amount + 0.005 && (
+                <> Paying <b style={{ color: '#7F77DD' }}>{money(num(payForm.amount) - payModal.instalment.amount)}</b> extra drops every month after this one.</>
+              )}
+              {num(payForm.amount) > 0 && num(payForm.amount) < payModal.instalment.amount - 0.005 && (
+                <> Paying <b style={{ color: '#E24B4A' }}>{money(payModal.instalment.amount - num(payForm.amount))}</b> short pushes the shortfall onto the months that follow.</>
+              )}
+            </div>
+          )}
 
           {payModal.loan.profit > 0 && (
             <div style={{ background: '#f8f7f4', borderRadius: 9, padding: '10px 13px', marginBottom: 14, fontSize: 12, color: '#888', display: 'flex', alignItems: 'center', gap: 7 }}>
@@ -618,13 +811,9 @@ export default function Loans() {
             </div>
           )}
 
-          <div style={{ marginBottom: 16 }}>
-            <label style={{ fontSize: 11, color: '#888', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: 6 }}>Payment slip</label>
-            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', border: '1px dashed #ddd', borderRadius: 9, cursor: 'pointer', fontSize: 12.5, color: '#888' }}>
-              <Paperclip size={13} /> {uploading ? 'Uploading…' : 'Attach slip / receipt'}
-              <input type="file" accept="image/*,application/pdf" multiple onChange={e => { attach('pay', e.target.files); e.target.value = '' }} style={{ display: 'none' }} />
-            </label>
-            <SlipStrip slips={payForm.slips} onView={setViewSlip} onRemove={i => setPayForm(f => ({ ...f, slips: f.slips.filter((_, x) => x !== i) }))} />
+          <div style={{ marginBottom: 18 }}>
+            <Attach label="Payment slip" slips={payForm.slips} uploading={uploading} onView={setViewSlip}
+              onAdd={fl => attach('pay', fl)} onRemove={i => setPayForm(f => ({ ...f, slips: f.slips.filter((_, x) => x !== i) }))} />
           </div>
 
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
