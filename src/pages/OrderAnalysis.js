@@ -893,12 +893,12 @@ export default function OrderAnalysis() {
             {/* Order header — vendor and what this one order costs and returns */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, padding: '13px 18px', background: '#fbfaf8', borderBottom: '1px solid #f0ece6', flexWrap: 'wrap' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{ width: 26, height: 26, borderRadius: 8, background: '#0d1b2a', color: '#FFA500', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, flexShrink: 0 }}>{gi + 1}</span>
+                <span style={{ width: 32, height: 32, borderRadius: 9, background: '#0d1b2a', color: '#FFA500', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 800, flexShrink: 0 }}>{gi + 1}</span>
                 <div>
-                  <div style={{ fontSize: 13.5, fontWeight: 800, color: '#0d1b2a', display: 'flex', alignItems: 'center', gap: 7 }}>
-                    <Building2 size={14} color="#c4bcb0" /> {g.label}
+                  <div style={{ fontSize: 16, fontWeight: 800, color: '#0d1b2a', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Building2 size={17} color="#c4bcb0" /> {g.label}
                   </div>
-                  <div style={{ fontSize: 11, color: '#aaa', marginTop: 2 }}>
+                  <div style={{ fontSize: 12.5, color: '#aaa', marginTop: 3 }}>
                     Order {gi + 1} of {groups.length} · {g.totals.lines} product{g.totals.lines === 1 ? '' : 's'} · {g.totals.qty} units
                   </div>
                 </div>
@@ -911,8 +911,8 @@ export default function OrderAnalysis() {
                   ['Margin', pct(g.totals.margin), g.totals.margin >= target ? '#1D9E75' : g.totals.margin >= 0 ? '#e6940a' : '#E24B4A'],
                 ].map(([l, v, c]) => (
                   <div key={l} style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: 9.5, color: '#c4bcb0', textTransform: 'uppercase', letterSpacing: '0.6px', fontWeight: 700 }}>{l}</div>
-                    <div style={{ fontSize: 14, fontWeight: 800, color: c, marginTop: 1 }}>{v}</div>
+                    <div style={{ fontSize: 11, color: '#c4bcb0', textTransform: 'uppercase', letterSpacing: '0.6px', fontWeight: 700 }}>{l}</div>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: c, marginTop: 2 }}>{v}</div>
                   </div>
                 ))}
                 {!converted && (
@@ -925,18 +925,21 @@ export default function OrderAnalysis() {
             </div>
 
             <div className="x-scroll-wrap">
-              <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, minWidth: 1180 }}>
+              {/* This is the table the whole decision is made from, so it is set
+                  larger than the app's other tables — the figures are meant to be
+                  read carefully, not scanned. */}
+              <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 15, minWidth: 1420 }}>
                 <thead>
                   <tr style={{ background: '#fff' }}>
                     {!converted && (
-                      <th style={{ padding: '10px 0 10px 14px', width: 30, borderBottom: '1px solid #f2f2f2' }}>
-                        <input type="checkbox" title={`Select every product from ${g.label}`}
+                      <th style={{ padding: '14px 0 14px 18px', width: 38, borderBottom: '1px solid #f2f2f2' }}>
+                        <input type="checkbox" title={`Select every product from ${g.label}`} style={{ width: 17, height: 17 }}
                           checked={g.rows.every(r => selected.has(r.id))}
                           onChange={() => toggleSelectMany(g.rows.map(r => r.id))} />
                       </th>
                     )}
                     {['Product', 'Qty', 'Unit cost', 'Landed cost', 'Sell price', 'Profit / unit', 'Margin', 'Total cost', 'Total profit', 'ROI', 'Stock & demand', ''].map((h, i) => (
-                      <th key={h + i} style={{ padding: '10px 12px', textAlign: i === 0 || i === 10 ? 'left' : 'right', fontSize: 10.5, fontWeight: 700, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.5px', whiteSpace: 'nowrap', borderBottom: '1px solid #f2f2f2' }}>{h}</th>
+                      <th key={h + i} style={{ padding: '14px 15px', textAlign: i === 0 || i === 10 ? 'left' : 'right', fontSize: 12, fontWeight: 700, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.5px', whiteSpace: 'nowrap', borderBottom: '1px solid #f2f2f2' }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
@@ -944,26 +947,26 @@ export default function OrderAnalysis() {
                   {g.rows.map(r => {
                     const v = VERDICT[r.verdict]
                     const marginColor = r.verdict === 'good' ? '#1D9E75' : r.verdict === 'thin' ? '#e6940a' : r.verdict === 'loss' ? '#E24B4A' : '#aaa'
-                    const cell = { padding: '10px 12px', textAlign: 'right', whiteSpace: 'nowrap', borderTop: '1px solid #f5f5f5' }
-                    const editStyle = { width: 82, padding: '6px 8px', border: '1px solid #e6e2da', borderRadius: 7, fontSize: 12.5, fontFamily: 'inherit', textAlign: 'right' }
+                    const cell = { padding: '16px 15px', textAlign: 'right', whiteSpace: 'nowrap', borderTop: '1px solid #f5f5f5' }
+                    const editStyle = { width: 108, padding: '10px 11px', border: '1px solid #e6e2da', borderRadius: 8, fontSize: 15, fontFamily: 'inherit', textAlign: 'right' }
                     const ticked = selected.has(r.id)
                     return (
                       <tr key={r.id} style={ticked ? { background: '#fffaf0' } : undefined}>
                         {!converted && (
-                          <td style={{ ...cell, textAlign: 'center', padding: '10px 0 10px 14px' }}>
-                            <input type="checkbox" checked={ticked} onChange={() => toggleSelect(r.id)} />
+                          <td style={{ ...cell, textAlign: 'center', padding: '16px 0 16px 18px' }}>
+                            <input type="checkbox" checked={ticked} onChange={() => toggleSelect(r.id)} style={{ width: 17, height: 17 }} />
                           </td>
                         )}
-                        <td style={{ ...cell, textAlign: 'left', minWidth: 230 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                            <ImageTile src={r.image_url} style={{ width: 38, height: 38, borderRadius: 8, background: '#f7f5f2', flexShrink: 0, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <td style={{ ...cell, textAlign: 'left', minWidth: 290 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 13 }}>
+                            <ImageTile src={r.image_url} style={{ width: 58, height: 58, borderRadius: 10, background: '#f7f5f2', flexShrink: 0, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                               {r.image_url
                                 ? <img src={r.image_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-                                : <Package size={15} color="#d5cfc6" />}
+                                : <Package size={22} color="#d5cfc6" />}
                             </ImageTile>
                             <div style={{ minWidth: 0 }}>
-                              <div style={{ fontWeight: 600, color: '#0d1b2a', whiteSpace: 'normal' }}>{r.product_name}</div>
-                              <div style={{ fontSize: 11, color: '#bbb', marginTop: 2, display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                              <div style={{ fontWeight: 600, fontSize: 15.5, color: '#0d1b2a', whiteSpace: 'normal' }}>{r.product_name}</div>
+                              <div style={{ fontSize: 13, color: '#bbb', marginTop: 4, display: 'flex', gap: 7, alignItems: 'center', flexWrap: 'wrap' }}>
                                 {r.sku && <span>{r.sku}</span>}
                                 <Badge color={v.color}>{v.label}</Badge>
                                 {!r.known && <Badge color="blue">New product</Badge>}
@@ -972,7 +975,7 @@ export default function OrderAnalysis() {
                           </div>
                         </td>
                         <td style={cell}>
-                          <input type="number" value={r.qty} disabled={converted} style={{ ...editStyle, width: 62 }}
+                          <input type="number" value={r.qty} disabled={converted} style={{ ...editStyle, width: 82 }}
                             onChange={e => updateItem(r.id, { qty: e.target.value })} onBlur={() => saveItem(r.id)} />
                         </td>
                         <td style={cell}>
@@ -989,15 +992,15 @@ export default function OrderAnalysis() {
                         <td style={{ ...cell, color: r.profitUnit >= 0 ? '#1D9E75' : '#E24B4A', fontWeight: 600 }}>{mv(r.profitUnit)}</td>
                         <td style={{ ...cell, fontWeight: 700, color: marginColor }}>
                           {pct(r.margin)}
-                          <div style={{ fontSize: 10, color: '#c4c0b8', fontWeight: 500 }}>{pct(r.markup)} mark-up</div>
+                          <div style={{ fontSize: 12, color: '#c4c0b8', fontWeight: 500, marginTop: 2 }}>{pct(r.markup)} mark-up</div>
                         </td>
                         <td style={{ ...cell, color: '#666' }}>{mv0(r.landedLine)}</td>
                         <td style={{ ...cell, fontWeight: 700, color: r.profit >= 0 ? '#1D9E75' : '#E24B4A' }}>{mv0(r.profit)}</td>
                         <td style={{ ...cell, color: r.roi >= 0 ? '#1D9E75' : '#E24B4A' }}>
                           {pct(r.roi)}
-                          {r.breakEven != null && <div style={{ fontSize: 10, color: '#c4c0b8' }}>{r.breakEven} to break even</div>}
+                          {r.breakEven != null && <div style={{ fontSize: 12, color: '#c4c0b8', marginTop: 2 }}>{r.breakEven} to break even</div>}
                         </td>
-                        <td style={{ ...cell, textAlign: 'left', fontSize: 11.5, color: '#888', minWidth: 190, whiteSpace: 'normal' }}>
+                        <td style={{ ...cell, textAlign: 'left', fontSize: 13.5, color: '#888', minWidth: 240, whiteSpace: 'normal', lineHeight: 1.5 }}>
                           {r.known ? (
                             <>
                               <div>{r.stock} in stock · sells {r.perMonth.toFixed(1)}/month</div>
@@ -1015,7 +1018,7 @@ export default function OrderAnalysis() {
                         <td style={{ ...cell, textAlign: 'right' }}>
                           <button onClick={() => removeItem(r)} title="Remove from analysis"
                             style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 5, display: 'flex' }}>
-                            <Trash2 size={14} color="#c0392b" />
+                            <Trash2 size={17} color="#c0392b" />
                           </button>
                         </td>
                       </tr>
@@ -1025,17 +1028,17 @@ export default function OrderAnalysis() {
                 <tfoot>
                   <tr style={{ background: '#fbfaf8', fontWeight: 700 }}>
                     {!converted && <td style={{ borderTop: '2px solid #f0ece6' }} />}
-                    <td style={{ padding: '12px', borderTop: '2px solid #f0ece6' }}>{g.label} total</td>
-                    <td style={{ padding: '12px', textAlign: 'right', borderTop: '2px solid #f0ece6' }}>{g.totals.qty}</td>
-                    <td colSpan={2} style={{ padding: '12px', textAlign: 'right', borderTop: '2px solid #f0ece6', color: '#aaa', fontWeight: 500, fontSize: 11.5 }}>
+                    <td style={{ padding: '16px 15px', borderTop: '2px solid #f0ece6' }}>{g.label} total</td>
+                    <td style={{ padding: '16px 15px', textAlign: 'right', borderTop: '2px solid #f0ece6' }}>{g.totals.qty}</td>
+                    <td colSpan={2} style={{ padding: '16px 15px', textAlign: 'right', borderTop: '2px solid #f0ece6', color: '#aaa', fontWeight: 500, fontSize: 13 }}>
                       incl. {mv0(g.totals.extras)} extra costs
                     </td>
-                    <td colSpan={3} style={{ padding: '12px', textAlign: 'right', borderTop: '2px solid #f0ece6', color: g.totals.margin >= target ? '#1D9E75' : '#e6940a' }}>
+                    <td colSpan={3} style={{ padding: '16px 15px', textAlign: 'right', borderTop: '2px solid #f0ece6', color: g.totals.margin >= target ? '#1D9E75' : '#e6940a' }}>
                       {pct(g.totals.margin)} margin
                     </td>
-                    <td style={{ padding: '12px', textAlign: 'right', borderTop: '2px solid #f0ece6' }}>{mv0(g.totals.landed)}</td>
-                    <td style={{ padding: '12px', textAlign: 'right', borderTop: '2px solid #f0ece6', color: g.totals.profit >= 0 ? '#1D9E75' : '#E24B4A' }}>{mv0(g.totals.profit)}</td>
-                    <td colSpan={3} style={{ padding: '12px', textAlign: 'right', borderTop: '2px solid #f0ece6', color: g.totals.roi >= 0 ? '#1D9E75' : '#E24B4A' }}>{pct(g.totals.roi)} ROI</td>
+                    <td style={{ padding: '16px 15px', textAlign: 'right', borderTop: '2px solid #f0ece6' }}>{mv0(g.totals.landed)}</td>
+                    <td style={{ padding: '16px 15px', textAlign: 'right', borderTop: '2px solid #f0ece6', color: g.totals.profit >= 0 ? '#1D9E75' : '#E24B4A' }}>{mv0(g.totals.profit)}</td>
+                    <td colSpan={3} style={{ padding: '16px 15px', textAlign: 'right', borderTop: '2px solid #f0ece6', color: g.totals.roi >= 0 ? '#1D9E75' : '#E24B4A' }}>{pct(g.totals.roi)} ROI</td>
                   </tr>
                 </tfoot>
               </table>
