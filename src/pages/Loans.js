@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { localToday } from '../lib/dates'
+import { readSlip } from '../lib/slipOcr'
 import { PageHeader, Card, Button, Input, Select, Modal, Spinner, FormRow, useToast, Toasts, Badge } from '../components/UI'
 import {
   Plus, Trash2, Landmark, CreditCard, Paperclip, ChevronDown, ChevronRight,
-  Calendar, FileText, X, Edit2, AlertTriangle, Percent, Wallet, Scale, Eye
+  Calendar, FileText, X, Edit2, AlertTriangle, Percent, Wallet, Scale, Eye, ScanLine
 } from 'lucide-react'
 
 const num = v => { const n = parseFloat(v); return isNaN(n) ? 0 : n }
@@ -195,6 +196,44 @@ function Slips({ slips = [], onRemove, onView, size = 62 }) {
   )
 }
 
+// Shows what the slip reader made out, and lets a bad read be undone whole
+function OcrNote({ ocr, onUndo, onDismiss }) {
+  if (!ocr) return null
+  if (ocr.busy) {
+    return (
+      <div style={{ background: '#f8f7f4', border: '1px solid #eee', borderRadius: 9, padding: '10px 13px', marginBottom: 14, fontSize: 12, color: '#888', display: 'flex', alignItems: 'center', gap: 9 }}>
+        <ScanLine size={14} color="#FFA500" />
+        Reading the slip… {ocr.progress ? `${Math.round(ocr.progress * 100)}%` : ''}
+      </div>
+    )
+  }
+  const f = ocr.found || {}
+  const bits = [
+    f.amount != null && ['Amount', money(f.amount)],
+    f.date && ['Date', f.date],
+    f.reference && ['Reference', f.reference],
+    f.account && ['Account', f.account],
+  ].filter(Boolean)
+  if (!bits.length) return null
+  return (
+    <div style={{ background: '#f2faf5', border: '1px solid #cfe8db', borderRadius: 9, padding: '11px 13px', marginBottom: 14 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <ScanLine size={14} color="#1D9E75" />
+        <span style={{ fontSize: 12, fontWeight: 700, color: '#2c7a54' }}>Filled in from the slip — check it</span>
+        <button onClick={onUndo} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#888', fontSize: 11.5, fontFamily: 'inherit', textDecoration: 'underline' }}>Undo</button>
+        <button onClick={onDismiss} title="Looks right" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, display: 'flex' }}><X size={13} color="#bbb" /></button>
+      </div>
+      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 7 }}>
+        {bits.map(([k, v]) => (
+          <span key={k} style={{ fontSize: 11.5, color: '#4a6b59' }}>
+            <span style={{ color: '#8fae9e' }}>{k}</span> <b>{v}</b>
+          </span>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function Attach({ label, slips, onAdd, onRemove, onView, uploading }) {
   return (
     <div>
@@ -220,10 +259,11 @@ export default function Loans() {
   const [loanForm, setLoanForm] = useState(EMPTY_LOAN)
   const [payModal, setPayModal] = useState(null)
   const [detail, setDetail] = useState(null)     // { loan, inst } — that month's payments
-  const [payForm, setPayForm] = useState({ amount: '', paid_on: localToday(), method: 'Bank transfer', account: '', reference: '', notes: '', slips: [], due_date: null })
+  const [payForm, setPayForm] = useState({ amount: '', paid_on: localToday(), paid_time: '', method: 'Bank transfer', account: '', reference: '', notes: '', slips: [], due_date: null })
   const [viewSlip, setViewSlip] = useState(null)
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [ocr, setOcr] = useState(null)   // { busy, progress, found, before, target }
   const toast = useToast()
 
   useEffect(() => { load() }, [])
@@ -395,7 +435,7 @@ export default function Loans() {
   function openPay(loan, instalment) {
     setPayForm({
       amount: instalment ? Math.max(0, instalment.amount - instalment.paid).toFixed(2) : (loan.monthly || 0).toFixed(2),
-      paid_on: localToday(), method: 'Bank transfer',
+      paid_on: localToday(), paid_time: '', method: 'Bank transfer',
       account: knownAccounts[0] || '', reference: '', notes: '', slips: [],
       due_date: instalment?.due || null,
     })
@@ -405,7 +445,7 @@ export default function Loans() {
   // Reopen an existing payment with its details so it can be corrected
   function editPayment(loan, instalment, p) {
     setPayForm({
-      amount: num(p.amount), paid_on: p.paid_on || localToday(),
+      amount: num(p.amount), paid_on: p.paid_on || localToday(), paid_time: p.paid_time || '',
       method: p.method || 'Bank transfer', account: p.account || '',
       reference: p.reference || '', notes: p.notes || '',
       slips: Array.isArray(p.slips) ? p.slips : [], due_date: p.due_date || instalment?.due || null,
@@ -428,6 +468,7 @@ export default function Loans() {
       profit: +(amount * profitShare).toFixed(2),
       principal: +(amount * (1 - profitShare)).toFixed(2),
       paid_on: payForm.paid_on,
+      paid_time: payForm.paid_time || null,
       due_date: payForm.due_date,
       method: payForm.method,
       account: payForm.account || null,
@@ -450,12 +491,65 @@ export default function Loans() {
 
   async function attach(target, fileList) {
     if (!fileList?.length) return
+    const originals = Array.from(fileList)
     setUploading(true)
     const files = await readFiles(fileList)
     setUploading(false)
     if (!files.length) { toast.error('Could not read the file'); return }
     if (target === 'pay') setPayForm(f => ({ ...f, slips: [...(f.slips || []), ...files] }))
     else setLoanForm(f => ({ ...f, [target]: [...(f[target] || []), ...files] }))
+    // Read the slip and offer what it says, rather than making you retype it
+    const image = originals.find(f => (f.type || '').startsWith('image/'))
+    if (image) scanSlip(image, target)
+  }
+
+  // ── Read a slip ─────────────────────────────────────────────────────────────
+  // Everything found is filled in but flagged, so a misread is obvious and can
+  // be undone in one click instead of being saved by accident.
+  async function scanSlip(file, target) {
+    setOcr({ busy: true, progress: 0, target })
+    try {
+      const found = await readSlip(file, p => setOcr(o => (o ? { ...o, progress: p } : o)))
+      if (!found || (!found.amount && !found.date && !found.reference && !found.account)) {
+        setOcr(null)
+        toast.info("Couldn't make out the slip — type the details in yourself")
+        return
+      }
+      if (target === 'pay') {
+        setPayForm(f => {
+          const before = { amount: f.amount, paid_on: f.paid_on, paid_time: f.paid_time, reference: f.reference, account: f.account }
+          setOcr(o => ({ ...o, busy: false, found, before, filled: true, target: 'pay' }))
+          return {
+            ...f,
+            amount: found.amount != null ? String(found.amount) : f.amount,
+            paid_on: found.date || f.paid_on,
+            paid_time: found.time || f.paid_time,
+            reference: found.reference || f.reference,
+            account: found.account || f.account,
+          }
+        })
+      } else {
+        setLoanForm(f => {
+          const before = { amount: f.amount, received_date: f.received_date }
+          setOcr(o => ({ ...o, busy: false, found, before, filled: true, target }))
+          return {
+            ...f,
+            amount: found.amount != null ? String(found.amount) : f.amount,
+            received_date: found.date || f.received_date,
+          }
+        })
+      }
+    } catch (err) {
+      setOcr(null)
+      toast.error('Could not read the slip: ' + (err.message || err))
+    }
+  }
+
+  function undoOcr() {
+    if (!ocr?.before) return
+    if (ocr.target === 'pay') setPayForm(f => ({ ...f, ...ocr.before }))
+    else setLoanForm(f => ({ ...f, ...ocr.before }))
+    setOcr(null)
   }
 
   const toggleExpand = id => setExpanded(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
@@ -723,6 +817,7 @@ export default function Loans() {
       {/* ── Add / edit loan ── */}
       {loanModal && (
         <Modal title={editing ? 'Edit loan' : 'Add a loan'} subtitle="Who lent it, for how long, and what it costs" onClose={() => setLoanModal(false)} width={640}>
+          <OcrNote ocr={ocr && ocr.target !== 'pay' ? ocr : null} onUndo={undoOcr} onDismiss={() => setOcr(null)} />
           {/* who lent it — one row per person, so a loan can be split between several */}
           <div style={{ marginBottom: 14 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 7, gap: 10, flexWrap: 'wrap' }}>
@@ -868,9 +963,13 @@ export default function Loans() {
             ? `Instalment ${payModal.instalment.n} · due ${payModal.instalment.due} · ${payModal.loan.lender || 'loan'}`
             : (payModal.loan.purpose || payModal.loan.lender || 'Loan repayment')}
           onClose={() => setPayModal(null)}>
+          <OcrNote ocr={ocr} onUndo={undoOcr} onDismiss={() => setOcr(null)} />
           <FormRow>
             <Input label="Amount (MVR) *" type="number" value={payForm.amount} onChange={e => setPayForm(f => ({ ...f, amount: e.target.value }))} />
-            <Input label="Paid on" type="date" value={payForm.paid_on} onChange={e => setPayForm(f => ({ ...f, paid_on: e.target.value }))} />
+            <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 10 }}>
+              <Input label="Paid on" type="date" value={payForm.paid_on} onChange={e => setPayForm(f => ({ ...f, paid_on: e.target.value }))} />
+              <Input label="Time" type="time" value={payForm.paid_time} onChange={e => setPayForm(f => ({ ...f, paid_time: e.target.value }))} />
+            </div>
           </FormRow>
           <FormRow>
             <Select label="Method" value={payForm.method} options={METHODS} onChange={e => setPayForm(f => ({ ...f, method: e.target.value }))} />
@@ -910,6 +1009,9 @@ export default function Loans() {
           <div style={{ marginBottom: 18 }}>
             <Attach label="Payment slip" slips={payForm.slips} uploading={uploading} onView={setViewSlip}
               onAdd={fl => attach('pay', fl)} onRemove={i => setPayForm(f => ({ ...f, slips: f.slips.filter((_, x) => x !== i) }))} />
+            <div style={{ fontSize: 11, color: '#bbb', marginTop: 6, display: 'flex', alignItems: 'center', gap: 5 }}>
+              <ScanLine size={11} /> Attach the transfer receipt and the amount, date, time and reference are read off it.
+            </div>
           </div>
 
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', alignItems: 'center' }}>
@@ -943,7 +1045,7 @@ export default function Loans() {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                     <span style={{ fontWeight: 800, fontSize: 15, color: '#1D9E75' }}>{money(p.amount)}</span>
-                    <span style={{ fontSize: 12.5, color: '#666' }}>{p.paid_on}</span>
+                    <span style={{ fontSize: 12.5, color: '#666' }}>{p.paid_on}{p.paid_time ? ` · ${p.paid_time}` : ''}</span>
                     {p.method && <Badge color="gray">{p.method}</Badge>}
                   </div>
                   <div style={{ fontSize: 11.5, color: '#999', marginTop: 6, display: 'flex', gap: 14, flexWrap: 'wrap' }}>

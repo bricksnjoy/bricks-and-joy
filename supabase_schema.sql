@@ -498,3 +498,7 @@ alter table loan_payments add column if not exists account text;
 -- for one stock order). `lender` stays as the joined names so existing reports
 -- keep working; `lenders` holds the detail.
 alter table loans add column if not exists lenders jsonb default '[]'::jsonb;
+
+-- Time printed on the transfer slip, so two payments of the same amount on the
+-- same day can still be told apart when reconciling.
+alter table loan_payments add column if not exists paid_time text;
