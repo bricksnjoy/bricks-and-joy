@@ -1,9 +1,9 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Spinner, Badge } from '../components/UI'
 import { AnalyticsMonthly, AnalyticsProducts, AnalyticsCategories } from '../components/BusinessSections'
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, AreaChart, Area, ComposedChart } from 'recharts'
-import { TrendingUp, TrendingDown, Package, ShoppingCart, Users, AlertTriangle, BarChart3, PieChart as PieIcon, LineChart as LineIcon, Activity, Trophy, Medal, Award, Flame, ArrowUpRight, ArrowDownRight, ArrowRight, CheckCircle, Minus, Coins, Tag, Rocket, Wallet, Target, RotateCcw } from 'lucide-react'
+import { TrendingUp, TrendingDown, Package, ShoppingCart, Users, AlertTriangle, BarChart3, PieChart as PieIcon, LineChart as LineIcon, Activity, Trophy, Medal, Award, Flame, ArrowUpRight, ArrowDownRight, ArrowRight, CheckCircle, Minus, Coins, Tag, Rocket, Wallet, Target, RotateCcw, CalendarDays, CalendarRange } from 'lucide-react'
 import { toLocalISO } from '../lib/dates'
 
 const COLORS = ['#FFA500','#0d1b2a','#1D9E75','#378ADD','#f57f17','#7F77DD','#c62828','#29b6f6']
@@ -71,6 +71,7 @@ export default function Statistics() {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('overview')
+  const [month, setMonth] = useState('')                     // which month the day-by-day view shows
   // Growth Plan state
   const [alloc, setAlloc] = useState(DEFAULT_ALLOC)
   const [mktRate, setMktRate] = useState(DEFAULT_MKT_RATE)   // % of avg monthly revenue
@@ -108,10 +109,50 @@ export default function Statistics() {
       orders: ordByMonth[month] || 0,
     }))
 
+    // ── Month by month, in full ────────────────────────────────────────────────
+    // The area chart above shows the shape of revenue but nothing else. This
+    // carries costs, profit and the change on the month before, so a month can
+    // be read on its own rather than only compared by eye.
+    const r2 = v => parseFloat(Number(v).toFixed(2))
+    const prodById = Object.fromEntries(prods.map(p => [p.id, p]))
+    const costByMonth = {}
+    exps.forEach(e => {
+      const m = (e.expense_date || '').slice(0, 7)
+      if (m) costByMonth[m] = (costByMonth[m] || 0) + Number(e.amount || 0)
+    })
+    const cogsByMonth = {}
+    const invByMonth = {}
+    revenueOrders.forEach(o => {
+      const m = o.order_date?.slice(0, 7)
+      if (!m) return
+      const p = prodById[o.product_id]
+      cogsByMonth[m] = (cogsByMonth[m] || 0) + (p ? (Number(o.qty) || 0) * Number(p.cost_price || 0) : 0)
+      ;(invByMonth[m] || (invByMonth[m] = new Set())).add(invoiceKey(o))
+    })
+    const allMonths = [...new Set([...Object.keys(revByMonth), ...Object.keys(costByMonth)])]
+      .filter(m => m && m !== 'Unknown').sort()
+    const monthlyDetail = allMonths.map((m, i) => {
+      const revenue = revByMonth[m] || 0
+      const costs = costByMonth[m] || 0
+      const mCogs = cogsByMonth[m] || 0
+      const prev = i > 0 ? (revByMonth[allMonths[i - 1]] || 0) : null
+      const invoices = invByMonth[m]?.size || 0
+      return {
+        key: m,
+        month: new Date(m + '-01').toLocaleDateString('en', { month: 'short', year: '2-digit' }),
+        label: new Date(m + '-01').toLocaleDateString('en', { month: 'long', year: 'numeric' }),
+        revenue: r2(revenue), costs: r2(costs), cogs: r2(mCogs),
+        profit: r2(revenue - mCogs - costs),
+        margin: revenue > 0 ? r2((revenue - mCogs - costs) / revenue * 100) : 0,
+        invoices,
+        avgOrder: invoices > 0 ? r2(revenue / invoices) : 0,
+        change: prev && prev > 0 ? r2((revenue - prev) / prev * 100) : null,
+      }
+    })
+
     // Product performance (with profit = revenue − COGS)
     // Charge lines (🚚 delivery fee / 🎁 gift) aren't products — keep them out of rankings
     const isChargeLine = o => !o.product_id && /^(🚚|🎁)/.test(String(o.product_name || ''))
-    const prodById = Object.fromEntries(prods.map(p => [p.id, p]))
     const productPerf = {}
     ords.forEach(o => {
       if (isChargeLine(o)) return
@@ -141,7 +182,6 @@ export default function Statistics() {
     const months = Object.keys(revByMonth).sort()
     const forecastData = []
     let forecastMeta = null
-    const r2 = v => parseFloat(Number(v).toFixed(2))
     if (months.length >= 2) {
       const n = months.length
       const yVals = months.map(m => revByMonth[m])
@@ -251,15 +291,62 @@ export default function Statistics() {
     const avgMonthlyRevenue = revenue / monthsCount
     const netMargin = revenue > 0 ? netProfit / revenue * 100 : 0
 
-    setData({ revenueChart, productChart, channelChart, forecastData, forecastMeta, hotProducts, topCustomers, expChart, statusCount, revenue, cogs, netProfit, netMargin, avgMonthlyRevenue, avgOrderValue, returnRate, totalOrders: totalInvoices, deliveredOrders: deliveredInvoices, fulfilmentRate: totalInvoices > 0 ? (deliveredInvoices / totalInvoices * 100).toFixed(0) : 0, totalCustomers: custs.length, lowStockCount: prods.filter(p => p.stock_qty <= (p.low_stock_threshold ?? 10)).length, _allDelivered: deliveredWithCat, _catPeriod: 'all', _exps: exps })
+    setData({ revenueChart, monthlyDetail, productChart, channelChart, forecastData, forecastMeta, hotProducts, topCustomers, expChart, statusCount, revenue, cogs, netProfit, netMargin, avgMonthlyRevenue, avgOrderValue, returnRate, totalOrders: totalInvoices, deliveredOrders: deliveredInvoices, fulfilmentRate: totalInvoices > 0 ? (deliveredInvoices / totalInvoices * 100).toFixed(0) : 0, totalCustomers: custs.length, lowStockCount: prods.filter(p => p.stock_qty <= (p.low_stock_threshold ?? 10)).length, _allDelivered: deliveredWithCat, _catPeriod: 'all', _exps: exps, _revenueOrders: revenueOrders, _prodById: prodById })
+    setMonth(m => m || allMonths[allMonths.length - 1] || '')
     setLoading(false)
   }
+
+  // ── One month, day by day ───────────────────────────────────────────────────
+  // Every day of the month appears, including the ones with no sales — a gap
+  // is the thing worth seeing, and dropping empty days hides it.
+  const dayChart = useMemo(() => {
+    if (!data || !month) return []
+    const [y, mo] = month.split('-').map(Number)
+    const days = new Date(y, mo, 0).getDate()
+    const byDay = {}
+    const invByDay = {}
+    ;(data._revenueOrders || []).forEach(o => {
+      const d = o.order_date?.slice(0, 10)
+      if (!d || d.slice(0, 7) !== month) return
+      byDay[d] = (byDay[d] || 0) + Number(o.total_price || 0)
+      ;(invByDay[d] || (invByDay[d] = new Set())).add(invoiceKey(o))
+    })
+    const costByDay = {}
+    ;(data._exps || []).forEach(e => {
+      const d = (e.expense_date || '').slice(0, 10)
+      if (!d || d.slice(0, 7) !== month) return
+      costByDay[d] = (costByDay[d] || 0) + Number(e.amount || 0)
+    })
+    return Array.from({ length: days }, (_, i) => {
+      const dd = String(i + 1).padStart(2, '0')
+      const iso = `${month}-${dd}`
+      const dow = new Date(y, mo - 1, i + 1).toLocaleDateString('en', { weekday: 'short' })
+      return {
+        day: String(i + 1), iso, dow,
+        revenue: parseFloat((byDay[iso] || 0).toFixed(2)),
+        costs: parseFloat((costByDay[iso] || 0).toFixed(2)),
+        orders: invByDay[iso]?.size || 0,
+      }
+    })
+  }, [data, month])
+
+  // Which weekday actually sells — averaged, so a month with five Fridays
+  // doesn't look better than one with four.
+  const dowChart = useMemo(() => {
+    const names = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+    const acc = Object.fromEntries(names.map(n => [n, { revenue: 0, days: 0 }]))
+    dayChart.forEach(d => { acc[d.dow].revenue += d.revenue; acc[d.dow].days += 1 })
+    return names.map(n => ({
+      name: n,
+      revenue: acc[n].days ? parseFloat((acc[n].revenue / acc[n].days).toFixed(2)) : 0,
+    }))
+  }, [dayChart])
 
   if (loading) return <Spinner />
   const t = data
   const tt = { background: '#fff', border: '1px solid #eee', borderRadius: 8, fontSize: 12 }
 
-  const tabs = [['overview','Overview',BarChart3],['products','Products',Package],['categories','By Category',Tag],['forecast','Forecast',LineIcon],['plan','Growth Plan',Rocket],['customers','Customers',Users],['costs','Cost Analysis',Coins]]
+  const tabs = [['overview','Overview',BarChart3],['monthly','Month by month',CalendarDays],['products','Products',Package],['categories','By Category',Tag],['forecast','Forecast',LineIcon],['plan','Growth Plan',Rocket],['customers','Customers',Users],['costs','Cost Analysis',Coins]]
 
   return (
     <div style={{ fontFamily: "'Poppins', sans-serif" }}>
@@ -364,6 +451,131 @@ export default function Statistics() {
           </div>
         </>
       )}
+
+      {/* ── MONTH BY MONTH ── */}
+      {activeTab === 'monthly' && (() => {
+        const md = t.monthlyDetail || []
+        const sel = md.find(m => m.key === month) || md[md.length - 1] || null
+        const prev = sel ? md[md.indexOf(sel) - 1] : null
+        const best = dayChart.reduce((a, d) => (d.revenue > (a?.revenue || 0) ? d : a), null)
+        const tradedDays = dayChart.filter(d => d.revenue > 0).length
+        const monthMoney = n => `MVR ${Number(n || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}`
+        if (!md.length) return <Card><div style={{ textAlign: 'center', padding: '40px 0', color: '#b8ab97' }}>No sales recorded yet.</div></Card>
+        return (
+          <>
+            {/* every month side by side */}
+            <Card style={{ marginBottom: 20 }}>
+              <ChartTitle icon={CalendarRange} color="#FFA500">Revenue, costs and profit each month</ChartTitle>
+              <ResponsiveContainer width="100%" height={300}>
+                <ComposedChart data={md}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+                  <YAxis yAxisId="l" tick={{ fontSize: 11 }} />
+                  <YAxis yAxisId="r" orientation="right" tick={{ fontSize: 11 }} />
+                  <Tooltip contentStyle={tt} formatter={(v, n) => [n === 'Invoices' ? v : `MVR ${Number(v).toLocaleString()}`, n]} />
+                  <Legend iconSize={10} wrapperStyle={{ fontSize: 12 }} />
+                  <Bar yAxisId="l" dataKey="revenue" name="Revenue" fill="#FFA500" radius={[4, 4, 0, 0]} />
+                  <Bar yAxisId="l" dataKey="costs" name="Costs" fill="#E24B4A" radius={[4, 4, 0, 0]} />
+                  <Line yAxisId="l" type="monotone" dataKey="profit" name="Profit" stroke="#1D9E75" strokeWidth={2.5} dot={{ r: 3 }} />
+                  <Line yAxisId="r" type="monotone" dataKey="invoices" name="Invoices" stroke="#378ADD" strokeWidth={1.5} strokeDasharray="4 3" dot={false} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </Card>
+
+            {/* the numbers behind it */}
+            <Card style={{ marginBottom: 20 }}>
+              <ChartTitle icon={BarChart3} color="#0d1b2a">The figures, month by month</ChartTitle>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, minWidth: 620 }}>
+                  <thead>
+                    <tr style={{ borderBottom: '2px solid #f0f0f0', color: '#888', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                      {['Month', 'Revenue', 'vs prev', 'Invoices', 'Avg order', 'Stock cost', 'Running costs', 'Profit', 'Margin'].map((h, i) => (
+                        <th key={h} style={{ padding: '9px 10px', textAlign: i === 0 ? 'left' : 'right', fontWeight: 700, whiteSpace: 'nowrap' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...md].reverse().map(m => (
+                      <tr key={m.key} onClick={() => setMonth(m.key)}
+                        style={{ borderBottom: '1px solid #f7f7f7', cursor: 'pointer', background: m.key === sel?.key ? '#FFF8EC' : 'transparent' }}>
+                        <td style={{ padding: '9px 10px', fontWeight: 700, color: '#0d1b2a', whiteSpace: 'nowrap' }}>{m.label}</td>
+                        <td style={{ padding: '9px 10px', textAlign: 'right', fontWeight: 700 }}>{monthMoney(m.revenue)}</td>
+                        <td style={{ padding: '9px 10px', textAlign: 'right', color: m.change == null ? '#ccc' : m.change >= 0 ? '#1D9E75' : '#E24B4A', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                          {m.change == null ? '—' : `${m.change >= 0 ? '+' : ''}${m.change.toFixed(0)}%`}
+                        </td>
+                        <td style={{ padding: '9px 10px', textAlign: 'right', color: '#667' }}>{m.invoices}</td>
+                        <td style={{ padding: '9px 10px', textAlign: 'right', color: '#667' }}>{monthMoney(m.avgOrder)}</td>
+                        <td style={{ padding: '9px 10px', textAlign: 'right', color: '#667' }}>{monthMoney(m.cogs)}</td>
+                        <td style={{ padding: '9px 10px', textAlign: 'right', color: '#667' }}>{monthMoney(m.costs)}</td>
+                        <td style={{ padding: '9px 10px', textAlign: 'right', fontWeight: 700, color: m.profit >= 0 ? '#1D9E75' : '#E24B4A' }}>{monthMoney(m.profit)}</td>
+                        <td style={{ padding: '9px 10px', textAlign: 'right', color: '#667' }}>{m.margin.toFixed(0)}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ fontSize: 11.5, color: '#b8ab97', marginTop: 10 }}>Tap a month to see it day by day below.</div>
+            </Card>
+
+            {/* one month, opened up */}
+            <Card style={{ marginBottom: 20 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+                <ChartTitle icon={CalendarDays} color="#378ADD" gap={0}>Inside {sel?.label || 'the month'} — day by day</ChartTitle>
+                <select value={month} onChange={e => setMonth(e.target.value)}
+                  style={{ border: '1px solid #e6e2da', borderRadius: 9, padding: '7px 11px', fontSize: 12.5, fontFamily: 'inherit', background: '#fff', color: '#0d1b2a' }}>
+                  {[...md].reverse().map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
+                </select>
+              </div>
+
+              <div className="grid-collapse" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 18 }}>
+                {[
+                  ['Revenue', monthMoney(sel?.revenue), '#FFA500', prev ? `${sel.revenue >= prev.revenue ? '+' : ''}${(sel.revenue - prev.revenue).toFixed(0)} on ${prev.month}` : 'first month'],
+                  ['Invoices', sel?.invoices ?? 0, '#378ADD', `${monthMoney(sel?.avgOrder)} average`],
+                  ['Days with a sale', `${tradedDays} of ${dayChart.length}`, '#1D9E75', tradedDays ? `${monthMoney((sel?.revenue || 0) / tradedDays)} a trading day` : 'nothing sold'],
+                  ['Best day', best && best.revenue > 0 ? `${best.day} ${sel?.month || ''}` : '—', '#7F77DD', best && best.revenue > 0 ? monthMoney(best.revenue) : 'no sales'],
+                ].map(([label, value, colour, hint]) => (
+                  <div key={label} style={{ border: '1px solid #f0ece4', borderRadius: 11, padding: '11px 13px', background: '#fffdfa' }}>
+                    <div style={{ fontSize: 10, color: '#c4bcb0', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 700 }}>{label}</div>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: colour, letterSpacing: '-0.4px', margin: '3px 0 1px' }}>{value}</div>
+                    <div style={{ fontSize: 11, color: '#b8ab97' }}>{hint}</div>
+                  </div>
+                ))}
+              </div>
+
+              <ResponsiveContainer width="100%" height={260}>
+                <ComposedChart data={dayChart}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis dataKey="day" tick={{ fontSize: 10 }} interval={0} minTickGap={0} />
+                  <YAxis tick={{ fontSize: 11 }} />
+                  <Tooltip contentStyle={tt}
+                    labelFormatter={d => { const row = dayChart.find(x => x.day === d); return row ? `${row.dow} ${d} ${sel?.month || ''}` : d }}
+                    formatter={(v, n) => [n === 'Orders' ? v : `MVR ${Number(v).toLocaleString()}`, n]} />
+                  <Legend iconSize={10} wrapperStyle={{ fontSize: 12 }} />
+                  <Bar dataKey="revenue" name="Sales" fill="#FFA500" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="costs" name="Costs" fill="#f0c9c8" radius={[3, 3, 0, 0]} />
+                  <Line type="monotone" dataKey="orders" name="Orders" stroke="#378ADD" strokeWidth={1.5} dot={false} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </Card>
+
+            <Card>
+              <ChartTitle icon={Activity} color="#1D9E75">Which day of the week sells, in {sel?.label || 'this month'}</ChartTitle>
+              <p style={{ fontSize: 12, color: '#8a8278', margin: '-8px 0 14px' }}>
+                Averaged per day, so a month with five Fridays doesn't flatter Friday.
+              </p>
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={dowChart}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} />
+                  <Tooltip contentStyle={tt} formatter={v => [`MVR ${Number(v).toLocaleString()}`, 'Average']} />
+                  <Bar dataKey="revenue" fill="#1D9E75" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </Card>
+          </>
+        )
+      })()}
 
       {/* ── PRODUCTS ── */}
       {activeTab === 'products' && (

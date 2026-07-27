@@ -2,12 +2,18 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Button, Spinner, useToast, Toasts, Modal } from '../components/UI'
-import { Upload, CheckCircle, AlertTriangle, X, Trash2, Plus, FileSpreadsheet, Eye, EyeOff, RefreshCw, Scale, Lock } from 'lucide-react'
+import { Upload, CheckCircle, AlertTriangle, X, Trash2, Plus, FileSpreadsheet, Eye, EyeOff, RefreshCw, Scale, Lock, History } from 'lucide-react'
 import { getSettings } from '../lib/settings'
 import { getLock, setLock } from '../lib/periodLock'
 
+// Trading that happened before the shop started keeping records here has no
+// counterpart to match and never will. It is explained, not missing.
+const BACKLOG_REASON = 'Backlog — traded before the system'
+const BOOKS_START_KEY = 'bnj_books_start'
+
 // Common reasons a real bank movement will never appear in the books
 const IGNORE_REASONS = [
+  BACKLOG_REASON,
   'Bank charge / fee',
   'Interest received',
   'Transfer between own accounts',
@@ -123,6 +129,7 @@ export default function Reconciliation() {
   const [showGuide, setShowGuide] = useState(() => localStorage.getItem('bnj_recon_guide_hidden') !== '1')
   const [openGroup, setOpenGroup] = useState(null)   // which unreconciled group is expanded
   const [lock, setLockState] = useState(null)        // books closed up to this date
+  const [booksStart, setBooksStart] = useState(() => localStorage.getItem(BOOKS_START_KEY) || '')
   const fileRef = useRef(null)
   const toast = useToast()
 
@@ -234,6 +241,28 @@ export default function Reconciliation() {
     return m
   }, [bookIn, bookOut])
 
+  // Dated before the shop started recording here, so no book entry exists for it
+  const isBacklog = d => { const s = ymd(d); return !!(booksStart && s && s < booksStart) }
+
+  function saveBooksStart(v) {
+    setBooksStart(v)
+    if (v) localStorage.setItem(BOOKS_START_KEY, v); else localStorage.removeItem(BOOKS_START_KEY)
+  }
+
+  // Changing the start date after a statement is open re-settles the lines it
+  // now covers. Anything decided by hand is left alone, and a line that is only
+  // backlogged because of the old date is handed back for review.
+  useEffect(() => {
+    if (!stmtTxns) return
+    setMatches(ms => ms.map(m => {
+      if (m.manual) return m
+      const back = isBacklog(m.stmt?.date)
+      if (back && !m.ignored) return { ...m, matchIds: [], suggestion: null, ignored: true, backlog: true, reason: BACKLOG_REASON }
+      if (!back && m.backlog) return { ...m, ignored: false, backlog: false, reason: '' }
+      return m
+    }))
+  }, [booksStart]) // eslint-disable-line
+
   // Only a reference AND the amount agreeing is proof enough to match on its
   // own. Anything resting on the amount alone is offered as a suggestion and
   // stays in review — a payment can easily land days after the order it pays,
@@ -250,6 +279,17 @@ export default function Reconciliation() {
       const pool = isIn ? bookIn : bookOut
       const free = b => !used.has(b.id)
       const sameAmount = b => Math.abs(b.amount - amt) < 0.01
+
+      // Trading from before the shop kept records here has nothing to match
+      // against, so it is settled straight away rather than sitting in review
+      // every month asking to be explained again.
+      if (isBacklog(t.date)) {
+        return {
+          stmt: t, amt, isIn, matchIds: [],
+          ignored: true, backlog: true, reason: BACKLOG_REASON,
+          why: '', confidence: '', manual: false,
+        }
+      }
 
       // Proof: the reference matches and so does the amount. A slip may carry
       // the bank's transaction id or the transfer code, and the statement holds
@@ -414,10 +454,12 @@ export default function Reconciliation() {
   // explained stops it counting as an exception without inventing a record.
   function ignoreLine(idx, reason) {
     setMatches(ms => ms.map((m, i) => i === idx
-      ? { ...m, matchIds: [], ignored: true, manual: true, reason: reason || 'Not in the books', why: '', confidence: '' }
+      ? { ...m, matchIds: [], ignored: true, manual: true, backlog: reason === BACKLOG_REASON, reason: reason || 'Not in the books', why: '', confidence: '' }
       : m))
   }
-  const unignore = idx => setMatches(ms => ms.map((m, i) => i === idx ? { ...m, ignored: false, reason: '', manual: false } : m))
+  // Reopening a backlogged line marks it decided by hand, so the start date
+  // does not immediately settle it again.
+  const unignore = idx => setMatches(ms => ms.map((m, i) => i === idx ? { ...m, ignored: false, backlog: false, reason: '', manual: !!m.backlog } : m))
 
   function rerunAutoMatch() {
     if (!stmtTxns) return
@@ -483,6 +525,10 @@ export default function Reconciliation() {
       credits, debits, net: credits - debits,
       matchedIn, matchedOut, matchedNet: matchedIn - matchedOut,
       ignoredIn, ignoredOut, ignoredCount: matches.filter(m => m.ignored).length,
+      // Explained because it predates the system, rather than because it was judged
+      backlogCount: matches.filter(m => m.backlog).length,
+      backlogIn: tot(m => m.isIn && m.backlog),
+      backlogOut: tot(m => !m.isIn && m.backlog),
       matchedCount: matches.filter(m => idsOf(m).length).length,
       suggestionCount: needsReview.filter(m => m.suggestion).length,
       unmatchedCount: needsReview.length,
@@ -601,7 +647,7 @@ export default function Reconciliation() {
         date: ymd(m.stmt.date), party: m.stmt.party || '', type: m.stmt.type || '',
         ref: m.stmt.ref || '', ref2: m.stmt.ref2 || '', amount: m.amt, isIn: m.isIn,
         matchIds: idsOf(m), matchId: idsOf(m)[0] || null,
-        ignored: !!m.ignored, reason: m.reason || '', why: m.why || '',
+        ignored: !!m.ignored, backlog: !!m.backlog, reason: m.reason || '', why: m.why || '',
       })),
       created_at: new Date().toISOString(),
     }
@@ -912,6 +958,28 @@ export default function Reconciliation() {
             </div>
           </Card>
 
+          {/* Where the records begin */}
+          <Card style={{ marginBottom: 18, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+              <History size={16} color={booksStart ? '#1D9E75' : '#c4bcb0'} style={{ flexShrink: 0, marginTop: 2 }} />
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#0d1b2a' }}>
+                  {booksStart ? `Records start ${fmtDate(booksStart)}` : 'Trading before the system'}
+                </div>
+                <div style={{ fontSize: 11.5, color: '#aaa', marginTop: 3, maxWidth: 560, lineHeight: 1.6 }}>
+                  {booksStart
+                    ? `Statement lines before this date are settled as backlog — the trading is real, but it was never recorded here, so there is nothing to match it to.`
+                    : 'Set the date you began recording sales and costs here. Anything on a statement from before it gets settled as backlog instead of asking to be explained every month.'}
+                </div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <input type="date" value={booksStart} onChange={e => saveBooksStart(e.target.value)}
+                style={{ border: '1px solid #e6e2da', borderRadius: 8, padding: '6px 10px', fontSize: 12.5, fontFamily: 'inherit' }} />
+              {booksStart && <Button variant="ghost" onClick={() => saveBooksStart('')}><X size={13} /> Clear</Button>}
+            </div>
+          </Card>
+
           {/* Closing the books */}
           <Card style={{ marginBottom: 18, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
@@ -1104,6 +1172,18 @@ export default function Reconciliation() {
                 {sum.progress}% reviewed — {sum.matchedCount + sum.ignoredCount} of {matches.length} lines accounted for
               </div>
             </div>
+
+            {sum.backlogCount > 0 && (
+              <div style={{ marginTop: 12, background: '#F5F3FC', border: '1px solid #E4DFF7', borderRadius: 10, padding: '10px 14px', fontSize: 12.5, color: '#5b53a8', lineHeight: 1.6 }}>
+                <History size={13} style={{ verticalAlign: -2, marginRight: 5 }} />
+                <strong>{sum.backlogCount} line{sum.backlogCount > 1 ? 's' : ''}</strong> dated before {fmtDate(booksStart)} settled as backlog
+                {sum.backlogIn > 0 && <> — {money(sum.backlogIn)} in</>}
+                {sum.backlogIn > 0 && sum.backlogOut > 0 && ' and'}
+                {sum.backlogOut > 0 && <> {money(sum.backlogOut)} out</>}.
+                This is real trading from before you kept records here, so there is nothing to match it to.
+                {' '}Open the <strong>Explained</strong> filter to see them, or reopen any line that should have a record.
+              </div>
+            )}
 
             {Math.abs(sum.unexplained) >= 0.01 && (
               <div style={{ marginTop: 12, background: '#FFF8E1', border: '1px solid #FAEEDA', borderRadius: 10, padding: '10px 14px', fontSize: 12.5, color: '#a16d0a', lineHeight: 1.6 }}>
