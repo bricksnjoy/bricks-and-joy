@@ -278,7 +278,9 @@ export function Table({ columns, data, emptyMessage = 'No data yet.' }) {
     </div>
   )
   return (
-    <div style={{ overflowX: 'auto' }}>
+    // Scrolls within itself rather than widening the page, and the swipe stops
+    // at its own edge instead of chaining out to the window.
+    <div style={{ overflowX: 'auto', maxWidth: '100%', WebkitOverflowScrolling: 'touch', overscrollBehaviorX: 'contain' }}>
       <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
         <thead>
           <tr>

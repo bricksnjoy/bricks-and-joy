@@ -279,7 +279,17 @@ export default function App() {
         .sec-header.editing:hover { background: #f5f4f1; }
 
         .sidebar-overlay { display: none; position: fixed; inset: 0; background: rgba(13,27,42,0.4); z-index: 99; backdrop-filter: blur(2px); }
-        .app-shell { height: 100vh; height: 100dvh; }
+        .app-shell { height: 100vh; height: 100dvh; max-width: 100vw; overflow-x: hidden; }
+
+        /* A flex item defaults to min-width:auto, so it refuses to shrink below
+           its content. A wide table then stretched the whole shell past the
+           screen and the window scrolled sideways instead of the table — which
+           on a phone meant the last columns could never be reached. */
+        .main-content { min-width: 0; }
+        .page-content { min-width: 0; max-width: 100%; }
+        /* Anything that scrolls sideways keeps it to itself */
+        .page-content .ui-card { max-width: 100%; }
+        .x-scroll-wrap, .rec-scroll { max-width: 100%; overscroll-behavior-x: contain; }
         .sidebar { padding-top: env(safe-area-inset-top); }
         .app-header { padding-left: calc(22px + env(safe-area-inset-left)); padding-right: calc(22px + env(safe-area-inset-right)); }
         @media (max-width: 768px) {
