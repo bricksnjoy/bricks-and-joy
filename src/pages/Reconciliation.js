@@ -2,8 +2,9 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Button, Spinner, useToast, Toasts, Modal } from '../components/UI'
-import { Upload, CheckCircle, AlertTriangle, X, Trash2, Plus, FileSpreadsheet, Eye, EyeOff, RefreshCw } from 'lucide-react'
+import { Upload, CheckCircle, AlertTriangle, X, Trash2, Plus, FileSpreadsheet, Eye, EyeOff, RefreshCw, Scale, Lock } from 'lucide-react'
 import { getSettings } from '../lib/settings'
+import { getLock, setLock } from '../lib/periodLock'
 
 // Common reasons a real bank movement will never appear in the books
 const IGNORE_REASONS = [
@@ -120,13 +121,14 @@ export default function Reconciliation() {
   const [outsideCount, setOutsideCount] = useState(0)
   const [showGuide, setShowGuide] = useState(() => localStorage.getItem('bnj_recon_guide_hidden') !== '1')
   const [openGroup, setOpenGroup] = useState(null)   // which unreconciled group is expanded
+  const [lock, setLockState] = useState(null)        // books closed up to this date
   const fileRef = useRef(null)
   const toast = useToast()
 
   const currency = getSettings().currency || 'MVR'
   const money = n => `${currency} ${Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load(); getLock({ force: true }).then(setLockState) }, [])
 
   async function load() {
     setLoading(true)
@@ -412,6 +414,38 @@ export default function Reconciliation() {
     setMatches(autoMatch(stmtTxns, []))
   }
 
+  // ── Proving the balance ─────────────────────────────────────────────────────
+  // Matching every line only proves the lines were looked at. The real check is
+  // whether the bank's closing balance and your own books agree once you allow
+  // for money recorded but not yet through the bank.
+  //
+  //   bank closing balance
+  //   + money in you have recorded that has not landed yet
+  //   − money out you have recorded that has not been taken yet
+  //   = what your books should show
+  //
+  // Anything sitting in that list for months is almost always a mistake, not a
+  // slow payment, so it gets flagged.
+  const proof = useMemo(() => {
+    if (!stmtTxns) return null
+    const cutoff = period.to || ymd(sum.periodEnd)
+    // Book entries on or before the period end that no reconciliation has cleared
+    const outstanding = [...bookIn.map(b => ({ ...b, dir: 'in' })), ...bookOut.map(b => ({ ...b, dir: 'out' }))]
+      .filter(b => !reconciledIds.has(b.id))
+      .filter(b => !matches.some(m => idsOf(m).includes(b.id)))
+      .filter(b => { const d = ymd(b.date); return d && cutoff && d <= cutoff })
+      .sort((a, b) => (a.date || 0) - (b.date || 0))
+    const outIn = outstanding.filter(b => b.dir === 'in').reduce((s2, b) => s2 + b.amount, 0)
+    const outOut = outstanding.filter(b => b.dir === 'out').reduce((s2, b) => s2 + b.amount, 0)
+    const cutoffDate = cutoff ? new Date(cutoff + 'T00:00:00') : null
+    const stale = outstanding.filter(b => cutoffDate && b.date && (cutoffDate - b.date) / 86400000 > 60)
+    return {
+      bank: sum.stmtClosing,
+      outIn, outOut, outstanding, stale,
+      books: sum.stmtClosing + outIn - outOut,
+    }
+  }, [stmtTxns, bookIn, bookOut, reconciledIds, matches, period, sum])
+
   // A record dated before this period that has never been reconciled — an order
   // placed on the 26th and paid on the 29th falls into the next cycle, so these
   // must stay available rather than being written off with the period they sat in.
@@ -539,6 +573,7 @@ export default function Reconciliation() {
       statement_in: sum.credits,
       statement_out: sum.debits,
       closing_balance: sum.stmtClosing,
+      book_balance: proof ? proof.books : null,
       matched_count: cleared.length,
       unmatched_count: sum.unmatchedCount,
       cleared,
@@ -573,6 +608,22 @@ export default function Reconciliation() {
     setSaving(false)
     setStmtTxns(null); setMatches([]); setFileName('')
     toast.success(`Reconciled ${cleared.length} transaction${cleared.length === 1 ? '' : 's'}`)
+  }
+
+  // Closing the books fixes everything up to a date, so a later edit cannot
+  // quietly contradict a reconciliation that has already been signed off.
+  async function closeBooks(through) {
+    if (!through) return
+    if (!window.confirm(
+      `Close the books up to ${through}?\n\n`
+      + `Orders, costs and purchase orders dated on or before then will warn before they can be edited. `
+      + `You can reopen by closing to an earlier date.`
+    )) return
+    const err = await setLock(through, `Closed after reconciling ${account}`)
+    if (err) { toast.error('Could not close: ' + err.message); return }
+    const next = await getLock({ force: true })
+    setLockState(next)
+    toast.success(`Books closed to ${through}`)
   }
 
   async function deleteRecon(rec) {
@@ -832,6 +883,30 @@ export default function Reconciliation() {
             </div>
           </Card>
 
+          {/* Closing the books */}
+          <Card style={{ marginBottom: 18, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+              <Lock size={16} color={lock?.lockedThrough ? '#1D9E75' : '#c4bcb0'} style={{ flexShrink: 0, marginTop: 2 }} />
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#0d1b2a' }}>
+                  {lock?.lockedThrough ? `Books closed up to ${fmtDate(lock.lockedThrough)}` : 'Books are open'}
+                </div>
+                <div style={{ fontSize: 11.5, color: '#aaa', marginTop: 3, maxWidth: 560, lineHeight: 1.6 }}>
+                  {lock?.lockedThrough
+                    ? 'Anything dated on or before then warns before it can be edited, so a finished reconciliation cannot be quietly contradicted.'
+                    : 'Once a month is reconciled, close it — otherwise an order edited later changes totals you have already agreed with the bank.'}
+                </div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <input type="date" value={period.to} onChange={e => setPeriod(p => ({ ...p, to: e.target.value }))}
+                style={{ border: '1px solid #e6e2da', borderRadius: 8, padding: '6px 10px', fontSize: 12.5, fontFamily: 'inherit' }} />
+              <Button variant="ghost" onClick={() => closeBooks(period.to)}>
+                <Lock size={13} /> Close up to this date
+              </Button>
+            </div>
+          </Card>
+
           {/* Not yet reconciled — visible without uploading anything */}
           {unreconciled.rows.length > 0 && (
             <Card style={{ marginBottom: 18 }}>
@@ -1061,6 +1136,82 @@ export default function Reconciliation() {
                 <b>Unexplained difference</b> is what the bank moved minus what the matched and explained lines account for.
                 When it reaches zero, your books and this account agree for the period and you can finish.
               </div>
+            </Card>
+          )}
+
+          {/* Proving the balance — the point of the whole exercise */}
+          {proof && (
+            <Card style={{ marginBottom: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap', marginBottom: 14 }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#0d1b2a', display: 'flex', alignItems: 'center', gap: 7 }}>
+                    <Scale size={14} color="#FFA500" /> What this account should hold
+                  </div>
+                  <div style={{ fontSize: 11.5, color: '#aaa', marginTop: 3 }}>
+                    Matching lines proves you looked at them. This proves the balance.
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: 9.5, color: '#c4bcb0', textTransform: 'uppercase', letterSpacing: '0.6px', fontWeight: 700 }}>Your true position</div>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: proof.books >= 0 ? '#0d1b2a' : '#E24B4A', letterSpacing: '-0.6px' }}>{money(proof.books)}</div>
+                </div>
+              </div>
+
+              <table className="rec-table" style={{ minWidth: 0 }}>
+                <tbody>
+                  <tr>
+                    <td style={{ padding: '8px 0' }}>Balance on the statement at {fmtDate(period.to)}</td>
+                    <td style={{ padding: '8px 0', textAlign: 'right', fontWeight: 700, whiteSpace: 'nowrap' }}>{money(proof.bank)}</td>
+                  </tr>
+                  <tr>
+                    <td style={{ padding: '8px 0', color: proof.outIn > 0 ? '#0d1b2a' : '#bbb' }}>
+                      Add: money in you have recorded that has not landed
+                      <span style={{ color: '#bbb' }}> · {proof.outstanding.filter(b => b.dir === 'in').length} item(s)</span>
+                    </td>
+                    <td style={{ padding: '8px 0', textAlign: 'right', color: '#1D9E75', fontWeight: 600, whiteSpace: 'nowrap' }}>+{money(proof.outIn)}</td>
+                  </tr>
+                  <tr>
+                    <td style={{ padding: '8px 0', color: proof.outOut > 0 ? '#0d1b2a' : '#bbb' }}>
+                      Less: money out you have recorded that has not been taken
+                      <span style={{ color: '#bbb' }}> · {proof.outstanding.filter(b => b.dir === 'out').length} item(s)</span>
+                    </td>
+                    <td style={{ padding: '8px 0', textAlign: 'right', color: '#E24B4A', fontWeight: 600, whiteSpace: 'nowrap' }}>−{money(proof.outOut)}</td>
+                  </tr>
+                  <tr style={{ borderTop: '2px solid #0d1b2a' }}>
+                    <td style={{ padding: '11px 0 0', fontWeight: 800 }}>What your books should show</td>
+                    <td style={{ padding: '11px 0 0', textAlign: 'right', fontWeight: 800, fontSize: 15, whiteSpace: 'nowrap' }}>{money(proof.books)}</td>
+                  </tr>
+                </tbody>
+              </table>
+
+              {sum.unmatchedCount > 0 && (
+                <div style={{ marginTop: 12, fontSize: 11.5, color: '#b8740a' }}>
+                  {sum.unmatchedCount} line{sum.unmatchedCount > 1 ? 's are' : ' is'} still unreviewed, so this figure will move as you work through them.
+                </div>
+              )}
+
+              {proof.stale.length > 0 && (
+                <div style={{ marginTop: 12, background: '#fffaf2', border: '1px solid #f3e4c8', borderRadius: 10, padding: '11px 13px' }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: '#8a6a2a', display: 'flex', alignItems: 'center', gap: 7, marginBottom: 7 }}>
+                    <AlertTriangle size={13} color="#e6940a" />
+                    {proof.stale.length} record{proof.stale.length > 1 ? 's have' : ' has'} been waiting over 60 days to clear
+                  </div>
+                  <div style={{ fontSize: 11.5, color: '#a9a094', marginBottom: 8, lineHeight: 1.6 }}>
+                    Money that never reached the bank this long after being recorded is usually an entry made twice, an amount typed wrong, or a payment that quietly failed — not a slow payer.
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {proof.stale.slice(0, 6).map(b => (
+                      <div key={b.id} style={{ display: 'flex', gap: 10, fontSize: 11.5, color: '#6b665e', flexWrap: 'wrap' }}>
+                        <span style={{ color: '#bbb', minWidth: 90 }}>{fmtDate(b.date)}</span>
+                        <span style={{ flex: 1, minWidth: 0 }}>{b.label}</span>
+                        <span className={b.dir === 'in' ? 'rec-in' : 'rec-out'} style={{ whiteSpace: 'nowrap' }}>
+                          {b.dir === 'in' ? '+' : '−'}{money(b.amount)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </Card>
           )}
 

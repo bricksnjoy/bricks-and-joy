@@ -26,11 +26,12 @@ import Settings from './pages/Settings'
 import AuditLog from './pages/AuditLog'
 import Storefront from './pages/Storefront'
 import Loans from './pages/Loans'
+import Cash from './pages/Cash'
 import {
   LayoutDashboard, ShoppingCart, Package, Users,
   DollarSign, BarChart2, Truck, ChevronDown, ChevronRight,
   LogOut, Building2, FileText, Menu, CalendarDays, Tag, BookOpen,
-  GripVertical, Check, Settings2, MoreVertical, Sparkles, MessageSquare, LifeBuoy, TrendingUp, Scale, ClipboardList, Settings as SettingsIcon, History, Globe, Landmark, Calculator
+  GripVertical, Check, Settings2, MoreVertical, Sparkles, MessageSquare, LifeBuoy, TrendingUp, Scale, ClipboardList, Settings as SettingsIcon, History, Globe, Landmark, Calculator, Wallet
 } from 'lucide-react'
 
 // Catalog of every page. The sidebar layout (sections + order) is built from
@@ -53,6 +54,7 @@ const ITEMS = {
   'stock-report':     { label: 'Stock Report',      icon: ClipboardList,   render: <StockReport /> },
   'future-plans':     { label: 'Future Plans',      icon: TrendingUp,      render: <FuturePlans /> },
   loans:              { label: 'Loans',             icon: Landmark,        render: <Loans /> },
+  cash:               { label: 'Cash in Hand',      icon: Wallet,          render: <Cash /> },
   'profit-loss':      { label: 'Financial Reports', icon: FileText,        render: <ProfitLoss /> },
   reconciliation:     { label: 'Reconciliation',    icon: Scale,           render: <Reconciliation /> },
   costs:              { label: 'Cost Management',    icon: DollarSign,      render: <CostManagement /> },
@@ -65,7 +67,7 @@ const DEFAULT_NAV = [
   { id: 'main',       section: null,             items: ['dashboard', 'website'] },
   { id: 'pos',        section: 'Point of Sale',  items: ['orders', 'invoices', 'customers', 'deliveries', 'tasks', 'messages', 'planning'] },
   { id: 'inventory',  section: 'Inventory',      items: ['inventory', 'categories', 'supplier-catalog', 'order-analysis', 'purchase-orders', 'stock-report'] },
-  { id: 'accounting', section: 'Accounting',     items: ['loans', 'future-plans', 'profit-loss', 'reconciliation', 'costs', 'vendors', 'statistics', 'audit-log'] },
+  { id: 'accounting', section: 'Accounting',     items: ['cash', 'loans', 'future-plans', 'profit-loss', 'reconciliation', 'costs', 'vendors', 'statistics', 'audit-log'] },
 ]
 
 const NAV_KEY = 'bnj_nav_layout_v1'

@@ -654,3 +654,58 @@ drop policy if exists "Authenticated users can do everything" on report_settings
 create policy "Authenticated users can do everything" on audit_log       for all using (auth.role() = 'authenticated');
 create policy "Authenticated users can do everything" on reconciliations for all using (auth.role() = 'authenticated');
 create policy "Authenticated users can do everything" on report_settings for all using (auth.role() = 'authenticated');
+
+-- ═════════════════════════════════════════════════════════════════════════════
+-- CASH, REFUNDS AND CLOSING THE BOOKS
+-- ═════════════════════════════════════════════════════════════════════════════
+
+-- Cash never touches a bank statement, so without this the money in the drawer
+-- is invisible and can go missing with nothing noticing. Sales and costs paid in
+-- cash are read from orders/expenses; this table holds what happens to the cash
+-- itself — banking it, counting it, and correcting it.
+create table if not exists cash_movements (
+  id uuid primary key default gen_random_uuid(),
+  kind text not null,              -- banked | count | adjustment
+  amount numeric default 0,        -- banked/adjustment: the amount. count: what was counted
+  occurred_on date default current_date,
+  expected numeric,                -- a count also records what the books said at the time
+  variance numeric,                -- counted minus expected, so a shortfall is visible
+  reference text,                  -- deposit slip reference, so reconciliation can match it
+  note text,
+  created_at timestamptz default now()
+);
+create index if not exists cash_movements_date_idx on cash_movements(occurred_on desc);
+
+-- Which pot a cost came out of, so cash expenses reduce the drawer and bank
+-- expenses reduce the bank.
+alter table expenses add column if not exists paid_from text default 'bank';  -- bank | cash
+
+-- Money handed back to a customer. Kept on the order so it shows on the invoice,
+-- and mirrored into expenses so the debit has something to reconcile against.
+alter table orders add column if not exists refund_amount    numeric;
+alter table orders add column if not exists refunded_on      date;
+alter table orders add column if not exists refund_method    text;
+alter table orders add column if not exists refund_reference text;
+
+-- Closing the books. Everything dated on or before locked_through is fixed —
+-- editing it would silently break a reconciliation that has already been signed
+-- off. The most recent row wins.
+create table if not exists period_locks (
+  id uuid primary key default gen_random_uuid(),
+  locked_through date not null,
+  note text,
+  locked_by text,
+  created_at timestamptz default now()
+);
+
+-- What the books said the bank held, so a reconciliation can prove itself rather
+-- than only proving that the lines were looked at.
+alter table reconciliations add column if not exists opening_balance numeric;
+alter table reconciliations add column if not exists book_balance    numeric;
+
+alter table cash_movements enable row level security;
+alter table period_locks   enable row level security;
+drop policy if exists "Authenticated users can do everything" on cash_movements;
+drop policy if exists "Authenticated users can do everything" on period_locks;
+create policy "Authenticated users can do everything" on cash_movements for all using (auth.role() = 'authenticated');
+create policy "Authenticated users can do everything" on period_locks   for all using (auth.role() = 'authenticated');

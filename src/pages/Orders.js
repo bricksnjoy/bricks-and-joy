@@ -8,6 +8,7 @@ import { sendSMS } from '../lib/sms'
 import { getSettings } from '../lib/settings'
 import { localToday } from '../lib/dates'
 import { logAudit } from '../lib/audit'
+import { blockedByLock } from '../lib/periodLock'
 
 // Bank account shown in the "Payment" SMS template
 const BANK_ACCOUNT_NO = '7730000819195'
@@ -56,7 +57,7 @@ export default function Orders() {
   const [form, setForm] = useState(EMPTY_FORM)
   const [cartItems, setCartItems] = useState([{ ...EMPTY_ITEM }])
   const [payForm, setPayForm] = useState({ payment_method: 'Cash', transfer_reference: '', transfer_slip_url: '', payment_status: 'paid' })
-  const [returnForm, setReturnForm] = useState({ reason: '', refund_amount: 0 })
+  const [returnForm, setReturnForm] = useState({ reason: '', refund_amount: 0, refund_method: 'BML Transfer', refund_reference: '', refunded_on: localToday() })
   const [saving, setSaving] = useState(false)
   const [filter, setFilter] = useState('created')
   const [uploadingSlip, setUploadingSlip] = useState(false)
@@ -553,6 +554,7 @@ export default function Orders() {
 
   async function savePayment() {
     if (!payModal) return
+    if (await blockedByLock(payModal.order_date, { action: 'record this payment' })) return
     setSaving(true)
     const patch = {
       payment_status: payForm.payment_status,
@@ -582,6 +584,7 @@ export default function Orders() {
 
   async function saveReturn() {
     if (!returnModal) return
+    if (await blockedByLock(returnModal.order_date, { action: 'process this return' })) return
     setSaving(true)
     const order = returnModal
     if (order.product_id) {
@@ -591,17 +594,32 @@ export default function Orders() {
         toast.info(`Stock restored: ${prod.name} +${order.qty}`)
       }
     }
-    await supabase.from('orders').update({
+    const refund = parseFloat(returnForm.refund_amount) || 0
+    const orderPatch = {
       status: 'cancelled',
       notes: `RETURNED: ${returnForm.reason} | Refund: MVR ${returnForm.refund_amount}${order.notes ? ' | ' + order.notes : ''}`,
-    }).eq('id', order.id)
-    if (parseFloat(returnForm.refund_amount) > 0) {
-      await supabase.from('expenses').insert({
+      refund_amount: refund || null,
+      refunded_on: refund > 0 ? (returnForm.refunded_on || localToday()) : null,
+      refund_method: refund > 0 ? returnForm.refund_method : null,
+      refund_reference: refund > 0 ? (returnForm.refund_reference || null) : null,
+    }
+    let { error: retErr } = await supabase.from('orders').update(orderPatch).eq('id', order.id)
+    while (retErr && dropMissingCol(retErr, orderPatch)) { retErr = (await supabase.from('orders').update(orderPatch).eq('id', order.id)).error }
+
+    if (refund > 0) {
+      // Money leaving the bank needs a matching cost, carrying the transaction
+      // reference so reconciliation pairs it with the debit exactly rather than
+      // leaving an unexplained line every time you refund someone.
+      const exp = {
         description: `Refund — ${order.product_name} (${order.invoice_number || order.id.slice(0,6)})${returnForm.reason ? ': ' + returnForm.reason : ''}`,
         category: 'Returns / Refunds',
-        amount: parseFloat(returnForm.refund_amount),
-        expense_date: today(),
-      })
+        amount: refund,
+        expense_date: returnForm.refunded_on || localToday(),
+        reference: returnForm.refund_reference || null,
+        paid_from: /cash/i.test(returnForm.refund_method) ? 'cash' : 'bank',
+      }
+      let { error: expErr } = await supabase.from('expenses').insert(exp)
+      while (expErr && dropMissingCol(expErr, exp)) { expErr = (await supabase.from('expenses').insert(exp)).error }
     }
     logAudit('return', 'order', `${order.invoice_number || order.id} — ${order.customer_name || ''} (${order.product_name})`, { reason: returnForm.reason, refund: parseFloat(returnForm.refund_amount) || 0 })
     setSaving(false); toast.success('Return processed, stock restored!'); setReturnModal(null); load()
@@ -1306,11 +1324,29 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
             <input value={returnForm.reason} onChange={e => setReturnForm(p => ({ ...p, reason: e.target.value }))} placeholder="e.g. Defective item, wrong size, customer changed mind…"
               style={{ width: '100%', padding: '9px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
           </div>
-          <div style={{ marginBottom: 16 }}>
+          <div style={{ marginBottom: 14 }}>
             <label style={{ fontSize: 12, color: '#666', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.4px', display: 'block', marginBottom: 5 }}>Refund amount (MVR)</label>
             <input type="number" step="0.01" value={returnForm.refund_amount} onChange={e => setReturnForm(p => ({ ...p, refund_amount: e.target.value }))}
               style={{ width: '100%', padding: '9px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
           </div>
+
+          {parseFloat(returnForm.refund_amount) > 0 && (
+            <>
+              <FormRow>
+                <Select label="Refunded by" value={returnForm.refund_method}
+                  onChange={e => setReturnForm(p => ({ ...p, refund_method: e.target.value }))}
+                  options={['BML Transfer', 'Cash', 'Card reversal', 'Other']} />
+                <Input label="Refunded on" type="date" value={returnForm.refunded_on}
+                  onChange={e => setReturnForm(p => ({ ...p, refunded_on: e.target.value }))} />
+              </FormRow>
+              <Input label="Transfer reference" value={returnForm.refund_reference}
+                placeholder="from the transfer receipt — lets it match your bank statement"
+                onChange={e => setReturnForm(p => ({ ...p, refund_reference: e.target.value }))} style={{ marginBottom: 12 }} />
+              <div style={{ fontSize: 11.5, color: '#aaa', marginBottom: 16, lineHeight: 1.6 }}>
+                This is logged as a <strong>Returns / Refunds</strong> cost{/cash/i.test(returnForm.refund_method) ? ' paid from the drawer' : ' so the debit on your statement has something to match'}.
+              </div>
+            </>
+          )}
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <Button variant="ghost" onClick={() => setReturnModal(null)}>Cancel</Button>
             <Button onClick={saveReturn} disabled={saving} style={{ background: '#c62828' }}>{saving ? 'Processing…' : 'Process return'}</Button>

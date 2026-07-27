@@ -3,6 +3,7 @@ import { SlipNote, RescanButton, useSlipScan } from '../components/SlipScan'
 import { supabase } from '../lib/supabase'
 import { localToday } from '../lib/dates'
 import { logAudit } from '../lib/audit'
+import { blockedByLock } from '../lib/periodLock'
 import { PageHeader, Card, Button, Input, Select, Table, Modal, Spinner, FormRow, useToast, Toasts, Badge } from '../components/UI'
 import { Plus, Trash2, Edit2, Gift, FlaskConical, Megaphone, Instagram, Users, Package, Truck, User, Store, Lightbulb, Undo2, FileText, ArrowLeftRight, Tag, PieChart, Filter, Paperclip, X } from 'lucide-react'
 
@@ -40,7 +41,7 @@ const CAT_COLORS = {
   'Returns / Refunds': 'red', 'Other': 'gray',
 }
 
-const EMPTY = { description: '', category: 'Meta Ads', amount: '', currency: 'MVR', expense_date: localToday(), reference: '', slips: [] }
+const EMPTY = { description: '', category: 'Meta Ads', amount: '', currency: 'MVR', expense_date: localToday(), reference: '', slips: [], paid_from: 'bank' }
 
 // Categories that make sense for handing out physical products
 const GIVEAWAY_CATEGORIES = ['Giveaway', 'Sample Testing', 'Sponsorship', 'Promotions']
@@ -81,7 +82,7 @@ export default function CostManagement() {
   function openAdd() { slip.clear(); setForm(EMPTY); setEditItem(null); setModal(true) }
   function openEdit(item) {
     slip.clear()
-    setForm({ ...item, currency: 'MVR', amount: item.amount, reference: item.reference || '', slips: Array.isArray(item.slips) ? item.slips : [] })
+    setForm({ ...item, currency: 'MVR', amount: item.amount, reference: item.reference || '', slips: Array.isArray(item.slips) ? item.slips : [], paid_from: item.paid_from || 'bank' })
     setEditItem(item)
     setModal(true)
   }
@@ -131,9 +132,10 @@ export default function CostManagement() {
 
   async function save() {
     if (!form.description || !form.amount) return
+    if (await blockedByLock(form.expense_date, { action: 'save this cost' })) return
     setSaving(true)
     const amountMVR = form.currency === 'USD' ? parseFloat(form.amount) * MVR_RATE : parseFloat(form.amount)
-    const payload = { description: form.description, category: form.category, amount: parseFloat(amountMVR.toFixed(2)), expense_date: form.expense_date, reference: form.reference || null, slips: form.slips || [] }
+    const payload = { description: form.description, category: form.category, amount: parseFloat(amountMVR.toFixed(2)), expense_date: form.expense_date, reference: form.reference || null, slips: form.slips || [], paid_from: form.paid_from || 'bank' }
     const run = pl => editItem
       ? supabase.from('expenses').update(pl).eq('id', editItem.id)
       : supabase.from('expenses').insert(pl)
@@ -152,6 +154,8 @@ export default function CostManagement() {
   }
 
   async function del(id) {
+    const row = costs.find(c => c.id === id)
+    if (await blockedByLock(row?.expense_date, { action: 'delete this cost' })) return
     if (!window.confirm('Delete this cost?')) return
     await supabase.from('expenses').delete().eq('id', id)
     toast.success('Deleted'); load()
@@ -345,6 +349,26 @@ export default function CostManagement() {
               <input type="number" step="0.01" min="0" value={form.amount} onChange={f('amount')} placeholder="0.00"
                 style={{ flex: 1, padding: '9px 12px', border: 'none', fontSize: 16, fontFamily: 'inherit', outline: 'none' }} />
             </div>
+          </div>
+
+          {/* Which pot it came out of — cash costs reduce the drawer, not the bank */}
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ fontSize: 12, color: '#666', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.4px', display: 'block', marginBottom: 6 }}>Paid from</label>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {[['bank', 'Bank'], ['cash', 'Cash in hand']].map(([v, label]) => (
+                <button key={v} type="button" onClick={() => setForm(p => ({ ...p, paid_from: v }))}
+                  style={{ flex: 1, padding: '9px 14px', borderRadius: 9, cursor: 'pointer', fontFamily: 'inherit', fontSize: 13,
+                    fontWeight: form.paid_from === v ? 700 : 500,
+                    border: `1px solid ${form.paid_from === v ? '#FFA500' : '#e0e0e0'}`,
+                    background: form.paid_from === v ? '#FFA500' : '#fff',
+                    color: form.paid_from === v ? '#fff' : '#666' }}>{label}</button>
+              ))}
+            </div>
+            {form.paid_from === 'cash' && (
+              <div style={{ fontSize: 11, color: '#bbb', marginTop: 5 }}>
+                Comes out of the drawer, so it never appears on your bank statement and won't need explaining when you reconcile.
+              </div>
+            )}
           </div>
 
           <Input label="Reference / transaction no." value={form.reference} onChange={f('reference')}
