@@ -592,13 +592,6 @@ create table if not exists report_settings (
   updated_at timestamptz default now()
 );
 
--- Spending caps per category, used by the Dashboard's over-budget warning.
-create table if not exists budgets (
-  category text primary key,
-  amount numeric default 0,
-  updated_at timestamptz default now()
-);
-
 -- ── Columns the app relies on that were never recorded ───────────────────────
 
 -- ORDERS: invoicing, payment, the transfer slip, and the delivery / gift charges
@@ -655,12 +648,9 @@ alter table supplier_products add column if not exists image_url   text;
 alter table audit_log        enable row level security;
 alter table reconciliations  enable row level security;
 alter table report_settings  enable row level security;
-alter table budgets          enable row level security;
 drop policy if exists "Authenticated users can do everything" on audit_log;
 drop policy if exists "Authenticated users can do everything" on reconciliations;
 drop policy if exists "Authenticated users can do everything" on report_settings;
-drop policy if exists "Authenticated users can do everything" on budgets;
 create policy "Authenticated users can do everything" on audit_log       for all using (auth.role() = 'authenticated');
 create policy "Authenticated users can do everything" on reconciliations for all using (auth.role() = 'authenticated');
 create policy "Authenticated users can do everything" on report_settings for all using (auth.role() = 'authenticated');
-create policy "Authenticated users can do everything" on budgets         for all using (auth.role() = 'authenticated');
