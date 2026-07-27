@@ -203,12 +203,24 @@ export default function Reconciliation() {
       const free = b => !used.has(b.id)
       const sameAmount = b => Math.abs(b.amount - amt) < 0.01
 
-      // Proof: the reference matches and so does the amount
-      const byRef = t.ref ? pool.filter(b => free(b) && b.ref && normRef(b.ref) === normRef(t.ref)) : []
+      // Proof: the reference matches and so does the amount. A slip may carry
+      // the bank's transaction id or the transfer code, and the statement holds
+      // both, so either side matching either column counts.
+      const stmtRefs = [t.ref, t.ref2].map(normRef).filter(r => r.length >= 4)
+      const refHit = b => {
+        if (!b.ref) return false
+        const bref = normRef(b.ref)
+        if (bref.length < 4) return false
+        // Containment only between two long codes, so a short reference can't
+        // accidentally sit inside an unrelated transaction id
+        return stmtRefs.some(r => bref === r
+          || (bref.length >= 8 && r.length >= 8 && (bref.includes(r) || r.includes(bref))))
+      }
+      const byRef = stmtRefs.length ? pool.filter(b => free(b) && refHit(b)) : []
       const solid = byRef.find(sameAmount)
       if (solid) {
         used.add(solid.id)
-        return { stmt: t, amt, isIn, matchId: solid.id, why: `Reference ${t.ref}`, confidence: 'high', ignored: false, reason: '', manual: false }
+        return { stmt: t, amt, isIn, matchId: solid.id, why: `Reference ${solid.ref}`, confidence: 'high', ignored: false, reason: '', manual: false }
       }
 
       // Everything else is a suggestion to be accepted or rejected by eye
@@ -262,9 +274,12 @@ export default function Reconciliation() {
         const debit = parseNum(r[8]), credit = parseNum(r[9])
         if (!debit && !credit) continue   // skips blanks and any header row
         const date = parseStmtDate(r[5], r[0])
+        // Column D carries the reference the slips print; E holds the bank's own
+        // transaction id. Both are kept and either may match.
         txns.push({
           date, type: String(r[2] || '').trim(),
-          ref: String(r[4] || '').trim() || String(r[3] || '').trim(),
+          ref: String(r[3] || '').trim(),
+          ref2: String(r[4] || '').trim(),
           party: String(r[6] || '').trim(),
           debit, credit, balance: parseNum(r[10]),
         })
@@ -419,6 +434,7 @@ export default function Reconciliation() {
         || (m.stmt.party || '').toLowerCase().includes(q)
         || (m.stmt.type || '').toLowerCase().includes(q)
         || (m.stmt.ref || '').toLowerCase().includes(q)
+        || (m.stmt.ref2 || '').toLowerCase().includes(q)
         || String(m.amt).includes(q))
   }, [matches, workFilter, search])
 
@@ -472,7 +488,7 @@ export default function Reconciliation() {
       // Full line detail so the reconciliation can be reviewed & edited later
       lines: matches.map(m => ({
         date: ymd(m.stmt.date), party: m.stmt.party || '', type: m.stmt.type || '',
-        ref: m.stmt.ref || '', amount: m.amt, isIn: m.isIn, matchId: m.matchId || null,
+        ref: m.stmt.ref || '', ref2: m.stmt.ref2 || '', amount: m.amt, isIn: m.isIn, matchId: m.matchId || null,
         ignored: !!m.ignored, reason: m.reason || '', why: m.why || '',
       })),
       created_at: new Date().toISOString(),
@@ -593,6 +609,7 @@ export default function Reconciliation() {
         'Type': m.stmt.type || '',
         'Party': m.stmt.party || '',
         'Reference': m.stmt.ref || '',
+        'Transaction id': m.stmt.ref2 || '',
         'Money in': m.isIn ? +m.amt.toFixed(2) : '',
         'Money out': m.isIn ? '' : +m.amt.toFixed(2),
         'Status': m.matchId ? 'Matched' : m.ignored ? 'Explained' : 'Needs review',
@@ -1032,6 +1049,7 @@ export default function Reconciliation() {
                         <span style={{ fontSize: 12.5, fontWeight: 600, color: '#0d1b2a', flex: '1 1 160px', minWidth: 0 }}>
                           {m.stmt.party || m.stmt.type || 'Transaction'}
                           {m.stmt.ref && <span style={{ color: '#c4bcb0', fontWeight: 400 }}> · {m.stmt.ref}</span>}
+                          {m.stmt.ref2 && m.stmt.ref2 !== m.stmt.ref && <span style={{ color: '#ddd', fontWeight: 400 }}> · {m.stmt.ref2}</span>}
                         </span>
                         <span style={{ fontSize: 13, fontWeight: 800, color: m.isIn ? '#1D9E75' : '#E24B4A', whiteSpace: 'nowrap' }}>
                           {m.isIn ? '+' : '−'}{money(m.amt)}
@@ -1120,7 +1138,10 @@ export default function Reconciliation() {
                         <td style={{ whiteSpace: 'nowrap', color: '#bbb', fontSize: 11.5 }}>{fmtDate(m.stmt.date)}</td>
                         <td>
                           <div style={{ fontWeight: 600, color: '#0d1b2a' }}>{m.stmt.party || m.stmt.type || 'Transaction'}</div>
-                          <div style={{ fontSize: 11, color: '#aaa' }}>{m.stmt.type}{m.stmt.ref ? ` · ${m.stmt.ref}` : ''}</div>
+                          <div style={{ fontSize: 11, color: '#aaa' }}>
+                            {m.stmt.type}{m.stmt.ref ? ` · ${m.stmt.ref}` : ''}
+                            {m.stmt.ref2 && m.stmt.ref2 !== m.stmt.ref ? <span style={{ color: '#d0ccc4' }}> · {m.stmt.ref2}</span> : null}
+                          </div>
                         </td>
                         <td style={{ textAlign: 'right' }} className={m.isIn ? 'rec-in' : 'rec-out'}>
                           {m.isIn ? '+' : '−'}{money(m.amt)}
