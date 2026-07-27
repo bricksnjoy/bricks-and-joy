@@ -499,17 +499,31 @@ export function CheckoutPage() {
         if (error) { /* place order even if the customer record fails */ }
       }
       const orderDate = localToday()
+      // The back office reads money off the order rows, not off the note. A
+      // discount has to come out of the line totals, and a delivery or gift-wrap
+      // charge has to go into the first row's total the same way the back
+      // office merges them — otherwise the shop bills one figure and the books
+      // record another, and the payment can never be reconciled.
       for (let i = 0; i < cart.length; i++) {
         const it = cart[i]
+        const line = num(it.price) * it.qty
+        const itemDiscount = cartSubtotal > 0 ? +(discount * (line / cartSubtotal)).toFixed(2) : 0
+        const isFirst = i === 0
         const payload = {
           customer_id: customerId, customer_name: fullName,
           product_id: it.id, product_name: it.name, qty: it.qty,
-          unit_price: num(it.price), total_price: +(num(it.price) * it.qty).toFixed(2),
+          unit_price: num(it.price),
+          total_price: +(Math.max(0, line - itemDiscount) + (isFirst ? shipFee + wrapFee : 0)).toFixed(2),
+          discount: itemDiscount,
           channel: 'Website', status: 'created', order_date: orderDate,
           invoice_number: invoice, payment_status: 'unpaid', payment_method: 'Bank Transfer',
           fulfilment: pickup ? 'pickup' : 'delivery',
-          delivery_fee: i === 0 ? shipFee : 0,
-          notes: i === 0 ? extras : '',
+          delivery_fee: isFirst ? shipFee : 0,
+          delivery_fee_covered: false,
+          special_request: isFirst && giftWrap ? 'Gift wrapping' : '',
+          special_request_cost: isFirst ? wrapFee : 0,
+          special_request_covered: false,
+          notes: isFirst ? extras : '',
         }
         let { error } = await supabase.from('orders').insert(payload)
         while (error && dropMissingCol(error, payload)) { error = (await supabase.from('orders').insert(payload)).error }

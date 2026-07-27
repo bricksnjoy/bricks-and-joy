@@ -149,6 +149,8 @@ export default function CostManagement() {
     }
     setSaving(false)
     if (error) { toast.error('Failed to save'); return }
+    logAudit(editItem ? 'update' : 'create', 'expense', `${payload.category} · ${payload.description}`,
+      { amount: payload.amount, expense_date: payload.expense_date, paid_from: payload.paid_from, reference: payload.reference })
     toast.success(editItem ? 'Cost updated!' : 'Cost added!')
     setModal(false); load()
   }
@@ -158,6 +160,7 @@ export default function CostManagement() {
     if (await blockedByLock(row?.expense_date, { action: 'delete this cost' })) return
     if (!window.confirm('Delete this cost?')) return
     await supabase.from('expenses').delete().eq('id', id)
+    logAudit('delete', 'expense', `${row?.category || 'Cost'} · ${row?.description || id}`, { amount: Number(row?.amount || 0), expense_date: row?.expense_date })
     toast.success('Deleted'); load()
   }
 

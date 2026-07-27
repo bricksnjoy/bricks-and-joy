@@ -4,7 +4,7 @@ import { PageHeader, Card, Button, Input, Select, Spinner, useToast, Toasts, Bad
 import { DEFAULT_SETTINGS, mergeSettings } from '../shop/core'
 import {
   Globe, ExternalLink, Copy, Check, Eye, ShoppingBag, Baby, Grid3x3, ShoppingCart,
-  Settings2, Ticket, Plus, Trash2, Rocket, EyeOff
+  Settings2, Ticket, Plus, Trash2, Rocket, EyeOff, Star, MessageSquare
 } from 'lucide-react'
 import { localToday } from '../lib/dates'
 
@@ -12,6 +12,7 @@ const TABS = [
   { key: 'preview', label: 'Preview & links', icon: Eye },
   { key: 'settings', label: 'Content & settings', icon: Settings2 },
   { key: 'coupons', label: 'Coupons', icon: Ticket },
+  { key: 'reviews', label: 'Reviews', icon: MessageSquare },
 ]
 
 export default function Storefront() {
@@ -23,9 +24,11 @@ export default function Storefront() {
   const [copied, setCopied] = useState('')
   const [coupons, setCoupons] = useState([])
   const [cForm, setCForm] = useState({ code: '', discount_type: 'percent', discount_value: '', min_order: '', expires_on: '' })
+  const [reviews, setReviews] = useState([])
+  const [reviewNames, setReviewNames] = useState({})
   const toast = useToast()
 
-  useEffect(() => { load(); loadCoupons() }, [])
+  useEffect(() => { load(); loadCoupons(); loadReviews() }, [])
 
   async function load() {
     setLoading(true)
@@ -36,6 +39,18 @@ export default function Storefront() {
   async function loadCoupons() {
     const { data } = await supabase.from('coupons').select('*').order('created_at', { ascending: false })
     setCoupons(data || [])
+  }
+  // The shop only shows reviews once approved, so without this they arrive and
+  // are never seen by anyone.
+  async function loadReviews() {
+    const { data } = await supabase.from('product_reviews').select('*').order('created_at', { ascending: false })
+    const rows = data || []
+    setReviews(rows)
+    const ids = [...new Set(rows.map(r => r.product_id).filter(Boolean))]
+    if (ids.length) {
+      const { data: prods } = await supabase.from('products').select('id, name').in('id', ids)
+      setReviewNames(Object.fromEntries((prods || []).map(p => [String(p.id), p.name])))
+    }
   }
 
   async function saveSettings(next = settings, quiet = false) {
@@ -78,6 +93,18 @@ export default function Storefront() {
   }
   async function toggleCoupon(c) { await supabase.from('coupons').update({ active: !c.active }).eq('id', c.id); loadCoupons() }
   async function delCoupon(c) { if (!window.confirm(`Delete coupon ${c.code}?`)) return; await supabase.from('coupons').delete().eq('id', c.id); loadCoupons() }
+
+  async function toggleReview(r) {
+    const { error } = await supabase.from('product_reviews').update({ approved: !r.approved }).eq('id', r.id)
+    if (error) { toast.error('Failed: ' + error.message); return }
+    toast.success(r.approved ? 'Hidden from the shop' : 'Published on the shop')
+    loadReviews()
+  }
+  async function delReview(r) {
+    if (!window.confirm(`Delete this review from ${r.author_name || 'a customer'}?`)) return
+    await supabase.from('product_reviews').delete().eq('id', r.id)
+    toast.success('Deleted'); loadReviews()
+  }
 
   const LinkRow = ({ label, url, hint, primary }) => (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', border: '1px solid #eee', borderRadius: 12, background: primary ? '#FFF8EC' : '#fff', marginBottom: 10, flexWrap: 'wrap' }}>
@@ -189,7 +216,7 @@ export default function Storefront() {
             <Button onClick={() => saveSettings()} disabled={saving}>{saving ? 'Saving…' : 'Save changes'}</Button>
           </div>
         </Card>
-      ) : (
+      ) : tab === 'coupons' ? (
         <>
           <Card style={{ marginBottom: 16 }}>
             <h3 style={{ fontSize: 14, fontWeight: 700, margin: '0 0 14px' }}>Create a coupon</h3>
@@ -225,6 +252,46 @@ export default function Storefront() {
             )}
           </Card>
         </>
+      ) : (
+        <Card>
+          <h3 style={{ fontSize: 14, fontWeight: 700, margin: '0 0 4px', display: 'flex', alignItems: 'center', gap: 7 }}>
+            <MessageSquare size={16} color="#FFA500" /> What customers wrote
+          </h3>
+          <p style={{ fontSize: 12.5, color: '#8a8278', margin: '0 0 16px' }}>
+            A review stays hidden until you publish it, so nothing appears on your shop without you reading it first.
+          </p>
+
+          {reviews.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '30px 0', color: '#b8ab97', fontSize: 13 }}>
+              No reviews yet — they show up here the moment a customer writes one.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {reviews.map(r => (
+                <div key={r.id} style={{ border: `1px solid ${r.approved ? '#b6ecd0' : '#eee'}`, background: r.approved ? '#f7fdfa' : '#fff', borderRadius: 11, padding: '12px 14px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap', marginBottom: 6 }}>
+                    <span style={{ display: 'inline-flex', gap: 1 }}>
+                      {[1, 2, 3, 4, 5].map(n => (
+                        <Star key={n} size={13} color={n <= Number(r.rating) ? '#FFA500' : '#e0ddd7'} fill={n <= Number(r.rating) ? '#FFA500' : 'none'} />
+                      ))}
+                    </span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: '#0d1b2a' }}>{r.author_name || 'Customer'}</span>
+                    <span style={{ fontSize: 12, color: '#aaa' }}>on {reviewNames[String(r.product_id)] || 'a product'}</span>
+                    {r.approved ? <Badge color="green">Published</Badge> : <Badge color="orange">Waiting for you</Badge>}
+                    {r.created_at && <span style={{ fontSize: 11.5, color: '#c4bcb0' }}>{String(r.created_at).slice(0, 10)}</span>}
+                  </div>
+                  <div style={{ fontSize: 13, color: '#556', lineHeight: 1.65, marginBottom: 9 }}>{r.comment}</div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <Button variant={r.approved ? 'ghost' : 'primary'} size="sm" onClick={() => toggleReview(r)}>
+                      {r.approved ? <><EyeOff size={13} /> Hide</> : <><Check size={13} /> Publish</>}
+                    </Button>
+                    <Button variant="danger" size="sm" onClick={() => delReview(r)}><Trash2 size={13} /></Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
       )}
       <Toasts toasts={toast.toasts} />
     </div>

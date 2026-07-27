@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { localToday, toLocalISO } from '../lib/dates'
 import { logAudit } from '../lib/audit'
+import { blockedByLock } from '../lib/periodLock'
 import { PageHeader, Card, Button, Input, Select, Table, Modal, Spinner, FormRow, useToast, Toasts, Badge } from '../components/UI'
 import { Plus, Trash2, Package, Truck, X, Info, AlertTriangle, CreditCard, Wallet, CheckCircle, Paperclip, Eye, Pencil, LayoutGrid, List, ChevronDown } from 'lucide-react'
 import { restockPredictions } from '../lib/insights'
@@ -486,6 +487,7 @@ export default function PurchaseOrders() {
 
   async function recordPayment() {
     if (!payForm.amount || Number(payForm.amount) <= 0) { toast.error('Enter a valid amount'); return }
+    if (await blockedByLock(payForm.payment_date, { action: 'record this payment' })) return
     const row = {
       purchase_order_id: payModal.id,
       supplier_id: payModal.supplier_id || null,
@@ -502,6 +504,8 @@ export default function PurchaseOrders() {
     const { error } = await insertStrip('supplier_payments', row)
     if (error) { toast.error('Failed to record payment: ' + error.message); return }
     const recorded = parseFloat(payForm.amount)
+    logAudit('payment', 'supplier_payment', `MVR ${recorded.toFixed(2)} to ${payModal.supplier_name || 'supplier'}`,
+      { amount: recorded, payment_date: payForm.payment_date, reference: payForm.reference || null })
     toast.success(`Payment of MVR ${recorded.toFixed(2)} recorded`)
     // Reload data then update the modal's paid/outstanding values so user can add another
     const [p, pay] = await Promise.all([

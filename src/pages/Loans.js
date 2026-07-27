@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { localToday } from '../lib/dates'
 import { readSlip } from '../lib/slipOcr'
+import { logAudit } from '../lib/audit'
+import { blockedByLock } from '../lib/periodLock'
 import { SlipNote, RescanButton } from '../components/SlipScan'
 import { PageHeader, Card, Button, Input, Select, Modal, Spinner, FormRow, useToast, Toasts, Badge } from '../components/UI'
 import {
@@ -423,6 +425,7 @@ export default function Loans() {
 
   async function savePayment() {
     if (!payForm.amount) { toast.error('Enter the amount'); return }
+    if (await blockedByLock(payForm.paid_on, { action: 'record this payment' })) return
     const loan = payModal.loan
     const amount = num(payForm.amount)
     // Split by the loan's own profit ratio so accounting can tell the finance
@@ -445,14 +448,19 @@ export default function Loans() {
     }, payModal.payment?.id)
     setSaving(false)
     if (error) { toast.error('Failed: ' + error.message); return }
+    logAudit(payModal.payment ? 'update' : 'payment', 'loan_payment',
+      `${money(amount)} to ${loan.lender || 'lender'}${loan.loan_no ? ' · ' + loan.loan_no : ''}`,
+      { amount, paid_on: payForm.paid_on, method: payForm.method, reference: payForm.reference || null })
     if (dropped?.length) toast.error(`Saved, but missing columns: ${dropped.join(', ')} — run the loans SQL`)
     else toast.success(payModal.payment ? 'Payment updated' : 'Payment recorded')
     setPayModal(null); load()
   }
 
   async function delPayment(p) {
+    if (await blockedByLock(p.paid_on, { action: 'delete this payment' })) return
     if (!window.confirm(`Delete the ${money(p.amount)} payment from ${p.paid_on}?`)) return
     await supabase.from('loan_payments').delete().eq('id', p.id)
+    logAudit('delete', 'loan_payment', `${money(p.amount)} on ${p.paid_on}`, { amount: num(p.amount), reference: p.reference || null })
     toast.success('Payment deleted'); load()
   }
 

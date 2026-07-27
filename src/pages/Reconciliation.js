@@ -98,6 +98,7 @@ export default function Reconciliation() {
   const [supplierPayments, setSupplierPayments] = useState([])
   const [loans, setLoans] = useState([])
   const [loanPays, setLoanPays] = useState([])
+  const [cashMoves, setCashMoves] = useState([])
   const [history, setHistory] = useState([])
   const [usingLocal, setUsingLocal] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -132,18 +133,20 @@ export default function Reconciliation() {
 
   async function load() {
     setLoading(true)
-    const [o, e, sp, ln, lp] = await Promise.all([
+    const [o, e, sp, ln, lp, cm] = await Promise.all([
       supabase.from('orders').select('id, customer_name, invoice_number, total_price, payment_status, payment_method, transfer_reference, paid_at, order_date'),
-      supabase.from('expenses').select('id, expense_date, category, amount, description'),
+      supabase.from('expenses').select('id, expense_date, category, amount, description, reference, paid_from'),
       supabase.from('supplier_payments').select('id, supplier_name, amount, payment_date, reference'),
       supabase.from('loans').select('*'),
       supabase.from('loan_payments').select('*'),
+      supabase.from('cash_movements').select('*'),
     ])
     setOrders(o.data || [])
     setExpenses(e.data || [])
     setSupplierPayments(sp.data || [])
     setLoans(ln.data || [])
     setLoanPays(lp.data || [])
+    setCashMoves(cm.data || [])
     // reconciliation history — supabase table with localStorage fallback
     const r = await supabase.from('reconciliations').select('*').order('created_at', { ascending: false })
     if (r.error) { setUsingLocal(true); setHistory(readLocal()) }
@@ -163,11 +166,16 @@ export default function Reconciliation() {
     return set
   }, [history])
 
-  // Books — money IN (paid orders + loans drawn down) and money OUT
+  // Money settled in cash never reaches the bank, so it can only ever sit here
+  // unexplained and drag the balance proof out. It belongs to Cash in Hand.
+  const isCashSettled = o => /cash/i.test(o.payment_method || '')
+
+  // Books — money IN (paid orders + loans drawn down + cash banked) and money OUT
   // (expenses + supplier payments + loan repayments)
   const bookIn = useMemo(() => [
     ...orders
       .filter(o => (o.payment_status === 'paid' || o.payment_status === 'partial') && Number(o.total_price) > 0)
+      .filter(o => !isCashSettled(o))
       .map(o => ({
         id: 'order:' + o.id, kind: 'order',
         date: new Date(o.paid_at || o.order_date),
@@ -181,12 +189,21 @@ export default function Reconciliation() {
       amount: Number(l.amount), ref: l.reference || '',
       label: `Loan received · ${l.lender || 'lender'}`,
     })),
-  ], [orders, loans])
+    // Cash carried to the bank is a real deposit, and the one cash event that
+    // does show on a statement — Cash in Hand promises it will match here.
+    ...cashMoves.filter(m => m.kind === 'banked' && Number(m.amount) > 0).map(m => ({
+      id: 'cash:' + m.id, kind: 'cash',
+      date: new Date(m.occurred_on),
+      amount: Number(m.amount), ref: m.reference || '',
+      label: `Cash banked${m.note ? ' · ' + m.note : ''}`,
+    })),
+  ], [orders, loans, cashMoves])
 
   const bookOut = useMemo(() => [
-    ...expenses.map(e => ({
+    // Costs paid out of the drawer are Cash in Hand's, not the bank's
+    ...expenses.filter(e => (e.paid_from || 'bank') !== 'cash').map(e => ({
       id: 'expense:' + e.id, kind: 'expense',
-      date: new Date(e.expense_date), amount: Number(e.amount), ref: '',
+      date: new Date(e.expense_date), amount: Number(e.amount), ref: e.reference || '',
       label: `${e.category || 'Expense'}${e.description ? ' · ' + e.description : ''}`,
     })),
     ...supplierPayments.map(p => ({
@@ -434,7 +451,7 @@ export default function Reconciliation() {
     const rows = [...bookIn.map(b => ({ ...b, dir: 'in' })), ...bookOut.map(b => ({ ...b, dir: 'out' }))]
       .filter(b => !reconciledIds.has(b.id))
       .sort((a, b) => (b.date || 0) - (a.date || 0))
-    const KIND = { order: 'Sales', loan: 'Loans received', expense: 'Costs', spay: 'Supplier payments', lpay: 'Loan repayments' }
+    const KIND = { order: 'Sales', loan: 'Loans received', expense: 'Costs', spay: 'Supplier payments', lpay: 'Loan repayments', cash: 'Cash banked' }
     const groups = {}
     rows.forEach(r => {
       const k = KIND[r.kind] || 'Other'

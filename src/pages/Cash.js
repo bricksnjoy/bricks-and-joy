@@ -292,8 +292,13 @@ export default function Cash() {
           </FormRow>
 
           {modal === 'banked' && (
-            <Input label="Deposit reference" value={form.reference} placeholder="from the deposit slip — lets it match your statement"
-              onChange={e => setForm(f => ({ ...f, reference: e.target.value }))} style={{ marginBottom: 14 }} />
+            <>
+              <Input label="Deposit reference" value={form.reference} placeholder="from the deposit slip — lets it match your statement"
+                onChange={e => setForm(f => ({ ...f, reference: e.target.value }))} style={{ marginBottom: 8 }} />
+              <div style={{ fontSize: 11.5, color: '#aaa', marginBottom: 14, lineHeight: 1.6 }}>
+                This becomes a “Cash banked” line in Reconciliation. With the reference filled in it matches your statement's deposit on its own.
+              </div>
+            </>
           )}
           <Input label="Note" value={form.note} onChange={e => setForm(f => ({ ...f, note: e.target.value }))} style={{ marginBottom: 14 }} />
 
