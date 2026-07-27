@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react'
+import { SlipNote, RescanButton, useSlipScan } from '../components/SlipScan'
 import { supabase } from '../lib/supabase'
 import { localToday } from '../lib/dates'
 import { logAudit } from '../lib/audit'
 import { PageHeader, Card, Button, Input, Select, Table, Modal, Spinner, FormRow, useToast, Toasts, Badge } from '../components/UI'
-import { Plus, Trash2, Edit2, Gift, FlaskConical, Megaphone, Instagram, Users, Package, Truck, User, Store, Lightbulb, Undo2, FileText, ArrowLeftRight, Tag, PieChart, Filter } from 'lucide-react'
+import { Plus, Trash2, Edit2, Gift, FlaskConical, Megaphone, Instagram, Users, Package, Truck, User, Store, Lightbulb, Undo2, FileText, ArrowLeftRight, Tag, PieChart, Filter, Paperclip, X } from 'lucide-react'
 
 const MVR_RATE = 15.42
 
@@ -39,7 +40,7 @@ const CAT_COLORS = {
   'Returns / Refunds': 'red', 'Other': 'gray',
 }
 
-const EMPTY = { description: '', category: 'Meta Ads', amount: '', currency: 'MVR', expense_date: localToday() }
+const EMPTY = { description: '', category: 'Meta Ads', amount: '', currency: 'MVR', expense_date: localToday(), reference: '', slips: [] }
 
 // Categories that make sense for handing out physical products
 const GIVEAWAY_CATEGORIES = ['Giveaway', 'Sample Testing', 'Sponsorship', 'Promotions']
@@ -52,6 +53,8 @@ export default function CostManagement() {
   const [editItem, setEditItem] = useState(null)
   const [form, setForm] = useState(EMPTY)
   const [saving, setSaving] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [viewSlip, setViewSlip] = useState(null)
   const [filterCat, setFilterCat] = useState('all')
   const [filterMonth, setFilterMonth] = useState('all')
   const [products, setProducts] = useState([])
@@ -59,6 +62,7 @@ export default function CostManagement() {
   const [gaRows, setGaRows] = useState([{ ...EMPTY_GA_ROW }])
   const [gaForm, setGaForm] = useState({ category: 'Giveaway', description: '', expense_date: localToday() })
   const toast = useToast()
+  const slip = useSlipScan()
 
   useEffect(() => { load(); loadProducts() }, [])
 
@@ -74,21 +78,73 @@ export default function CostManagement() {
     setProducts(data || [])
   }
 
-  function openAdd() { setForm(EMPTY); setEditItem(null); setModal(true) }
+  function openAdd() { slip.clear(); setForm(EMPTY); setEditItem(null); setModal(true) }
   function openEdit(item) {
-    setForm({ ...item, currency: 'MVR', amount: item.amount })
+    slip.clear()
+    setForm({ ...item, currency: 'MVR', amount: item.amount, reference: item.reference || '', slips: Array.isArray(item.slips) ? item.slips : [] })
     setEditItem(item)
     setModal(true)
+  }
+
+  // ── Payment slip ────────────────────────────────────────────────────────────
+  // Attaching the BML receipt fills the amount, date and reference off it — the
+  // reference is what lets reconciliation tie this cost to the bank line.
+  async function attachSlip(fileList) {
+    const files = Array.from(fileList || [])
+    if (!files.length) return
+    setUploading(true)
+    const out = []
+    for (const file of files) {
+      const name = `cost-${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${file.name.split('.').pop()}`
+      const { error } = await supabase.storage.from('uploads').upload(name, file, { upsert: true })
+      if (!error) {
+        const { data: { publicUrl } } = supabase.storage.from('uploads').getPublicUrl(name)
+        out.push({ name: file.name, type: file.type, url: publicUrl })
+      } else {
+        const url = await new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => res(null); r.readAsDataURL(file) })
+        if (url) out.push({ name: file.name, type: file.type, url })
+      }
+    }
+    setUploading(false)
+    if (!out.length) { toast.error('Could not read the file'); return }
+    setForm(p => ({ ...p, slips: [...(p.slips || []), ...out] }))
+    const image = files.find(x => (x.type || '').startsWith('image/'))
+    if (image) scanCostSlip(image)
+  }
+
+  function scanCostSlip(source) {
+    return slip.scan(source, found => {
+      let before
+      setForm(p => {
+        before = { amount: p.amount, expense_date: p.expense_date, reference: p.reference }
+        return {
+          ...p,
+          amount: found.amount != null ? String(found.amount) : p.amount,
+          currency: found.amount != null ? 'MVR' : p.currency,
+          expense_date: found.date || p.expense_date,
+          reference: found.reference || p.reference,
+        }
+      })
+      return before
+    })
   }
 
   async function save() {
     if (!form.description || !form.amount) return
     setSaving(true)
     const amountMVR = form.currency === 'USD' ? parseFloat(form.amount) * MVR_RATE : parseFloat(form.amount)
-    const payload = { description: form.description, category: form.category, amount: parseFloat(amountMVR.toFixed(2)), expense_date: form.expense_date }
-    const { error } = editItem
-      ? await supabase.from('expenses').update(payload).eq('id', editItem.id)
-      : await supabase.from('expenses').insert(payload)
+    const payload = { description: form.description, category: form.category, amount: parseFloat(amountMVR.toFixed(2)), expense_date: form.expense_date, reference: form.reference || null, slips: form.slips || [] }
+    const run = pl => editItem
+      ? supabase.from('expenses').update(pl).eq('id', editItem.id)
+      : supabase.from('expenses').insert(pl)
+    let { error } = await run(payload)
+    // Older databases may not have the slip columns yet — save what they can hold
+    while (error && /column .* does not exist|could not find/i.test(error.message || '')) {
+      const col = (error.message.match(/'([a-z_]+)' column/i) || error.message.match(/column "?([a-z_]+)"?/i) || [])[1]
+      if (!col || !(col in payload)) break
+      delete payload[col]
+      error = (await run(payload)).error
+    }
     setSaving(false)
     if (error) { toast.error('Failed to save'); return }
     toast.success(editItem ? 'Cost updated!' : 'Cost added!')
@@ -266,6 +322,8 @@ export default function CostManagement() {
 
       {modal && (
         <Modal title={editItem ? 'Edit cost' : 'Add cost'} subtitle={editItem ? 'Update this expense entry' : 'Log a new business expense'} onClose={() => setModal(false)}>
+          <SlipNote ocr={slip.ocr} onDismiss={slip.clear}
+            onUndo={() => slip.undo(before => setForm(p => ({ ...p, ...before })))} />
           <FormRow>
             <Input label="Description *" value={form.description} onChange={f('description')} placeholder="e.g. Instagram giveaway for June" style={{ gridColumn: 'span 2' }} />
           </FormRow>
@@ -284,6 +342,40 @@ export default function CostManagement() {
                 style={{ padding: '9px 16px', border: 'none', borderRight: '1px solid #ddd', cursor: 'pointer', fontWeight: 700, fontSize: 13, fontFamily: 'inherit', background: form.currency === 'USD' ? '#FFA500' : '#f8f8f8', color: form.currency === 'USD' ? '#fff' : '#666', transition: 'all 0.15s' }}>USD</button>
               <input type="number" step="0.01" min="0" value={form.amount} onChange={f('amount')} placeholder="0.00"
                 style={{ flex: 1, padding: '9px 12px', border: 'none', fontSize: 16, fontFamily: 'inherit', outline: 'none' }} />
+            </div>
+          </div>
+
+          <Input label="Reference / transaction no." value={form.reference} onChange={f('reference')}
+            placeholder="Read off the slip — used to match the bank statement" style={{ marginBottom: 14 }} />
+
+          {/* BML slip */}
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 7, flexWrap: 'wrap' }}>
+              <label style={{ fontSize: 12, color: '#666', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.4px' }}>Payment slip</label>
+              {(form.slips || []).some(x => (x.type || '').startsWith('image/') || /^https?:|^data:image/.test(x.url || '')) && (
+                <RescanButton busy={slip.ocr?.busy} onClick={() => {
+                  const x = (form.slips || []).find(y => (y.type || '').startsWith('image/') || /^https?:|^data:image/.test(y.url || ''))
+                  if (x?.url) scanCostSlip(x.url)
+                }} />
+              )}
+            </div>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', border: '1px dashed #ddd', borderRadius: 9, cursor: 'pointer', fontSize: 12.5, color: '#888' }}>
+              <Paperclip size={13} /> {uploading ? 'Uploading…' : 'Attach BML slip'}
+              <input type="file" accept="image/*,application/pdf" multiple onChange={e => { attachSlip(e.target.files); e.target.value = '' }} style={{ display: 'none' }} />
+            </label>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+              {(form.slips || []).map((sl, i) => (
+                <div key={i} style={{ position: 'relative', width: 62, height: 62, borderRadius: 8, overflow: 'hidden', border: '1px solid #eee', background: '#faf9f7', cursor: 'pointer' }}
+                  title={sl.name} onClick={() => setViewSlip(sl)}>
+                  {(sl.type || '').startsWith('image/')
+                    ? <img src={sl.url} alt={sl.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    : <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 3 }}><FileText size={16} color="#bbb" /><span style={{ fontSize: 8, color: '#bbb' }}>PDF</span></div>}
+                  <button onClick={e => { e.stopPropagation(); setForm(p => ({ ...p, slips: p.slips.filter((_, j) => j !== i) })) }}
+                    style={{ position: 'absolute', top: 2, right: 2, background: 'rgba(0,0,0,0.55)', border: 'none', borderRadius: '50%', width: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0 }}>
+                    <X size={9} color="#fff" />
+                  </button>
+                </div>
+              ))}
             </div>
           </div>
 
@@ -376,6 +468,20 @@ export default function CostManagement() {
           </div>
         </Modal>
       )}
+      {/* slip lightbox */}
+      {viewSlip && (
+        <div onClick={() => setViewSlip(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(13,27,42,0.82)', zIndex: 3000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+          {(viewSlip.type || '').startsWith('image/')
+            ? <img src={viewSlip.url} alt={viewSlip.name} style={{ maxWidth: '92%', maxHeight: '92%', borderRadius: 10 }} />
+            : <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 12, padding: 26, textAlign: 'center' }}>
+                <FileText size={34} color="#bbb" style={{ marginBottom: 10 }} />
+                <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>{viewSlip.name}</div>
+                <a href={viewSlip.url} target="_blank" rel="noreferrer" style={{ color: '#FFA500', fontWeight: 700, fontSize: 13 }}>Open document</a>
+              </div>}
+        </div>
+      )}
+
       <Toasts toasts={toast.toasts} />
     </div>
   )

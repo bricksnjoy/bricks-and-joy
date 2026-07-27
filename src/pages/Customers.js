@@ -25,6 +25,7 @@ export default function Customers() {
   const [loading, setLoading] = useState(true)
   const [modal, setModal] = useState(null)
   const [viewModal, setViewModal] = useState(null)
+  const [slipView, setSlipView] = useState(null)
   const [form, setForm] = useState(EMPTY)
   const [saving, setSaving] = useState(false)
   const [search, setSearch] = useState('')
@@ -400,7 +401,7 @@ export default function Customers() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
                   <tr style={{ background: '#fafafa' }}>
-                    {['Invoice', 'Product', 'Qty', 'Total', 'Date', 'Status', 'Payment', 'Delivery', 'Slip', ''].map(h => (
+                    {['Invoice', 'Product', 'Qty', 'Total', 'Date', 'Status', 'Payment', 'Transfer', 'Delivery', 'Slip', ''].map(h => (
                       <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontSize: 11, color: '#999', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.4px', borderBottom: '1px solid #eee' }}>{h}</th>
                     ))}
                   </tr>
@@ -419,6 +420,20 @@ export default function Customers() {
                           {o.payment_status || 'unpaid'}
                         </Badge>
                       </td>
+                      {/* what the transfer slip itself said */}
+                      <td style={{ padding: '9px 12px', fontSize: 11.5, color: '#666', minWidth: 150 }}>
+                        {(o.transfer_payer || o.transfer_reference || o.transfer_amount != null) ? (
+                          <>
+                            {o.transfer_payer && <div style={{ fontWeight: 600, color: '#0d1b2a' }}>{o.transfer_payer}</div>}
+                            <div style={{ color: '#999' }}>
+                              {o.transfer_amount != null && <span>MVR {Number(o.transfer_amount).toFixed(2)}</span>}
+                              {o.transfer_amount != null && (o.transfer_date || o.transfer_time) && ' · '}
+                              {o.transfer_date || ''}{o.transfer_time ? ` ${o.transfer_time}` : ''}
+                            </div>
+                            {o.transfer_reference && <div style={{ fontFamily: 'monospace', fontSize: 10.5, color: '#bbb' }}>{o.transfer_reference}</div>}
+                          </>
+                        ) : <span style={{ color: '#ddd' }}>—</span>}
+                      </td>
                       <td style={{ padding: '9px 12px' }}>
                         {o.delivery_person
                           ? <span style={{ fontSize: 12, background: '#EEF4FF', color: '#378ADD', padding: '2px 8px', borderRadius: 99, fontWeight: 600 }}>🚴 {o.delivery_person}</span>
@@ -427,10 +442,13 @@ export default function Customers() {
                       </td>
                       <td style={{ padding: '9px 12px' }}>
                         {o.transfer_slip_url
-                          ? <a href={o.transfer_slip_url} target="_blank" rel="noopener noreferrer"
-                              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', background: '#E1F5EE', color: '#1D9E75', borderRadius: 6, fontSize: 11, fontWeight: 600, textDecoration: 'none' }}>
-                              🧾 View slip
-                            </a>
+                          ? (/\.pdf$/i.test(o.transfer_slip_url)
+                              ? <a href={o.transfer_slip_url} target="_blank" rel="noopener noreferrer"
+                                  style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', background: '#E1F5EE', color: '#1D9E75', borderRadius: 6, fontSize: 11, fontWeight: 600, textDecoration: 'none' }}>
+                                  🧾 Open
+                                </a>
+                              : <img src={o.transfer_slip_url} alt="slip" onClick={() => setSlipView(o.transfer_slip_url)}
+                                  style={{ width: 42, height: 42, objectFit: 'cover', borderRadius: 7, border: '1px solid #cfe8db', cursor: 'pointer' }} />)
                           : <span style={{ color: '#ddd', fontSize: 11 }}>—</span>
                         }
                       </td>
@@ -501,6 +519,14 @@ export default function Customers() {
             <Button onClick={sendReward} disabled={sendingReward}><MessageSquare size={13} /> {sendingReward ? 'Sending…' : 'Send SMS'}</Button>
           </div>
         </Modal>
+      )}
+
+      {/* slip full-screen */}
+      {slipView && (
+        <div onClick={() => setSlipView(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(13,27,42,0.82)', zIndex: 3000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+          <img src={slipView} alt="slip" style={{ maxWidth: '92%', maxHeight: '92%', borderRadius: 10 }} />
+        </div>
       )}
 
       <Toasts toasts={toast.toasts} />

@@ -515,6 +515,10 @@ export default function Orders() {
       transfer_reference: o.transfer_reference || '',
       transfer_slip_url: o.transfer_slip_url || '',
       payment_status: o.payment_status || 'paid',
+      transfer_payer: o.transfer_payer || '',
+      transfer_amount: o.transfer_amount ?? '',
+      transfer_date: o.transfer_date || '',
+      transfer_time: o.transfer_time || '',
     })
     // If a slip is attached but no reference was ever saved, read it now rather
     // than making you press a button every single time.
@@ -529,8 +533,19 @@ export default function Orders() {
     return slip.scan(source, found => {
       let before
       setPayForm(p => {
-        before = { transfer_reference: p.transfer_reference }
-        return { ...p, transfer_reference: found.reference || p.transfer_reference }
+        before = {
+          transfer_reference: p.transfer_reference, transfer_payer: p.transfer_payer,
+          transfer_amount: p.transfer_amount, transfer_date: p.transfer_date, transfer_time: p.transfer_time,
+        }
+        return {
+          ...p,
+          transfer_reference: found.reference || p.transfer_reference,
+          // Who actually sent it — often a family member, not the account holder
+          transfer_payer: found.counterparty || found.fromName || p.transfer_payer,
+          transfer_amount: found.amount != null ? found.amount : p.transfer_amount,
+          transfer_date: found.date || p.transfer_date,
+          transfer_time: found.time || p.transfer_time,
+        }
       })
       return before
     })
@@ -544,14 +559,23 @@ export default function Orders() {
       payment_method: payForm.payment_method,
       transfer_reference: payForm.transfer_reference,
       transfer_slip_url: payForm.transfer_slip_url,
+      transfer_payer: payForm.transfer_payer || null,
+      transfer_amount: payForm.transfer_amount === '' || payForm.transfer_amount == null ? null : Number(payForm.transfer_amount),
+      transfer_date: payForm.transfer_date || null,
+      transfer_time: payForm.transfer_time || null,
       paid_at: payForm.payment_status === 'paid' ? new Date().toISOString() : null,
     }
     // An invoice is one row PER LINE ITEM — mark every sibling row too, so a
     // multi-item invoice doesn't end up half paid / half unpaid.
-    let q = supabase.from('orders').update(patch)
-    if (payModal.invoice_number) q = q.eq('invoice_number', payModal.invoice_number).eq('customer_id', payModal.customer_id)
-    else q = q.eq('id', payModal.id)
-    await q
+    const run = pl => {
+      let q = supabase.from('orders').update(pl)
+      if (payModal.invoice_number) q = q.eq('invoice_number', payModal.invoice_number).eq('customer_id', payModal.customer_id)
+      else q = q.eq('id', payModal.id)
+      return q
+    }
+    let { error: payErr } = await run(patch)
+    while (payErr && dropMissingCol(payErr, patch)) { payErr = (await run(patch)).error }
+    if (payErr) { setSaving(false); toast.error('Could not save: ' + payErr.message); return }
     logAudit('payment', 'order', `${payModal.invoice_number || payModal.id} — ${payModal.customer_name}`, { status: payForm.payment_status, method: payForm.payment_method })
     setSaving(false); toast.success('Payment recorded!'); setPayModal(null); load()
   }

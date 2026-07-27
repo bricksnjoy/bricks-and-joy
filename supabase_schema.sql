@@ -502,3 +502,13 @@ alter table loans add column if not exists lenders jsonb default '[]'::jsonb;
 -- Time printed on the transfer slip, so two payments of the same amount on the
 -- same day can still be told apart when reconciling.
 alter table loan_payments add column if not exists paid_time text;
+
+-- Slips on costs, and what the reader pulls off a customer's transfer slip, so
+-- the payer, amount and date can be seen from an invoice or a customer record.
+alter table expenses add column if not exists slips     jsonb default '[]'::jsonb;
+alter table expenses add column if not exists reference text;
+
+alter table orders add column if not exists transfer_payer  text;    -- name printed on the slip
+alter table orders add column if not exists transfer_amount numeric; -- amount printed on the slip
+alter table orders add column if not exists transfer_date   date;    -- date printed on the slip
+alter table orders add column if not exists transfer_time   text;

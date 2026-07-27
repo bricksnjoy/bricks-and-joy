@@ -23,6 +23,12 @@ function buildInvoices(orders) {
         payment_method: o.payment_method || '',
         transfer_reference: o.transfer_reference || '',
         transfer_slip_url: o.transfer_slip_url || '',
+        // What the slip itself says — who sent it, how much, when
+        transfer_payer: o.transfer_payer || '',
+        transfer_amount: o.transfer_amount ?? null,
+        transfer_date: o.transfer_date || '',
+        transfer_time: o.transfer_time || '',
+        paid_at: o.paid_at || '',
         notes: o.notes || '',
         created_at: o.created_at,
         items: [],
@@ -30,6 +36,10 @@ function buildInvoices(orders) {
       }
     }
     if (!map[key].transfer_slip_url && o.transfer_slip_url) map[key].transfer_slip_url = o.transfer_slip_url
+    if (!map[key].transfer_reference && o.transfer_reference) map[key].transfer_reference = o.transfer_reference
+    if (!map[key].transfer_payer && o.transfer_payer) map[key].transfer_payer = o.transfer_payer
+    if (map[key].transfer_amount == null && o.transfer_amount != null) map[key].transfer_amount = o.transfer_amount
+    if (!map[key].transfer_date && o.transfer_date) map[key].transfer_date = o.transfer_date
     map[key].items.push(o)
     map[key].total += Number(o.total_price || 0)
   }
@@ -389,6 +399,32 @@ export default function Invoices() {
                         <span style={{ fontWeight:700, color:'#0d1b2a' }}>MVR {Number(it.total_price||0).toFixed(2)}</span>
                       </div>
                     ))}
+                    {/* What the transfer slip says — who actually sent it, and when */}
+                    {(inv.transfer_slip_url || inv.transfer_reference || inv.transfer_payer) && (
+                      <div style={{ display:'flex', gap:14, alignItems:'flex-start', background:'#f2faf5', border:'1px solid #cfe8db', borderRadius:10, padding:'11px 13px', marginTop:10 }}>
+                        {inv.transfer_slip_url && !/\.pdf$/i.test(inv.transfer_slip_url) && (
+                          <img src={inv.transfer_slip_url} alt="slip" onClick={() => setSlipView(inv.transfer_slip_url)}
+                            style={{ width:58, height:58, objectFit:'cover', borderRadius:8, border:'1px solid #cfe8db', cursor:'pointer', flexShrink:0 }} />
+                        )}
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ fontSize:11, fontWeight:800, color:'#2c7a54', textTransform:'uppercase', letterSpacing:'0.5px', marginBottom:6 }}>Transfer received</div>
+                          <div style={{ display:'flex', gap:16, flexWrap:'wrap', fontSize:11.5, color:'#4a6b59' }}>
+                            {inv.transfer_payer && <span><span style={{ color:'#8fae9e' }}>From</span> <b>{inv.transfer_payer}</b></span>}
+                            {inv.transfer_amount != null && <span><span style={{ color:'#8fae9e' }}>Amount</span> <b>MVR {Number(inv.transfer_amount).toFixed(2)}</b></span>}
+                            {(inv.transfer_date || inv.paid_at) && (
+                              <span><span style={{ color:'#8fae9e' }}>Date</span> <b>{inv.transfer_date || String(inv.paid_at).slice(0,10)}{inv.transfer_time ? ` ${inv.transfer_time}` : ''}</b></span>
+                            )}
+                            {inv.transfer_reference && <span><span style={{ color:'#8fae9e' }}>Ref</span> <b style={{ fontFamily:'monospace' }}>{inv.transfer_reference}</b></span>}
+                          </div>
+                          {inv.transfer_amount != null && Math.abs(Number(inv.transfer_amount) - inv.total) > 0.01 && (
+                            <div style={{ fontSize:11, color:'#b8740a', marginTop:6, fontWeight:600 }}>
+                              Slip says MVR {Number(inv.transfer_amount).toFixed(2)} but the invoice is MVR {inv.total.toFixed(2)} — a {Number(inv.transfer_amount) > inv.total ? 'overpayment' : 'shortfall'} of MVR {Math.abs(Number(inv.transfer_amount) - inv.total).toFixed(2)}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
                     {/* Footer: total + actions */}
                     <div className="inv-exp-footer" style={{ display:'flex', justifyContent:'space-between', alignItems:'center', paddingTop:10, marginTop:4, borderTop:'1px solid #eee' }}>
                       <div style={{ fontSize:12, color:'#888' }}>

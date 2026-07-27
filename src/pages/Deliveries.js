@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { localToday } from '../lib/dates'
 import { PageHeader, Card, Spinner, useToast, Toasts, StatusBadge, MetricCard } from '../components/UI'
-import { Truck, User, Bike, CalendarDays, Package, CheckCircle, Search, Instagram, LayoutGrid, List, Award, Save } from 'lucide-react'
+import { Truck, User, Bike, CalendarDays, Package, CheckCircle, Search, Instagram, LayoutGrid, List, Award, Save, ChevronRight, X } from 'lucide-react'
 
 // Charge lines (delivery fee / gift) are money rows, not deliverable items —
 // they show as a small note under their invoice's order instead of own cards.
@@ -19,6 +19,7 @@ export default function Deliveries() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('unassigned') // unassigned | assigned | delivered | all
+  const [staffModal, setStaffModal] = useState(null)   // a delivery person's full history
   const [view, setView] = useState('cards') // list | cards
   const [savingId, setSavingId] = useState(null)
   const [dateColMissing, setDateColMissing] = useState(false)
@@ -145,12 +146,30 @@ export default function Deliveries() {
     orders.forEach(o => {
       const name = (o.delivery_person || '').trim()
       if (!name) return
-      if (!map[name]) map[name] = { name, total: 0, delivered: 0 }
+      if (!map[name]) map[name] = { name, total: 0, delivered: 0, pending: 0, rows: [] }
       map[name].total += 1
+      map[name].rows.push(o)
       if (o.status === 'delivered') map[name].delivered += 1
+      else map[name].pending += 1
     })
+    // Newest first within each person, so the last run is at the top
+    Object.values(map).forEach(s => s.rows.sort((a, b) =>
+      String(effectiveDate(b) || '').localeCompare(String(effectiveDate(a) || ''))))
     return Object.values(map).sort((a, b) => b.total - a.total)
   })()
+
+  // Every delivery a person has handled, grouped by the day they ran it
+  const staffDays = staff => {
+    if (!staff) return []
+    const byDay = {}
+    staff.rows.forEach(o => {
+      const d = effectiveDate(o) || 'No date'
+      if (!byDay[d]) byDay[d] = { day: d, rows: [], delivered: 0 }
+      byDay[d].rows.push(o)
+      if (o.status === 'delivered') byDay[d].delivered += 1
+    })
+    return Object.values(byDay).sort((a, b) => String(b.day).localeCompare(String(a.day)))
+  }
 
   const FILTERS = [
     ['unassigned', `Unassigned (${unassignedCount})`],
@@ -249,7 +268,10 @@ export default function Deliveries() {
           </div>
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
             {staffReport.map(s => (
-              <div key={s.name} style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#faf9f6', border: '1px solid #f0eee8', borderRadius: 12, padding: '10px 16px' }}>
+              <div key={s.name} onClick={() => setStaffModal(s)} title={`See every delivery ${s.name} has handled`}
+                style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#faf9f6', border: '1px solid #f0eee8', borderRadius: 12, padding: '10px 16px', cursor: 'pointer', transition: 'box-shadow .15s' }}
+                onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 4px 14px rgba(0,0,0,0.07)' }}
+                onMouseLeave={e => { e.currentTarget.style.boxShadow = 'none' }}>
                 <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'linear-gradient(135deg,#FFA500,#ff8c00)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 14 }}>
                   {s.name.charAt(0).toUpperCase()}
                 </div>
@@ -257,8 +279,10 @@ export default function Deliveries() {
                   <div style={{ fontWeight: 600, fontSize: 13, color: '#0d1b2a' }}>{s.name}</div>
                   <div style={{ fontSize: 11.5, color: '#888' }}>
                     <span style={{ color: '#1D9E75', fontWeight: 600 }}>{s.delivered} delivered</span> · {s.total} assigned
+                    {s.pending > 0 && <span style={{ color: '#b8740a', fontWeight: 600 }}> · {s.pending} open</span>}
                   </div>
                 </div>
+                <ChevronRight size={15} color="#ccc" />
               </div>
             ))}
           </div>
@@ -388,6 +412,61 @@ export default function Deliveries() {
           </div>
         )}
       </Card>
+
+      {/* One person's whole delivery history, day by day */}
+      {staffModal && (
+        <div onClick={() => setStaffModal(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(13,27,42,0.45)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: '#fff', borderRadius: 16, width: 'min(760px, 100%)', maxHeight: '88vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
+            <div style={{ padding: '18px 22px', borderBottom: '1px solid #f0f0f0', display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'linear-gradient(135deg,#FFA500,#ff8c00)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 16 }}>
+                {staffModal.name.charAt(0).toUpperCase()}
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 16, fontWeight: 800, color: '#0d1b2a' }}>{staffModal.name}</div>
+                <div style={{ fontSize: 12, color: '#999', marginTop: 2 }}>
+                  {staffModal.total} deliveries · <span style={{ color: '#1D9E75', fontWeight: 600 }}>{staffModal.delivered} completed</span>
+                  {staffModal.pending > 0 && <span style={{ color: '#b8740a', fontWeight: 600 }}> · {staffModal.pending} still open</span>}
+                </div>
+              </div>
+              <button onClick={() => setStaffModal(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 5 }}><X size={18} color="#bbb" /></button>
+            </div>
+
+            <div style={{ overflowY: 'auto', padding: '14px 22px 20px' }}>
+              {staffDays(staffModal).map(d => (
+                <div key={d.day} style={{ marginBottom: 16 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 7 }}>
+                    <span style={{ fontSize: 11, fontWeight: 800, color: '#8a8378', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      {d.day === 'No date' ? 'No date set' : d.day}
+                    </span>
+                    <span style={{ flex: 1, height: 1, background: '#f2f0ec' }} />
+                    <span style={{ fontSize: 11, color: '#bbb' }}>{d.rows.length} drop{d.rows.length > 1 ? 's' : ''} · {d.delivered} done</span>
+                  </div>
+                  {d.rows.map(o => (
+                    <div key={o.id} style={{ display: 'flex', alignItems: 'center', gap: 10, border: '1px solid #f2f2f2', borderRadius: 9, padding: '9px 12px', marginBottom: 6, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 12.5, fontWeight: 600, color: '#0d1b2a', flex: '1 1 160px', minWidth: 0 }}>
+                        {o.customer_name || 'Walk-in'}
+                        {o.invoice_number && <span style={{ color: '#c4bcb0', fontWeight: 400 }}> · {o.invoice_number}</span>}
+                      </span>
+                      <span style={{ fontSize: 11.5, color: '#999', flex: '1 1 130px', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {o.product_name}{o.qty > 1 ? ` ×${o.qty}` : ''}
+                      </span>
+                      <span style={{ fontSize: 12.5, fontWeight: 700, color: '#0d1b2a', whiteSpace: 'nowrap' }}>
+                        MVR {Number(o.total_price || 0).toFixed(2)}
+                      </span>
+                      <StatusBadge status={o.status} />
+                    </div>
+                  ))}
+                </div>
+              ))}
+              {staffDays(staffModal).length === 0 && (
+                <div style={{ textAlign: 'center', color: '#bbb', fontSize: 13, padding: '30px 0' }}>Nothing recorded yet.</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <Toasts toasts={toast.toasts} />
     </div>
