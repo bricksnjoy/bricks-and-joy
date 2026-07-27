@@ -419,6 +419,7 @@ export default function PurchaseOrders() {
   }
 
   function openGroupPayModal(group) {
+    slip.clear()          // never carry the last slip's reading into a new payment
     const anchor = group.rows.find(r => r.cost_type !== 'extra') || group.rows[0]
     const paid = paidForGroup(group)
     const outstanding = Math.max(0, group.total - paid)
@@ -521,6 +522,7 @@ export default function PurchaseOrders() {
   function switchView(v) { setListView(v); localStorage.setItem('po_list_view', v) }
 
   function openEditPayment(payment) {
+    slip.clear()
     setEditPayForm({
       amount: String(payment.amount ?? ''),
       payment_date: payment.payment_date || localToday(),

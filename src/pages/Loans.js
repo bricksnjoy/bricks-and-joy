@@ -304,11 +304,13 @@ export default function Loans() {
   }
 
   function openAdd() {
+    setOcr(null)
     setEditing(null)
     setLoanForm({ ...EMPTY_LOAN, lenders: [{ ...EMPTY_LENDER }], reference: nextLoanNo() })
     setLoanModal(true)
   }
   function openEdit(l) {
+    setOcr(null)
     setEditing(l)
     setLoanForm({
       lender: l.lender || '',
@@ -396,6 +398,7 @@ export default function Loans() {
 
   // ── Payments ────────────────────────────────────────────────────────────────
   function openPay(loan, instalment) {
+    setOcr(null)          // never show the last slip's reading against a new payment
     setPayForm({
       amount: instalment ? Math.max(0, instalment.amount - instalment.paid).toFixed(2) : (loan.monthly || 0).toFixed(2),
       paid_on: localToday(), paid_time: '', method: 'Bank transfer',
@@ -407,6 +410,7 @@ export default function Loans() {
 
   // Reopen an existing payment with its details so it can be corrected
   function editPayment(loan, instalment, p) {
+    setOcr(null)
     setPayForm({
       amount: num(p.amount), paid_on: p.paid_on || localToday(), paid_time: p.paid_time || '',
       method: p.method || 'Bank transfer', account: p.account || '',

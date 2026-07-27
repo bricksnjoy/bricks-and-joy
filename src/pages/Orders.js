@@ -504,6 +504,25 @@ export default function Orders() {
     if ((file.type || '').startsWith('image/')) scanCustomerSlip(file)
   }
 
+  // Opening the payment box always starts from this order's own state — the
+  // previous slip's reading must not be left on screen against a different
+  // customer's payment.
+  function openPayModal(o) {
+    slip.clear()
+    setPayModal(o)
+    setPayForm({
+      payment_method: o.payment_method || 'Cash',
+      transfer_reference: o.transfer_reference || '',
+      transfer_slip_url: o.transfer_slip_url || '',
+      payment_status: o.payment_status || 'paid',
+    })
+    // If a slip is attached but no reference was ever saved, read it now rather
+    // than making you press a button every single time.
+    if (o.transfer_slip_url && !o.transfer_reference && !/\.pdf(\?|$)/i.test(o.transfer_slip_url)) {
+      scanCustomerSlip(o.transfer_slip_url)
+    }
+  }
+
   // Read the slip the customer sent — the reference is what lets reconciliation
   // tie this order to the line on the bank statement.
   function scanCustomerSlip(source) {
@@ -875,7 +894,7 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
         <button className="icon-btn primary" onClick={() => setViewModal(r)} title="View"><Eye size={13} /></button>
         <button className="icon-btn" onClick={() => openEdit(r)} title="Edit"><Edit2 size={13} /></button>
         <button className="icon-btn" onClick={() => openSms(r)} title="Send SMS" style={{ color: '#1D9E75' }}><MessageSquare size={13} /></button>
-        <button className="icon-btn primary" onClick={() => { setPayModal(r); setPayForm({ payment_method: r.payment_method || 'Cash', transfer_reference: r.transfer_reference || '', transfer_slip_url: r.transfer_slip_url || '', payment_status: r.payment_status || 'paid' }) }} title="Record payment"><CreditCard size={13} /></button>
+        <button className="icon-btn primary" onClick={() => openPayModal(r)} title="Record payment"><CreditCard size={13} /></button>
         {r.status !== 'cancelled' && <button className="icon-btn warning" onClick={() => { setReturnModal(r); setReturnForm({ reason: '', refund_amount: r.total_price || 0 }) }} title="Process return"><RotateCcw size={13} /></button>}
         <button className="icon-btn danger" onClick={() => del(r.id)} title="Delete"><Trash2 size={13} /></button>
       </div>
@@ -1105,7 +1124,7 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
 
                       {/* Payment modal button — the only way to change payment */}
                       <button
-                        onClick={() => { setPayModal(o); setPayForm({ payment_method: o.payment_method || 'Cash', transfer_reference: o.transfer_reference || '', transfer_slip_url: o.transfer_slip_url || '', payment_status: o.payment_status || 'paid' }) }}
+                        onClick={() => openPayModal(o)}
                         title="Record / change payment"
                         className="ord-paybtn"
                         style={{ padding: '5px 12px', borderRadius: 99, border: '1px solid #ddd', background: '#fafafa', color: '#777', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 5 }}>
