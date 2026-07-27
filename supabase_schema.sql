@@ -466,6 +466,35 @@ create policy "Authenticated users can do everything" on order_analysis_items fo
 -- ─────────────────────────────────────────────────────────────────────────────
 -- LOANS — tenure, grace period, profit rate, monthly schedule and payment slips
 -- ─────────────────────────────────────────────────────────────────────────────
+-- The loans tables themselves, which were created straight in the database and
+-- never written down here — so the alters below had nothing to alter.
+create table if not exists loans (
+  id uuid primary key default gen_random_uuid(),
+  lender text,
+  amount numeric(10,2) default 0,
+  purpose text,
+  monthly_payment numeric(10,2) default 0,
+  taken_on date default current_date,
+  notes text,
+  created_at timestamptz default now()
+);
+
+create table if not exists loan_payments (
+  id uuid primary key default gen_random_uuid(),
+  loan_id uuid references loans(id) on delete cascade,
+  amount numeric(10,2) default 0,
+  paid_on date default current_date,
+  notes text,
+  created_at timestamptz default now()
+);
+
+alter table loans enable row level security;
+alter table loan_payments enable row level security;
+drop policy if exists "Authenticated users can do everything" on loans;
+drop policy if exists "Authenticated users can do everything" on loan_payments;
+create policy "Authenticated users can do everything" on loans         for all using (auth.role() = 'authenticated');
+create policy "Authenticated users can do everything" on loan_payments for all using (auth.role() = 'authenticated');
+
 alter table loans add column if not exists received_date   date;      -- when the money actually landed
 alter table loans add column if not exists tenure_months   integer;   -- how many monthly payments
 alter table loans add column if not exists grace_months    integer default 0;
@@ -512,3 +541,126 @@ alter table orders add column if not exists transfer_payer  text;    -- name pri
 alter table orders add column if not exists transfer_amount numeric; -- amount printed on the slip
 alter table orders add column if not exists transfer_date   date;    -- date printed on the slip
 alter table orders add column if not exists transfer_time   text;
+
+-- ═════════════════════════════════════════════════════════════════════════════
+-- CATCH-UP — everything the app uses that this file never declared.
+--
+-- The sections above were written as the app was built and drifted out of date:
+-- columns were added straight to the database and never recorded here, so
+-- rebuilding from this file alone produced a database the app could not use.
+-- Every statement below is idempotent, so running the whole file is always safe.
+-- ═════════════════════════════════════════════════════════════════════════════
+
+-- ── Tables the app calls that were never declared ────────────────────────────
+
+-- Who did what, shown on the Audit Log page.
+create table if not exists audit_log (
+  id uuid primary key default gen_random_uuid(),
+  user_email text,
+  action text,          -- create | update | delete | cancel | return | payment | stock
+  entity text,          -- order | product | purchase_order | customer | vendor | catalog
+  entity_label text,
+  details jsonb,
+  at timestamptz default now()
+);
+create index if not exists audit_log_at_idx on audit_log(at desc);
+
+-- Saved bank reconciliations. The page falls back to this device's storage when
+-- the table is missing, which is why it kept saying "saved on this device only".
+create table if not exists reconciliations (
+  id uuid primary key default gen_random_uuid(),
+  account text,
+  period_start date,
+  period_end date,
+  statement_in numeric default 0,
+  statement_out numeric default 0,
+  closing_balance numeric default 0,
+  matched_count integer default 0,
+  unmatched_count integer default 0,
+  cleared jsonb default '[]'::jsonb,   -- ids of the book entries this cleared
+  lines jsonb default '[]'::jsonb,     -- every statement line, so it can be reopened
+  created_at timestamptz default now()
+);
+
+-- Monthly email report configuration, read by the scheduled Edge Function.
+create table if not exists report_settings (
+  id integer primary key default 1,
+  recipients text,
+  include_financial boolean default true,
+  include_restock boolean default true,
+  include_sales boolean default true,
+  updated_at timestamptz default now()
+);
+
+-- Spending caps per category, used by the Dashboard's over-budget warning.
+create table if not exists budgets (
+  category text primary key,
+  amount numeric default 0,
+  updated_at timestamptz default now()
+);
+
+-- ── Columns the app relies on that were never recorded ───────────────────────
+
+-- ORDERS: invoicing, payment, the transfer slip, and the delivery / gift charges
+alter table orders add column if not exists invoice_number    text;
+alter table orders add column if not exists payment_status    text default 'unpaid';
+alter table orders add column if not exists payment_method    text;
+alter table orders add column if not exists paid_at           timestamptz;
+alter table orders add column if not exists transfer_reference text;
+alter table orders add column if not exists transfer_slip_url text;
+alter table orders add column if not exists discount          numeric default 0;
+alter table orders add column if not exists delivery_fee      numeric default 0;
+alter table orders add column if not exists delivery_fee_covered boolean default false;
+alter table orders add column if not exists special_request   text;
+alter table orders add column if not exists special_request_cost numeric default 0;
+alter table orders add column if not exists special_request_covered boolean default false;
+alter table orders add column if not exists delivery_time     text;
+alter table orders add column if not exists fulfilment        text default 'delivery';
+create index if not exists orders_invoice_idx on orders(invoice_number);
+
+-- PRODUCTS: the shop-facing fields and stock housekeeping
+alter table products add column if not exists photo_url        text;
+alter table products add column if not exists barcode          text;
+alter table products add column if not exists pieces           integer;
+alter table products add column if not exists sizes            text;
+alter table products add column if not exists weight           text;
+alter table products add column if not exists dimensions       text;
+alter table products add column if not exists tags             text;
+alter table products add column if not exists discontinued     boolean default false;
+
+-- PURCHASE ORDERS: batching, import costs and the received-into-stock flag
+alter table purchase_orders add column if not exists batch_id     text;
+alter table purchase_orders add column if not exists batch_no     text;
+alter table purchase_orders add column if not exists cost_type    text;   -- 'extra' = freight/duty/fees, not goods
+alter table purchase_orders add column if not exists image_url    text;
+alter table purchase_orders add column if not exists stock_added  boolean default false;
+create index if not exists purchase_orders_batch_idx on purchase_orders(batch_id);
+
+-- EXPENSES: the currency the amount was entered in
+alter table expenses add column if not exists currency text default 'MVR';
+
+-- SUPPLIER CATALOG: the fields the importer and the analysis read
+alter table supplier_products add column if not exists cost_price  numeric;
+alter table supplier_products add column if not exists sell_price  numeric;
+alter table supplier_products add column if not exists brand       text;
+alter table supplier_products add column if not exists age_range   text;
+alter table supplier_products add column if not exists pieces      integer;
+alter table supplier_products add column if not exists sizes       text;
+alter table supplier_products add column if not exists weight      text;
+alter table supplier_products add column if not exists dimensions  text;
+alter table supplier_products add column if not exists description text;
+alter table supplier_products add column if not exists tags        text;
+alter table supplier_products add column if not exists image_url   text;
+
+alter table audit_log        enable row level security;
+alter table reconciliations  enable row level security;
+alter table report_settings  enable row level security;
+alter table budgets          enable row level security;
+drop policy if exists "Authenticated users can do everything" on audit_log;
+drop policy if exists "Authenticated users can do everything" on reconciliations;
+drop policy if exists "Authenticated users can do everything" on report_settings;
+drop policy if exists "Authenticated users can do everything" on budgets;
+create policy "Authenticated users can do everything" on audit_log       for all using (auth.role() = 'authenticated');
+create policy "Authenticated users can do everything" on reconciliations for all using (auth.role() = 'authenticated');
+create policy "Authenticated users can do everything" on report_settings for all using (auth.role() = 'authenticated');
+create policy "Authenticated users can do everything" on budgets         for all using (auth.role() = 'authenticated');

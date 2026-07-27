@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Button, Spinner, useToast, Toasts } from '../components/UI'
 import { ClipboardList, TrendingUp, Package, ShoppingBag, Boxes, AlertTriangle, Truck, Calculator } from 'lucide-react'
 import { getSettings } from '../lib/settings'
+import { localToday, localDaysAgo } from '../lib/dates'
 
 const PERIODS = [{ d: 30, label: '30 days' }, { d: 60, label: '60 days' }, { d: 90, label: '90 days' }]
 const COVERS = [{ d: 30, label: '1 month' }, { d: 45, label: '6 weeks' }, { d: 60, label: '2 months' }]
@@ -48,7 +49,7 @@ export default function StockReport() {
 
   // Per-product sales + reorder analysis over the selected period
   const rows = useMemo(() => {
-    const since = new Date(Date.now() - periodDays * 86400000).toISOString().split('T')[0]
+    const since = localDaysAgo(periodDays)
     const agg = {}
     orders.filter(o => o.status !== 'cancelled' && o.product_id && o.order_date >= since).forEach(o => {
       const a = agg[o.product_id] || (agg[o.product_id] = { units: 0, revenue: 0, cost: 0 })
@@ -115,7 +116,7 @@ export default function StockReport() {
     if (!items.length) { toast.error('Nothing needs reordering right now'); return }
     setSending(true)
     const { data, error } = await supabase.from('order_analyses').insert({
-      name: `Restock — ${new Date().toISOString().slice(0, 10)}`,
+      name: `Restock — ${localToday()}`,
       status: 'draft', target_margin: 40, extra_costs: [],
       notes: `From the Stock Report — ${leadDays}-day lead time, ${coverDays} days of cover after arrival.`,
     }).select()

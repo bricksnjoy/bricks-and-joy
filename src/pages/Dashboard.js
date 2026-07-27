@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { localToday } from '../lib/dates'
+import { localToday, toLocalISO } from '../lib/dates'
 import { StockBadge, StatusBadge, Spinner } from '../components/UI'
 import {
   Package, ShoppingCart, Users, TrendingUp, TrendingDown,
@@ -84,7 +84,7 @@ export default function Dashboard() {
 
     // Best sellers — last 30 days delivered orders
     const since30 = new Date(); since30.setDate(since30.getDate() - 30)
-    const since30Str = since30.toISOString().split('T')[0]
+    const since30Str = toLocalISO(since30)
     const last30Orders = delivered.filter(o => o.order_date >= since30Str)
     const productSales = {}
     last30Orders.forEach(o => {

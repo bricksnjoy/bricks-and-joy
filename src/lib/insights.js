@@ -1,3 +1,4 @@
+import { localToday, localDaysAgo } from './dates'
 // Lightweight, rule-based analytics — no external AI calls.
 // Produces restock predictions, an action checklist, and plain-English insights
 // from the data the app already has.
@@ -5,7 +6,7 @@
 const DAY = 86400000
 
 function daysAgo(n) {
-  return new Date(Date.now() - n * DAY).toISOString().split('T')[0]
+  return localDaysAgo(n)
 }
 
 // ── Restock predictions ──────────────────────────────────────────────────────
@@ -82,7 +83,7 @@ export function costHistoryByProduct(purchaseOrders = []) {
 // The handful of things that genuinely need attention today.
 export function actionItems({ orders, products, customers, loyaltyProfiles = [] }) {
   const items = []
-  const today = new Date().toISOString().split('T')[0]
+  const today = localToday()
 
   const unpaid = orders.filter(o => (o.payment_status || 'unpaid') === 'unpaid' && o.status !== 'cancelled')
   const unpaidTotal = unpaid.reduce((s, o) => s + Number(o.total_price || 0), 0)

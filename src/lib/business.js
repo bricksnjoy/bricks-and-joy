@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx'
 import { supabase } from './supabase'
+import { localToday } from './dates'
 
 export const AD_CATS = ['Meta Ads', 'Promotions', 'Sponsorship']
 export const OPEN_KEY = 'bnj_opening_balance'
@@ -143,7 +144,7 @@ export function exportBusinessExcel(data, opening = getOpening()) {
   c.categorySummary.forEach(r => cat.push([r.category, r.items, r2(r.spent), r2(r.revenue), r2(r.profit), r.covered ? 'Yes' : 'Not yet']))
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(cat), 'Categories')
 
-  const today = new Date().toISOString().slice(0, 10)
+  const today = localToday()
   XLSX.writeFile(wb, `bricks-and-joy-business-sheet-${today}.xlsx`)
 }
 
@@ -230,6 +231,6 @@ export async function exportBusinessSummary(data, opening = getOpening()) {
   ws['!cols'] = [{ wch: 34 }, { wch: 13 }, { wch: 16 }, { wch: 20 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 13 }, { wch: 13 }]
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, 'Business Summary')
-  const today = new Date().toISOString().slice(0, 10)
+  const today = localToday()
   XLSX.writeFile(wb, `bricks-and-joy-business-summary-${today}.xlsx`)
 }

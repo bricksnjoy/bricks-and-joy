@@ -4,6 +4,7 @@ import { PageHeader, Card, Spinner } from '../components/UI'
 import { FinancialBusiness } from '../components/BusinessSections'
 import { exportBusinessSummary } from '../lib/business'
 import { FileText, BookOpen, Calendar, Download, TrendingUp, TrendingDown, Receipt, CheckCircle, AlertTriangle, Info, Table2 } from 'lucide-react'
+import { toLocalISO } from '../lib/dates'
 
 const MVR_RATE = 15.42
 const num = v => { const n = parseFloat(v); return isNaN(n) ? 0 : n }
@@ -527,12 +528,12 @@ export default function Accounting() {
         const sinceDate = gstPeriod === '1m' ? new Date(now.getFullYear(), now.getMonth(), 1)
           : gstPeriod === '3m' ? new Date(now.getFullYear(), now.getMonth() - 3, 1)
           : new Date(now.getFullYear(), now.getMonth() - 12, 1)
-        const sinceDateStr = sinceDate.toISOString().split('T')[0]
+        const sinceDateStr = toLocalISO(sinceDate)
         const periodDelivered = orders.filter(o => isRevenue(o) && o.order_date >= sinceDateStr)
         const periodRevenue = periodDelivered.reduce((s, o) => s + Number(o.total_price || 0), 0)
 
         // Last 12m revenue (for threshold check)
-        const last12Start = new Date(now.getFullYear(), now.getMonth() - 12, 1).toISOString().split('T')[0]
+        const last12Start = toLocalISO(new Date(now.getFullYear(), now.getMonth() - 12, 1))
         const last12Revenue = orders.filter(o => isRevenue(o) && o.order_date >= last12Start)
           .reduce((s, o) => s + Number(o.total_price || 0), 0)
 

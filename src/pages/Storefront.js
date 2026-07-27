@@ -6,6 +6,7 @@ import {
   Globe, ExternalLink, Copy, Check, Eye, ShoppingBag, Baby, Grid3x3, ShoppingCart,
   Settings2, Ticket, Plus, Trash2, Rocket, EyeOff
 } from 'lucide-react'
+import { localToday } from '../lib/dates'
 
 const TABS = [
   { key: 'preview', label: 'Preview & links', icon: Eye },
@@ -206,7 +207,7 @@ export default function Storefront() {
             {coupons.length === 0 ? <p style={{ color: '#aaa', fontSize: 13 }}>No coupons yet.</p> : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {coupons.map(c => {
-                  const expired = c.expires_on && c.expires_on < new Date().toISOString().slice(0, 10)
+                  const expired = c.expires_on && c.expires_on < localToday()
                   return (
                     <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 14px', border: '1px solid #eee', borderRadius: 11, flexWrap: 'wrap' }}>
                       <span style={{ fontWeight: 800, fontFamily: 'monospace', fontSize: 14, letterSpacing: '0.5px' }}>{c.code}</span>

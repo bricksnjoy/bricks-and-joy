@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
-import { localToday } from '../lib/dates'
+import { localToday, toLocalISO } from '../lib/dates'
 import { logAudit } from '../lib/audit'
 import { PageHeader, Card, Button, Input, Select, Table, Modal, Spinner, FormRow, useToast, Toasts, Badge } from '../components/UI'
 import { Plus, Trash2, Package, Truck, X, Info, AlertTriangle, CreditCard, Wallet, CheckCircle, Paperclip, Eye, Pencil, LayoutGrid, List, ChevronDown } from 'lucide-react'
@@ -2071,7 +2071,7 @@ export default function PurchaseOrders() {
                             </div>
                           </div>
                         </td>
-                        <td style={{ padding: '8px 12px', color: '#888', fontSize: 12, whiteSpace: 'nowrap' }}>{r.order_date || (r.created_at ? new Date(r.created_at).toISOString().split('T')[0] : '—')}</td>
+                        <td style={{ padding: '8px 12px', color: '#888', fontSize: 12, whiteSpace: 'nowrap' }}>{r.order_date || (r.created_at ? toLocalISO(r.created_at) : '—')}</td>
                         <td style={{ padding: '8px 12px', textAlign: 'right', color: '#888' }}>MVR {Number(r.unit_cost).toFixed(2)}</td>
                         <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700 }}>{r.qty}</td>
                         <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600 }}>MVR {Number(r.total_cost || r.qty * r.unit_cost).toFixed(2)}</td>

@@ -4,6 +4,7 @@ import { PageHeader, Card, Spinner, Badge } from '../components/UI'
 import { AnalyticsMonthly, AnalyticsProducts, AnalyticsCategories } from '../components/BusinessSections'
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, AreaChart, Area, ComposedChart } from 'recharts'
 import { TrendingUp, TrendingDown, Package, ShoppingCart, Users, AlertTriangle, BarChart3, PieChart as PieIcon, LineChart as LineIcon, Activity, Trophy, Medal, Award, Flame, ArrowUpRight, ArrowDownRight, ArrowRight, CheckCircle, Minus, Coins, Tag, Rocket, Wallet, Target, RotateCcw } from 'lucide-react'
+import { toLocalISO } from '../lib/dates'
 
 const COLORS = ['#FFA500','#0d1b2a','#1D9E75','#378ADD','#f57f17','#7F77DD','#c62828','#29b6f6']
 
@@ -450,7 +451,7 @@ export default function Statistics() {
       {activeTab === 'categories' && (() => {
         const [catPeriod, setCatPeriod] = [data._catPeriod || 'all', v => setData(d => ({ ...d, _catPeriod: v }))]
         const since30 = new Date(); since30.setDate(since30.getDate() - 30)
-        const since30Str = since30.toISOString().split('T')[0]
+        const since30Str = toLocalISO(since30)
         const thisMonth = new Date().toISOString().slice(0, 7)
         const delivered = data._allDelivered || []
         const filtered = catPeriod === 'month' ? delivered.filter(o => o.order_date?.startsWith(thisMonth))

@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
-import { localToday } from '../lib/dates'
+import { localDaysAgo, localToday } from '../lib/dates'
 import { logAudit } from '../lib/audit'
 import { PageHeader, Card, Button, Input, Select, Modal, Spinner, useToast, Toasts, Badge, ImageTile } from '../components/UI'
 import {
@@ -223,7 +223,7 @@ export default function OrderAnalysis() {
   // ── Sales velocity: how fast each product actually moves ────────────────────
   const velocity = useMemo(() => {
     const WINDOW = 60
-    const since = new Date(Date.now() - WINDOW * 86400000).toISOString().slice(0, 10)
+    const since = localDaysAgo(WINDOW)
     const byId = {}, byName = {}
     orders.filter(o => o.status === 'delivered' && (o.order_date || '') >= since).forEach(o => {
       const q = num(o.qty)

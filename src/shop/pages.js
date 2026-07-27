@@ -8,6 +8,7 @@ import {
   ArrowLeft, CheckCircle2, Copy, Gift, Truck, ShieldCheck, BatteryCharging, Boxes,
   Tag, Sparkles, ShoppingCart, Trash2, LogOut, Star, Package, ChevronRight, Eye, EyeOff
 } from 'lucide-react'
+import { localToday } from '../lib/dates'
 
 // Google "G" mark (inline so it works under the strict CSP)
 function GoogleG() {
@@ -497,7 +498,7 @@ export function CheckoutPage() {
         while (error && dropMissingCol(error, cp)) { error = (await supabase.from('customers').upsert(cp, { onConflict: 'id' })).error }
         if (error) { /* place order even if the customer record fails */ }
       }
-      const orderDate = new Date().toISOString().slice(0, 10)
+      const orderDate = localToday()
       for (let i = 0; i < cart.length; i++) {
         const it = cart[i]
         const payload = {
