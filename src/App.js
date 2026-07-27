@@ -300,8 +300,16 @@ export default function App() {
           .app-header { padding-top: calc(13px + env(safe-area-inset-top)); padding-left: calc(14px + env(safe-area-inset-left)); padding-right: calc(14px + env(safe-area-inset-right)); }
           .page-content { padding: 14px 14px calc(16px + env(safe-area-inset-bottom)) !important; }
 
+          /* A 1fr grid track keeps an automatic minimum equal to its content, so
+             a card holding a long figure refuses to shrink and stretches the
+             page wider than the screen — which turned a sideways swipe into a
+             page pan and put the last table columns out of reach. Zeroing that
+             minimum lets everything fit. Anything that genuinely needs to stay
+             wide and scroll on its own (tables) re-declares it below. */
+          .page-content, .page-content * { min-width: 0; }
+
           /* Multi-column grids that lack their own breakpoint collapse to 2 cols */
-          .grid-collapse { grid-template-columns: 1fr 1fr !important; }
+          .grid-collapse { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important; }
           /* Shared component spacing tightened for small screens */
           .ui-card { padding: 16px 15px !important; border-radius: 12px !important; }
           .page-header { margin-bottom: 18px !important; }

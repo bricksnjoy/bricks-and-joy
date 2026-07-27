@@ -245,7 +245,9 @@ export default function CostManagement() {
       <style>{`
         .cm-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 24px; }
         .cm-split { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; }
-        @media (max-width: 768px) { .cm-grid { grid-template-columns: repeat(2,1fr)!important; } .cm-split { grid-template-columns: 1fr!important; } }
+        @media (max-width: 768px) { .cm-grid { grid-template-columns: repeat(2, minmax(0,1fr))!important; } .cm-split { grid-template-columns: minmax(0,1fr)!important; } }
+        /* On a phone two figures side by side are unreadable — stack them */
+        @media (max-width: 520px) { .cm-grid { grid-template-columns: minmax(0,1fr)!important; } }
       `}</style>
 
       <PageHeader title="Cost Management" subtitle="Track all business costs — giveaways, ads, samples, operations"

@@ -142,8 +142,8 @@ export default function Costs() {
         .currency-toggle { display: flex; background: #f0f0f0; border-radius: 8px; padding: 3px; }
         .currency-btn { padding: 6px 16px; border-radius: 6px; border: none; cursor: pointer; font-size: 13px; font-weight: 500; transition: all 0.15s; font-family: inherit; }
         @media (max-width: 768px) {
-          .costs-grid { grid-template-columns: repeat(2, 1fr) !important; }
-          .costs-split { grid-template-columns: 1fr !important; }
+          .costs-grid { grid-template-columns: repeat(2, minmax(0,1fr)) !important; }
+          .costs-split { grid-template-columns: minmax(0,1fr) !important; }
         }
       `}</style>
 

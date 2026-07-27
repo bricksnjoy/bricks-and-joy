@@ -161,8 +161,8 @@ export default function Dashboard() {
         .panel-header { padding: 15px 18px 13px; border-bottom: 1px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center; }
         .stat-pill { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 99px; font-size: 11px; font-weight: 600; }
         @media (max-width: 768px) {
-          .dash-metrics { grid-template-columns: repeat(2, 1fr) !important; }
-          .dash-grid { grid-template-columns: 1fr !important; }
+          .dash-metrics { grid-template-columns: repeat(2, minmax(0,1fr)) !important; }
+          .dash-grid { grid-template-columns: minmax(0,1fr) !important; }
           /* Let metric numbers wrap & shrink so they're never cut off */
           .dash-mval { font-size: 18px !important; white-space: normal !important; overflow: visible !important; text-overflow: clip !important; line-height: 1.15 !important; word-break: break-word; }
         }
