@@ -68,9 +68,10 @@ function dateFrom(s) {
   return null
 }
 
-// 20:57, 20:57:14, 8:57 PM — kept as 24-hour HH:MM
+// 20:57, 20:57:14, 13-50-53, 8:57 PM — kept as 24-hour HH:MM. The separator may
+// be a dash: one receipt writes the stamp as "19-07-2026 13-50-53".
 function timeFrom(s) {
-  const m = s.match(/\b(\d{1,2})[:.](\d{2})(?:[:.](\d{2}))?\s*(am|pm)?\b/i)
+  const m = s.match(/\b(\d{1,2})[:.\-](\d{2})(?:[:.\-](\d{2}))?\s*(am|pm)?\b/i)
   if (!m) return null
   let h = +m[1]
   const min = +m[2]
@@ -79,38 +80,56 @@ function timeFrom(s) {
   if (ap === 'pm' && h < 12) h += 12
   if (ap === 'am' && h === 12) h = 0
   if (h > 23) return null
-  // A bare 4-digit year fragment can look like a time — a date has already been
-  // stripped by the caller, so anything left here is safe enough
   return `${pad(h)}:${pad(min)}`
 }
+
+const DATE_ANYWHERE = /\b\d{1,2}[-/.]\d{1,2}[-/.]\d{4}\b|\b\d{4}[-/.]\d{1,2}[-/.]\d{1,2}\b/
 
 function findDateTime(text) {
   const lines = splitLines(text)
   // The line that says "date" is the most trustworthy place to look
-  const candidates = [...valueAfter(lines, /transaction\s*date|value\s*date|date(?:\s*&\s*time)?|paid\s*on/i), ...lines]
-  for (const c of candidates) {
-    const date = dateFrom(c)
-    if (!date) continue
-    // Look for the time in whatever is left once the date is out of the way
-    const rest = c.replace(/\b\d{1,2}[-/.]\d{1,2}[-/.]\d{4}\b|\b\d{4}[-/.]\d{1,2}[-/.]\d{1,2}\b/, ' ')
-    return { date, time: timeFrom(rest) }
+  const dateCandidates = [...valueAfter(lines, /transaction\s*date|value\s*date|post\s*date|date(?:\s*&\s*time)?|paid\s*on/i), ...lines]
+  let date = null
+  for (const c of dateCandidates) {
+    date = dateFrom(c)
+    if (date) break
   }
-  return { date: null, time: null }
+  // Only trust a time that sits alongside a date — a bare one near the top of a
+  // screenshot is the phone's status bar, not the transaction.
+  let time = null
+  for (const line of lines) {
+    if (!DATE_ANYWHERE.test(line)) continue
+    const t = timeFrom(line.replace(DATE_ANYWHERE, ' '))
+    if (t) { time = t; break }
+  }
+  return { date, time }
 }
 
 // ── Amount ────────────────────────────────────────────────────────────────────
+// A number, with no whitespace allowed inside it — letting \s in here once
+// welded a status-bar clock onto the line below and read 2,500.00 as 512,500.
+const NUM = '[0-9][0-9,]*(?:\\.[0-9]{1,2})?'
+
 function findAmount(text) {
   const lines = splitLines(text)
   // A labelled amount beats a loose number every time
   for (const c of valueAfter(lines, /\bamount\b|\btotal\b|transferred/i, 1)) {
-    const m = c.match(/([0-9][0-9,\s]*(?:\.[0-9]{1,2})?)/)
+    const m = c.match(new RegExp(`(${NUM})`))
     const v = m && toAmount(m[1])
     if (v && v > 0) return v
   }
-  // The figure printed next to MVR — the headline on a BML receipt
+  // The headline on a BML slip: the figure on one line, MVR on the next
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(new RegExp(`^(${NUM})$`))
+    if (m && /^(mvr|rf|mrf)\b/i.test(lines[i + 1] || '')) {
+      const v = toAmount(m[1])
+      if (v && v > 0) return v
+    }
+  }
+  // Or the two together on one line, either way round
   const cur = [
-    ...text.matchAll(/(?:mvr|rf|mrf)\s*([0-9][0-9,\s]*(?:\.[0-9]{1,2})?)/gi),
-    ...text.matchAll(/([0-9][0-9,\s]*\.[0-9]{2})\s*(?:mvr|rf|mrf)\b/gi),
+    ...text.matchAll(new RegExp(`(?:mvr|rf|mrf)\\s*(${NUM})`, 'gi')),
+    ...text.matchAll(new RegExp(`(${NUM})\\s*(?:mvr|rf|mrf)\\b`, 'gi')),
   ].map(m => toAmount(m[1])).filter(v => v && v > 0)
   if (cur.length) return Math.max(...cur)
   // Last resort: anything shaped like money
@@ -120,24 +139,37 @@ function findAmount(text) {
 }
 
 // ── Reference / transaction number ────────────────────────────────────────────
-// BML prints something like BLAZ395788471431 — letters then a long digit run.
+// BML stamps every transfer with a BLAZ… code, and that is what turns up in the
+// description column of the bank statement — so it beats anything sitting under
+// a "Reference" label. On the transaction-detail screen it is buried in the
+// description block rather than labelled at all.
 function findReference(text) {
+  const blaz = text.match(/\b(BLAZ\s?[0-9]{6,})\b/i)
+  if (blaz) return blaz[1].replace(/\s/g, '').toUpperCase()
+  // Any bank's equivalent: a few letters followed by a long digit run
+  const mixed = text.match(/\b([A-Z]{3,6}[0-9]{9,})\b/i)
+  if (mixed) return mixed[1].toUpperCase()
+
   const lines = splitLines(text)
   for (const c of valueAfter(lines, /reference|transaction\s*(?:no|id|ref)|txn|receipt\s*no|trace/i, 1)) {
     // Every token on the line, not just the first — the label itself often
     // matches the shape, so keep looking until one carries digits.
-    for (const m of c.matchAll(/\b([A-Z0-9][A-Z0-9-]{5,29})\b/gi)) {
+    for (const m of c.matchAll(/\b([A-Z0-9][A-Z0-9\\/-]{5,29})\b/gi)) {
       const tok = m[1].trim()
       if (!/\d/.test(tok)) continue                    // a word, not a reference
       if (/^\d{1,2}[-/.]\d/.test(tok)) continue        // that's a date
       return tok
     }
   }
-  // Failing a label, a long alphanumeric run with letters and digits together
-  const mixed = [...text.matchAll(/\b([A-Z]{2,6}\d{8,20})\b/gi)].map(m => m[1])
-  if (mixed.length) return mixed[0]
   const long = [...text.matchAll(/\b(\d{10,20})\b/g)].map(m => m[1])
   return long.length ? long[0] : null
+}
+
+// "Transfer Credit" means money arriving, "Transfer Debit" money leaving
+function findDirection(text) {
+  if (/\b(?:transfer\s+)?credit\b|received|deposit/i.test(text)) return 'in'
+  if (/\b(?:transfer\s+)?debit\b|withdraw|payment\s+sent/i.test(text)) return 'out'
+  return null
 }
 
 // ── Accounts and names ────────────────────────────────────────────────────────
@@ -151,32 +183,47 @@ function findParties(text) {
   const lines = splitLines(text)
   const from = valueAfter(lines, /\bfrom\b|sender|debit\s*account/i, 2)
   const to = valueAfter(lines, /\bto\b|beneficiary|credit\s*account|receiver/i, 2)
+  // The detail screen labels only one account, without saying which side it is
+  const plain = valueAfter(lines, /account\s*(?:number|no\.?|#)/i, 1)
+  // …and puts the other party's name in the description block, under the stamp
+  const desc = valueAfter(lines, /description|narration|particulars/i, 3)
+  const descName = desc.filter(l => !DATE_ANYWHERE.test(l) && !/^BLAZ/i.test(l.trim())).map(nameIn).find(Boolean)
   return {
-    fromName: from.map(nameIn).find(Boolean) || null,
+    fromName: from.map(nameIn).find(Boolean) || descName || null,
     fromAccount: from.map(digitsIn).find(Boolean) || null,
     toName: to.map(nameIn).find(Boolean) || null,
     toAccount: to.map(digitsIn).find(Boolean) || null,
+    plainAccount: plain.map(digitsIn).find(Boolean) || null,
   }
 }
 
 export function parseSlipText(text = '') {
   const { date, time } = findDateTime(text)
   const parties = findParties(text)
+  const direction = findDirection(text)
   return {
     amount: findAmount(text),
     date,
     time,
     reference: findReference(text),
-    // The account the money left — what you'd record as "sent from"
-    account: parties.fromAccount,
+    direction,                     // 'in' = someone paid you, 'out' = you paid
+    // The account to record: where it left on a payment you sent, otherwise
+    // whichever single account the slip names
+    account: parties.fromAccount || parties.plainAccount || null,
+    // Who the money was with — matches the party column on a bank statement
+    counterparty: (direction === 'in' ? parties.fromName : parties.toName) || parties.fromName || parties.toName || null,
     ...parties,
   }
 }
 
-// Reads one image file. Any field may come back null, and the caller should let
-// the user check before trusting it.
+// Reads one slip — a File just picked, or the URL of one already stored, so a
+// slip attached earlier can be read without re-uploading it. Any field may come
+// back null, and the caller should let the user check before trusting it.
 export async function readSlip(file, onProgress) {
-  if (!file || !(file.type || '').startsWith('image/')) return null
+  if (!file) return null
+  const isUrl = typeof file === 'string'
+  if (isUrl && /\.pdf(\?|$)/i.test(file)) return null            // OCR reads images, not PDFs
+  if (!isUrl && !(file.type || '').startsWith('image/')) return null
   const { createWorker } = await import('tesseract.js')
   const worker = await createWorker('eng', 1, {
     logger: onProgress ? m => { if (m.status === 'recognizing text') onProgress(m.progress) } : undefined,

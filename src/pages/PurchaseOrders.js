@@ -5,6 +5,7 @@ import { logAudit } from '../lib/audit'
 import { PageHeader, Card, Button, Input, Select, Table, Modal, Spinner, FormRow, useToast, Toasts, Badge } from '../components/UI'
 import { Plus, Trash2, Package, Truck, X, Info, AlertTriangle, CreditCard, Wallet, CheckCircle, Paperclip, Eye, Pencil, LayoutGrid, List, ChevronDown } from 'lucide-react'
 import { restockPredictions } from '../lib/insights'
+import { SlipNote, RescanButton, useSlipScan } from '../components/SlipScan'
 
 const AVATAR_COLORS = ['#7F77DD', '#1D9E75', '#FFA500', '#378ADD', '#E24B4A', '#0F6E56']
 function avatarColor(name = '') {
@@ -62,6 +63,7 @@ export default function PurchaseOrders() {
   const [slipModal, setSlipModal] = useState(null) // PO object
   const [slipUploading, setSlipUploading] = useState(false)
   const toast = useToast()
+  const slip = useSlipScan()
 
   useEffect(() => { load() }, [])
 
@@ -458,6 +460,27 @@ export default function PurchaseOrders() {
     })
     const slips = (await Promise.all(files.map(read))).filter(Boolean)
     setPayForm(p => ({ ...p, slips: [...(p.slips || []), ...slips] }))
+    // Read the receipt so the amount, date and reference don't have to be typed
+    const image = files.find(f => (f.type || '').startsWith('image/'))
+    if (image) scanPaySlip(image)
+  }
+
+  // Fills the payment form from a transfer slip, remembering what it replaced
+  // so a misread can be undone whole.
+  function scanPaySlip(source) {
+    return slip.scan(source, found => {
+      let before
+      setPayForm(p => {
+        before = { amount: p.amount, payment_date: p.payment_date, reference: p.reference }
+        return {
+          ...p,
+          amount: found.amount != null ? String(found.amount) : p.amount,
+          payment_date: found.date || p.payment_date,
+          reference: found.reference || p.reference,
+        }
+      })
+      return before
+    })
   }
 
   async function recordPayment() {
@@ -522,6 +545,26 @@ export default function PurchaseOrders() {
     })
     const slips = (await Promise.all(files.map(read))).filter(Boolean)
     setEditPayForm(p => ({ ...p, slips: [...(p.slips || []), ...slips] }))
+    const image = files.find(f => (f.type || '').startsWith('image/'))
+    if (image) scanEditSlip(image)
+  }
+
+  // Same read, applied to the edit form — also used to read a slip that was
+  // attached long before this could read anything.
+  function scanEditSlip(source) {
+    return slip.scan(source, found => {
+      let before
+      setEditPayForm(p => {
+        before = { amount: p.amount, payment_date: p.payment_date, reference: p.reference }
+        return {
+          ...p,
+          amount: found.amount != null ? String(found.amount) : p.amount,
+          payment_date: found.date || p.payment_date,
+          reference: found.reference || p.reference,
+        }
+      })
+      return before
+    })
   }
 
   async function saveEditPayment() {
@@ -1435,6 +1478,8 @@ export default function PurchaseOrders() {
           <Select label="Payment method" value={payForm.payment_method} onChange={e => setPayForm(p => ({ ...p, payment_method: e.target.value }))}
             options={['Bank Transfer', 'Cash', 'Cheque', 'Online Transfer', 'Other']} style={{ marginBottom: 14 }} />
           <Input label="Reference / Transaction ID" value={payForm.reference} onChange={e => setPayForm(p => ({ ...p, reference: e.target.value }))} placeholder="TXN-12345 (optional)" style={{ marginBottom: 14 }} />
+          <SlipNote ocr={slip.ocr} onDismiss={slip.clear}
+            onUndo={() => slip.undo(before => setPayForm(p => ({ ...p, ...before })))} />
           <Input label="Notes" value={payForm.notes} onChange={e => setPayForm(p => ({ ...p, notes: e.target.value }))} placeholder="Optional notes" style={{ marginBottom: 14 }} />
 
           {/* Payslip uploads — one or more */}
@@ -1503,9 +1548,20 @@ export default function PurchaseOrders() {
           <Input label="Reference / Transaction ID" value={editPayForm.reference} onChange={e => setEditPayForm(p => ({ ...p, reference: e.target.value }))} placeholder="TXN-12345 (optional)" style={{ marginBottom: 14 }} />
           <Input label="Notes" value={editPayForm.notes} onChange={e => setEditPayForm(p => ({ ...p, notes: e.target.value }))} placeholder="Optional notes" style={{ marginBottom: 14 }} />
 
+          <SlipNote ocr={slip.ocr} onDismiss={slip.clear}
+            onUndo={() => slip.undo(before => setEditPayForm(p => ({ ...p, ...before })))} />
+
           {/* Payslips */}
           <div style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: '#888', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>Payslips ({(editPayForm.slips || []).length})</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: '#888', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Payslips ({(editPayForm.slips || []).length})</span>
+              {(editPayForm.slips || []).some(s => (s.type || '').startsWith('image/') || /^data:image|^https?:/.test(s.url || '')) && (
+                <RescanButton busy={slip.ocr?.busy} onClick={() => {
+                  const s = (editPayForm.slips || []).find(x => (x.type || '').startsWith('image/') || /^data:image|^https?:/.test(x.url || ''))
+                  if (s?.url) scanEditSlip(s.url)
+                }} />
+              )}
+            </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
               {(editPayForm.slips || []).map((s, i) => (
                 <div key={i} style={{ position: 'relative', width: 64, height: 64, borderRadius: 8, overflow: 'hidden', border: '1px solid #eee', background: '#f8f7f4' }}>

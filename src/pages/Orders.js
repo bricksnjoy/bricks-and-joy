@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Button, Input, Select, SearchSelect, Table, Modal, StatusBadge, StockBadge, Spinner, FormRow, useToast, Toasts, Badge } from '../components/UI'
 import { Plus, Trash2, AlertTriangle, Package, Upload, Eye, CreditCard, X, Camera, Edit2, RotateCcw, MessageSquare, MoreVertical, LayoutGrid, List, Instagram, Printer } from 'lucide-react'
 import BarcodeScanner from '../components/BarcodeScanner'
+import { SlipNote, RescanButton, useSlipScan } from '../components/SlipScan'
 import { sendSMS } from '../lib/sms'
 import { getSettings } from '../lib/settings'
 import { localToday } from '../lib/dates'
@@ -74,6 +75,7 @@ export default function Orders() {
   const [custForm, setCustForm] = useState({ name: '', email: '', instagram: '', phone: '', address: '', landmark: '', notes: '' })
   const [custSaving, setCustSaving] = useState(false)
   const toast = useToast()
+  const slip = useSlipScan()
 
   useEffect(() => { load() }, [])
 
@@ -499,6 +501,20 @@ export default function Orders() {
     const { data: { publicUrl } } = supabase.storage.from('uploads').getPublicUrl(fileName)
     setPayForm(p => ({ ...p, transfer_slip_url: publicUrl }))
     setUploadingSlip(false); toast.success('Slip uploaded!')
+    if ((file.type || '').startsWith('image/')) scanCustomerSlip(file)
+  }
+
+  // Read the slip the customer sent — the reference is what lets reconciliation
+  // tie this order to the line on the bank statement.
+  function scanCustomerSlip(source) {
+    return slip.scan(source, found => {
+      let before
+      setPayForm(p => {
+        before = { transfer_reference: p.transfer_reference }
+        return { ...p, transfer_reference: found.reference || p.transfer_reference }
+      })
+      return before
+    })
   }
 
   async function savePayment() {
@@ -1201,7 +1217,14 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
           </FormRow>
           <Input label="Transfer reference / note" value={payForm.transfer_reference} onChange={pf('transfer_reference')} placeholder="e.g. TXN123456" style={{ marginBottom: 12 }} />
           <div style={{ marginBottom: 16 }}>
-            <label style={{ fontSize: 12, color: '#666', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.4px', display: 'block', marginBottom: 6 }}>Attach transfer slip</label>
+            <SlipNote ocr={slip.ocr} onDismiss={slip.clear}
+              onUndo={() => slip.undo(before => setPayForm(p => ({ ...p, ...before })))} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6, flexWrap: 'wrap' }}>
+              <label style={{ fontSize: 12, color: '#666', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.4px' }}>Attach transfer slip</label>
+              {payForm.transfer_slip_url && !payForm.transfer_slip_url.match(/\.pdf$/i) && (
+                <RescanButton busy={slip.ocr?.busy} onClick={() => scanCustomerSlip(payForm.transfer_slip_url)} />
+              )}
+            </div>
             {payForm.transfer_slip_url ? (
               <div style={{ position: 'relative', display: 'inline-block' }}>
                 {payForm.transfer_slip_url.match(/\.pdf$/i)
