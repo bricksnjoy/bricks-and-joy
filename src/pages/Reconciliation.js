@@ -15,6 +15,26 @@ const IGNORE_REASONS = [
   'Reversed / duplicate',
 ]
 
+// Payments leave on the 28th and the books are checked on the 29th, so a period
+// runs 29th → 28th. That way no day belongs to two reconciliations and each
+// month's payment falls inside the period being closed.
+const CYCLE_END_DAY = 28
+const isoOf = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+// The most recent complete cycle as of `today`
+function defaultPeriod(today = new Date()) {
+  let end = new Date(today.getFullYear(), today.getMonth(), CYCLE_END_DAY)
+  if (today.getDate() <= CYCLE_END_DAY) end = new Date(today.getFullYear(), today.getMonth() - 1, CYCLE_END_DAY)
+  const start = new Date(end.getFullYear(), end.getMonth() - 1, CYCLE_END_DAY + 1)
+  return { from: isoOf(start), to: isoOf(end) }
+}
+// Shift a period a whole cycle back or forward
+function shiftPeriod(from, to, months) {
+  const t = new Date(to + 'T00:00:00')
+  const end = new Date(t.getFullYear(), t.getMonth() + months, CYCLE_END_DAY)
+  const start = new Date(end.getFullYear(), end.getMonth() - 1, CYCLE_END_DAY + 1)
+  return { from: isoOf(start), to: isoOf(end) }
+}
+
 const LS_KEY = 'bnj_reconciliations_v1'
 const readLocal = () => { try { const v = JSON.parse(localStorage.getItem(LS_KEY)); return Array.isArray(v) ? v : [] } catch { return [] } }
 const writeLocal = arr => localStorage.setItem(LS_KEY, JSON.stringify(arr))
@@ -66,6 +86,10 @@ export default function Reconciliation() {
   const [workFilter, setWorkFilter] = useState('review') // review | all | matched | ignored
   const [search, setSearch] = useState('')
   const [expenseModal, setExpenseModal] = useState(null) // record a missing expense from a line
+  const [period, setPeriod] = useState(() => defaultPeriod())
+  const [allTxns, setAllTxns] = useState(null)   // everything read from the file, before the period filter
+  const [outsideCount, setOutsideCount] = useState(0)
+  const [showGuide, setShowGuide] = useState(() => localStorage.getItem('bnj_recon_guide_hidden') !== '1')
   const fileRef = useRef(null)
   const toast = useToast()
 
@@ -218,14 +242,46 @@ export default function Reconciliation() {
       }
       if (!txns.length) { toast.error('No transactions found in that file'); return }
       txns.sort((a, b) => (a.date || 0) - (b.date || 0))
-      setStmtTxns(txns)
-      setMatches(autoMatch(txns))
-      const matchedN = autoMatch(txns).filter(m => m.matchId).length
-      toast.success(`Read ${txns.length} lines · auto-matched ${matchedN}`)
+      setAllTxns(txns)
+      applyPeriod(txns, period)
     } catch (err) {
       toast.error('Could not read file: ' + (err.message || err))
     }
   }
+
+  // Keep only the lines inside the chosen period, so a statement exported with
+  // a few extra days on either end still reconciles to exactly one cycle.
+  function applyPeriod(txns, p) {
+    const inRange = txns.filter(t => {
+      const d = ymd(t.date)
+      if (!d) return true
+      if (p.from && d < p.from) return false
+      if (p.to && d > p.to) return false
+      return true
+    })
+    if (!inRange.length) {
+      toast.error(`None of the ${txns.length} lines fall between ${fmtDate(p.from)} and ${fmtDate(p.to)} — check the dates`)
+      return
+    }
+    setOutsideCount(txns.length - inRange.length)
+    setStmtTxns(inRange)
+    const m = autoMatch(inRange)
+    setMatches(m)
+    toast.success(`${inRange.length} lines in period · auto-matched ${m.filter(x => x.matchId).length}`
+      + (txns.length > inRange.length ? ` · ${txns.length - inRange.length} outside left out` : ''))
+  }
+
+  function reapplyPeriod() {
+    if (!allTxns) return
+    if (matches.some(m => m.manual) && !window.confirm('Changing the period re-reads the statement and clears anything you matched or explained by hand. Continue?')) return
+    applyPeriod(allTxns, period)
+  }
+
+  // Periods already reconciled that overlap the one being set up
+  const overlapping = useMemo(() => history.filter(h =>
+    h.period_start && h.period_end && period.from && period.to
+    && h.period_start <= period.to && h.period_end >= period.from
+  ), [history, period])
 
   function setMatch(idx, matchId) {
     setMatches(ms => ms.map((m, i) => i === idx
@@ -346,8 +402,9 @@ export default function Reconciliation() {
     setSaving(true)
     const rec = {
       account,
-      period_start: ymd(sum.periodStart),
-      period_end: ymd(sum.periodEnd),
+      // The period you chose, not just where the file happened to start and end
+      period_start: period.from || ymd(sum.periodStart),
+      period_end: period.to || ymd(sum.periodEnd),
       statement_in: sum.credits,
       statement_out: sum.debits,
       closing_balance: sum.stmtClosing,
@@ -397,7 +454,7 @@ export default function Reconciliation() {
     toast.success('Reconciliation removed')
   }
 
-  function cancelUpload() { setStmtTxns(null); setMatches([]); setFileName('') }
+  function cancelUpload() { setStmtTxns(null); setMatches([]); setFileName(''); setAllTxns(null); setOutsideCount(0) }
 
   // ── Record a missing expense straight from an unmatched bank line ───────────
   // An unmatched debit is nearly always something real that was never logged —
@@ -437,6 +494,35 @@ export default function Reconciliation() {
     }
     setExpenseModal(null)
     toast.success('Expense recorded and matched')
+  }
+
+  // ── Export a reconciliation that was already finished ───────────────────────
+  function exportSaved(h, lines) {
+    const rows = (lines || []).map(l => {
+      const b = l.matchId ? bookById[l.matchId] : null
+      return {
+        'Date': l.date || '',
+        'Type': l.type || '',
+        'Party': l.party || '',
+        'Reference': l.ref || '',
+        'Money in': l.isIn ? +Number(l.amount || 0).toFixed(2) : '',
+        'Money out': l.isIn ? '' : +Number(l.amount || 0).toFixed(2),
+        'Status': l.matchId ? 'Matched' : l.ignored ? 'Explained' : 'Never reviewed',
+        'Matched to': b ? b.label : (l.ignored ? l.reason : (l.matchId ? 'Record since deleted' : '')),
+        'Why': l.why || '',
+      }
+    })
+    if (!rows.length) { toast.error('This reconciliation has no line detail saved'); return }
+    rows.push({})
+    rows.push({
+      'Party': 'TOTAL', 'Money in': +Number(h.statement_in || 0).toFixed(2), 'Money out': +Number(h.statement_out || 0).toFixed(2),
+      'Status': `${h.matched_count || 0} matched · ${h.unmatched_count || 0} unreviewed`,
+      'Matched to': `Closing balance ${Number(h.closing_balance || 0).toFixed(2)}`,
+    })
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Reconciliation')
+    XLSX.writeFile(wb, `reconciliation-${(h.account || 'account').replace(/[^\w]+/g, '_')}-${h.period_end || ''}.xlsx`)
+    toast.success('Downloaded')
   }
 
   // ── Export the working reconciliation ───────────────────────────────────────
@@ -569,7 +655,7 @@ export default function Reconciliation() {
               <div style={{ fontSize: 13, color: '#888', maxWidth: 460, margin: '0 auto 18px', lineHeight: 1.6 }}>
                 Export your statement from internet banking as a CSV and upload it here. We'll automatically match each line to your books, then you just review the few exceptions.
               </div>
-              <div style={{ display: 'inline-flex', gap: 10, alignItems: 'center', marginBottom: 18 }}>
+              <div style={{ display: 'inline-flex', gap: 10, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', justifyContent: 'center' }}>
                 <label style={{ fontSize: 12, color: '#666', fontWeight: 600 }}>Account</label>
                 <input value={account} onChange={e => setAccount(e.target.value)} list="rec-accts"
                   style={{ border: '1px solid #ddd', borderRadius: 8, padding: '7px 11px', fontSize: 13, fontFamily: 'inherit', outline: 'none' }} />
@@ -577,6 +663,38 @@ export default function Reconciliation() {
                   {[...new Set(history.map(h => h.account).filter(Boolean))].map(a => <option key={a} value={a} />)}
                 </datalist>
               </div>
+
+              {/* period — set by hand, defaulting to the last complete 29th→28th cycle */}
+              <div style={{ background: '#f8f7f4', borderRadius: 12, padding: '14px 16px', maxWidth: 560, margin: '0 auto 18px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <button onClick={() => setPeriod(p => shiftPeriod(p.from, p.to, -1))} title="Previous cycle"
+                    style={{ border: '1px solid #e6e2da', background: '#fff', borderRadius: 8, cursor: 'pointer', padding: '6px 10px', fontSize: 13, fontFamily: 'inherit', color: '#888' }}>‹</button>
+                  <span style={{ fontSize: 11.5, color: '#888', fontWeight: 600 }}>From</span>
+                  <input type="date" value={period.from} onChange={e => setPeriod(p => ({ ...p, from: e.target.value }))}
+                    style={{ border: '1px solid #ddd', borderRadius: 8, padding: '7px 10px', fontSize: 13, fontFamily: 'inherit', outline: 'none' }} />
+                  <span style={{ fontSize: 11.5, color: '#888', fontWeight: 600 }}>to</span>
+                  <input type="date" value={period.to} onChange={e => setPeriod(p => ({ ...p, to: e.target.value }))}
+                    style={{ border: '1px solid #ddd', borderRadius: 8, padding: '7px 10px', fontSize: 13, fontFamily: 'inherit', outline: 'none' }} />
+                  <button onClick={() => setPeriod(p => shiftPeriod(p.from, p.to, 1))} title="Next cycle"
+                    style={{ border: '1px solid #e6e2da', background: '#fff', borderRadius: 8, cursor: 'pointer', padding: '6px 10px', fontSize: 13, fontFamily: 'inherit', color: '#888' }}>›</button>
+                </div>
+                <div style={{ fontSize: 11.5, color: '#aaa', marginTop: 9, textAlign: 'center', lineHeight: 1.6 }}>
+                  Payments leave on the {CYCLE_END_DAY}th, so a cycle runs the {CYCLE_END_DAY + 1}th to the {CYCLE_END_DAY}th — no day lands in two months.
+                  <button onClick={() => setPeriod(defaultPeriod())}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#FFA500', fontWeight: 700, fontSize: 11.5, fontFamily: 'inherit', textDecoration: 'underline', marginLeft: 6 }}>
+                    Reset to this cycle
+                  </button>
+                </div>
+                {overlapping.length > 0 && (
+                  <div style={{ marginTop: 10, background: '#FFF8E1', border: '1px solid #FAEEDA', borderRadius: 9, padding: '9px 12px', fontSize: 12, color: '#a16d0a', lineHeight: 1.6 }}>
+                    <AlertTriangle size={12} style={{ verticalAlign: -1, marginRight: 5 }} />
+                    This overlaps {overlapping.length === 1 ? 'a period' : `${overlapping.length} periods`} you've already reconciled
+                    ({overlapping.map(h => `${fmtDate(h.period_start)} – ${fmtDate(h.period_end)}`).join(', ')}).
+                    Anything already cleared won't match twice, but the totals for this period will double-count those days.
+                  </div>
+                )}
+              </div>
+
               <div><Button onClick={() => fileRef.current.click()}><Upload size={15} /> Choose statement file</Button></div>
             </div>
           </Card>
@@ -604,7 +722,13 @@ export default function Reconciliation() {
                           <td style={{ textAlign: 'right', fontWeight: 700 }}>{money(h.closing_balance)}</td>
                           <td style={{ color: '#666' }}>
                             {h.matched_count} cleared
-                            {h.unmatched_count > 0 && <span className="rec-pill" style={{ background: '#FFF3D6', color: '#b8740a', marginLeft: 8 }}><AlertTriangle size={11} /> {h.unmatched_count} unreviewed</span>}
+                            {(() => {
+                              const ig = (h.lines || []).filter(l => l.ignored).length
+                              return ig > 0 ? <span className="rec-pill" style={{ background: '#EFEDFB', color: '#7F77DD', marginLeft: 8 }}><EyeOff size={11} /> {ig} explained</span> : null
+                            })()}
+                            {h.unmatched_count > 0
+                              ? <span className="rec-pill" style={{ background: '#FFF3D6', color: '#b8740a', marginLeft: 8 }}><AlertTriangle size={11} /> {h.unmatched_count} unreviewed</span>
+                              : <span className="rec-pill" style={{ background: '#E1F5EE', color: '#1D9E75', marginLeft: 8 }}><CheckCircle size={11} /> complete</span>}
                           </td>
                           <td style={{ whiteSpace: 'nowrap' }} onClick={e => e.stopPropagation()}>
                             <button onClick={() => openRecon(h)} title="View & edit" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#378ADD', padding: 5 }}><Eye size={14} /></button>
@@ -640,7 +764,7 @@ export default function Reconciliation() {
           <Card style={{ marginBottom: 16 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
               <div style={{ fontSize: 13, color: '#555' }}>
-                <strong>{account}</strong> · {fmtDate(sum.periodStart)} – {fmtDate(sum.periodEnd)} · {matches.length} lines ·{' '}
+                <strong>{account}</strong> · {fmtDate(period.from)} – {fmtDate(period.to)} · {matches.length} lines ·{' '}
                 <span style={{ color: '#1D9E75', fontWeight: 700 }}>{sum.matchedCount} matched</span>
                 {sum.ignoredCount > 0 && <span style={{ color: '#7F77DD', fontWeight: 700 }}> · {sum.ignoredCount} explained</span>}
                 {sum.unmatchedCount > 0 && <span style={{ color: '#b8740a', fontWeight: 700 }}> · {sum.unmatchedCount} need review</span>}
@@ -653,6 +777,20 @@ export default function Reconciliation() {
                 <Button variant="ghost" onClick={cancelUpload}>Cancel</Button>
                 <Button onClick={finish} disabled={saving}>{saving ? 'Saving…' : <><CheckCircle size={14} /> Finish reconciliation</>}</Button>
               </div>
+            </div>
+
+            {/* the period, adjustable without starting again */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 12, fontSize: 12, color: '#888' }}>
+              <span style={{ fontWeight: 600 }}>Period</span>
+              <input type="date" value={period.from} onChange={e => setPeriod(p => ({ ...p, from: e.target.value }))}
+                style={{ border: '1px solid #e6e2da', borderRadius: 8, padding: '5px 9px', fontSize: 12, fontFamily: 'inherit' }} />
+              <span>to</span>
+              <input type="date" value={period.to} onChange={e => setPeriod(p => ({ ...p, to: e.target.value }))}
+                style={{ border: '1px solid #e6e2da', borderRadius: 8, padding: '5px 9px', fontSize: 12, fontFamily: 'inherit' }} />
+              <Button size="sm" variant="ghost" onClick={reapplyPeriod}>Re-apply</Button>
+              {outsideCount > 0 && (
+                <span style={{ color: '#bbb' }}>{outsideCount} line{outsideCount > 1 ? 's' : ''} in the file fell outside and were left out</span>
+              )}
             </div>
 
             {/* how far through the review you are */}
@@ -675,6 +813,58 @@ export default function Reconciliation() {
               </div>
             )}
           </Card>
+
+          {/* What each state means, and what to do about it */}
+          {showGuide && (
+            <Card style={{ marginBottom: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#0d1b2a' }}>What needs reviewing, and what doesn't</div>
+                  <div style={{ fontSize: 11.5, color: '#aaa', marginTop: 3 }}>
+                    Every line on the statement ends up in one of these three. The job is to empty the amber one.
+                  </div>
+                </div>
+                <button onClick={() => { setShowGuide(false); localStorage.setItem('bnj_recon_guide_hidden', '1') }}
+                  title="Hide this" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ccc', padding: 4 }}>
+                  <X size={15} />
+                </button>
+              </div>
+              <div className="grid-collapse" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 12 }}>
+                {[
+                  {
+                    Icon: CheckCircle, colour: '#1D9E75', bg: '#E9F7F1', title: `Matched — ${sum.matchedCount}`,
+                    body: 'The bank moved money and your books already have it: a paid order, an expense, a supplier payment, a loan drawdown or repayment.',
+                    todo: 'Nothing to do. Check the amber "why" tags though — those matched on amount a few days apart, so they can be wrong.',
+                  },
+                  {
+                    Icon: EyeOff, colour: '#7F77DD', bg: '#EFEDFB', title: `Explained — ${sum.ignoredCount}`,
+                    body: 'Real money that will never appear in your books: bank charges, interest, a transfer between your own accounts, money you took out or put in yourself.',
+                    todo: 'Pick a reason from Explain… once and it stops asking. The reason is saved with the reconciliation.',
+                  },
+                  {
+                    Icon: AlertTriangle, colour: '#b8740a', bg: '#FFF8E1', title: `Needs review — ${sum.unmatchedCount}`,
+                    body: 'The bank moved money your books know nothing about. Usually a sale taken in cash, an expense nobody logged, or a payment recorded under a different amount or date.',
+                    todo: 'Match it to an existing record, Record expense to write it in on the spot, or Explain it if it belongs above.',
+                  },
+                ].map(s => (
+                  <div key={s.title} style={{ background: s.bg, borderRadius: 12, padding: '14px 16px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 7 }}>
+                      <s.Icon size={15} color={s.colour} />
+                      <span style={{ fontSize: 12.5, fontWeight: 800, color: s.colour }}>{s.title}</span>
+                    </div>
+                    <div style={{ fontSize: 11.5, color: '#6b665e', lineHeight: 1.6 }}>{s.body}</div>
+                    <div style={{ fontSize: 11.5, color: '#8a8378', lineHeight: 1.6, marginTop: 7, paddingTop: 7, borderTop: `1px solid ${s.colour}22` }}>
+                      <b>What to do: </b>{s.todo}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ fontSize: 11.5, color: '#aaa', marginTop: 12, lineHeight: 1.6 }}>
+                <b>Unexplained difference</b> is what the bank moved minus what the matched and explained lines account for.
+                When it reaches zero, your books and this account agree for the period and you can finish.
+              </div>
+            </Card>
+          )}
 
           {/* Still unexplained — the shortlist, day by day */}
           {sum.unmatchedCount > 0 && (
@@ -886,6 +1076,52 @@ export default function Reconciliation() {
           <Modal title={`${viewRecon.account || 'Reconciliation'} — ${fmtDate(viewRecon.period_start)} to ${fmtDate(viewRecon.period_end)}`}
             subtitle={`In ${money(viewRecon.statement_in)} · Out ${money(viewRecon.statement_out)} · Closing ${money(viewRecon.closing_balance)}`}
             onClose={() => setViewRecon(null)} width={860}>
+            {/* the finished picture — what was found, what was explained, what was left */}
+            {(() => {
+              const ignoredN = editLines.filter(l => l.ignored).length
+              const inTot = editLines.filter(l => l.isIn).reduce((s, l) => s + Number(l.amount || 0), 0)
+              const outTot = editLines.filter(l => !l.isIn).reduce((s, l) => s + Number(l.amount || 0), 0)
+              const accountedIn = editLines.filter(l => l.isIn && (l.matchId || l.ignored)).reduce((s, l) => s + Number(l.amount || 0), 0)
+              const accountedOut = editLines.filter(l => !l.isIn && (l.matchId || l.ignored)).reduce((s, l) => s + Number(l.amount || 0), 0)
+              const gap = editLines.length
+                ? (inTot - outTot) - (accountedIn - accountedOut)
+                : Number(viewRecon.statement_in || 0) - Number(viewRecon.statement_out || 0)
+              const done = Math.abs(gap) < 0.01
+              return (
+                <div style={{ marginBottom: 16 }}>
+                  <div className="rec-cards" style={{ marginBottom: 12 }}>
+                    <div className="rec-card" style={{ background: '#E9F7F1' }}>
+                      <div className="v" style={{ color: '#1D9E75', fontSize: 19 }}>{money(editLines.length ? inTot : viewRecon.statement_in)}</div>
+                      <div className="l">Money in</div>
+                    </div>
+                    <div className="rec-card" style={{ background: '#FDECEC' }}>
+                      <div className="v" style={{ color: '#E24B4A', fontSize: 19 }}>{money(editLines.length ? outTot : viewRecon.statement_out)}</div>
+                      <div className="l">Money out</div>
+                    </div>
+                    <div className="rec-card" style={{ background: '#EAF2FD' }}>
+                      <div className="v" style={{ color: '#2f6fc0', fontSize: 19 }}>{money(viewRecon.closing_balance)}</div>
+                      <div className="l">Closing balance</div>
+                    </div>
+                    <div className="rec-card" style={{ background: done ? '#E9F7F1' : '#FFF6E2' }}>
+                      <div className="v" style={{ color: done ? '#1D9E75' : '#b8740a', fontSize: 19 }}>{money(gap)}</div>
+                      <div className="l">{done ? 'Fully reconciled' : 'Still unexplained'}</div>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', fontSize: 12, color: '#888' }}>
+                    <span className="rec-pill" style={{ background: '#E1F5EE', color: '#1D9E75' }}><CheckCircle size={11} /> {matchedN} matched</span>
+                    {ignoredN > 0 && <span className="rec-pill" style={{ background: '#EFEDFB', color: '#7F77DD' }}><EyeOff size={11} /> {ignoredN} explained</span>}
+                    {unmatchedN > 0
+                      ? <span className="rec-pill" style={{ background: '#FFF3D6', color: '#b8740a' }}><AlertTriangle size={11} /> {unmatchedN} never reviewed</span>
+                      : <span className="rec-pill" style={{ background: '#E1F5EE', color: '#1D9E75' }}>Nothing outstanding</span>}
+                    <span style={{ color: '#bbb' }}>· reconciled {fmtDate(viewRecon.created_at)}</span>
+                    <Button size="sm" variant="ghost" style={{ marginLeft: 'auto' }} onClick={() => exportSaved(viewRecon, editLines)}>
+                      <FileSpreadsheet size={13} /> Excel
+                    </Button>
+                  </div>
+                </div>
+              )
+            })()}
+
             {editLines.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '30px 10px', color: '#999', fontSize: 13, lineHeight: 1.7 }}>
                 This reconciliation was saved before line details were stored, so only the summary is available.<br />
