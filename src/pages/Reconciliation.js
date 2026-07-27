@@ -414,38 +414,6 @@ export default function Reconciliation() {
     setMatches(autoMatch(stmtTxns, []))
   }
 
-  // ── Proving the balance ─────────────────────────────────────────────────────
-  // Matching every line only proves the lines were looked at. The real check is
-  // whether the bank's closing balance and your own books agree once you allow
-  // for money recorded but not yet through the bank.
-  //
-  //   bank closing balance
-  //   + money in you have recorded that has not landed yet
-  //   − money out you have recorded that has not been taken yet
-  //   = what your books should show
-  //
-  // Anything sitting in that list for months is almost always a mistake, not a
-  // slow payment, so it gets flagged.
-  const proof = useMemo(() => {
-    if (!stmtTxns) return null
-    const cutoff = period.to || ymd(sum.periodEnd)
-    // Book entries on or before the period end that no reconciliation has cleared
-    const outstanding = [...bookIn.map(b => ({ ...b, dir: 'in' })), ...bookOut.map(b => ({ ...b, dir: 'out' }))]
-      .filter(b => !reconciledIds.has(b.id))
-      .filter(b => !matches.some(m => idsOf(m).includes(b.id)))
-      .filter(b => { const d = ymd(b.date); return d && cutoff && d <= cutoff })
-      .sort((a, b) => (a.date || 0) - (b.date || 0))
-    const outIn = outstanding.filter(b => b.dir === 'in').reduce((s2, b) => s2 + b.amount, 0)
-    const outOut = outstanding.filter(b => b.dir === 'out').reduce((s2, b) => s2 + b.amount, 0)
-    const cutoffDate = cutoff ? new Date(cutoff + 'T00:00:00') : null
-    const stale = outstanding.filter(b => cutoffDate && b.date && (cutoffDate - b.date) / 86400000 > 60)
-    return {
-      bank: sum.stmtClosing,
-      outIn, outOut, outstanding, stale,
-      books: sum.stmtClosing + outIn - outOut,
-    }
-  }, [stmtTxns, bookIn, bookOut, reconciledIds, matches, period, sum])
-
   // A record dated before this period that has never been reconciled — an order
   // placed on the 26th and paid on the 29th falls into the next cycle, so these
   // must stay available rather than being written off with the period they sat in.
@@ -511,6 +479,40 @@ export default function Reconciliation() {
       periodStart: stmtTxns && stmtTxns.length ? stmtTxns[0].date : null,
     }
   }, [matches, stmtTxns])
+
+  // ── Proving the balance ─────────────────────────────────────────────────────
+  // Matching every line only proves the lines were looked at. The real check is
+  // whether the bank's closing balance and your own books agree once you allow
+  // for money recorded but not yet through the bank.
+  //
+  //   bank closing balance
+  //   + money in you have recorded that has not landed yet
+  //   − money out you have recorded that has not been taken yet
+  //   = what your books should show
+  //
+  // Anything sitting in that list for months is almost always a mistake, not a
+  // slow payment, so it gets flagged.
+  //
+  // This has to sit below `sum`, since it reads the statement's closing balance.
+  const proof = useMemo(() => {
+    if (!stmtTxns) return null
+    const cutoff = period.to || ymd(sum.periodEnd)
+    // Book entries on or before the period end that no reconciliation has cleared
+    const outstanding = [...bookIn.map(b => ({ ...b, dir: 'in' })), ...bookOut.map(b => ({ ...b, dir: 'out' }))]
+      .filter(b => !reconciledIds.has(b.id))
+      .filter(b => !matches.some(m => idsOf(m).includes(b.id)))
+      .filter(b => { const d = ymd(b.date); return d && cutoff && d <= cutoff })
+      .sort((a, b) => (a.date || 0) - (b.date || 0))
+    const outIn = outstanding.filter(b => b.dir === 'in').reduce((s2, b) => s2 + b.amount, 0)
+    const outOut = outstanding.filter(b => b.dir === 'out').reduce((s2, b) => s2 + b.amount, 0)
+    const cutoffDate = cutoff ? new Date(cutoff + 'T00:00:00') : null
+    const stale = outstanding.filter(b => cutoffDate && b.date && (cutoffDate - b.date) / 86400000 > 60)
+    return {
+      bank: sum.stmtClosing,
+      outIn, outOut, outstanding, stale,
+      books: sum.stmtClosing + outIn - outOut,
+    }
+  }, [stmtTxns, bookIn, bookOut, reconciledIds, matches, period, sum])
 
   // The rows actually shown, after the filter chips and the search box
   const workRows = useMemo(() => {
@@ -597,6 +599,16 @@ export default function Reconciliation() {
         const { lines: _l, ...noLines } = rec
         error = (await supabase.from('reconciliations').insert(noLines)).error
         if (!error) toast.info('Saved. Run integrations/reconciliation-setup.sql to also store line details for later review.')
+      }
+      // Any other column the table has not caught up with yet — drop it and
+      // save the rest, rather than losing the whole reconciliation to Supabase
+      // over one extra figure.
+      while (error) {
+        const m = (error.message || '').match(/'([a-z_]+)' column/i) || (error.message || '').match(/column "?([a-z_]+)"?/i)
+        const col = m && m[1]
+        if (!col || !(col in rec)) break
+        delete rec[col]
+        error = (await supabase.from('reconciliations').insert(rec)).error
       }
       if (error) {
         setUsingLocal(true)
