@@ -7,6 +7,14 @@ import { TrendingUp, TrendingDown, Package, ShoppingCart, Users, AlertTriangle, 
 
 const COLORS = ['#FFA500','#0d1b2a','#1D9E75','#378ADD','#f57f17','#7F77DD','#c62828','#29b6f6']
 
+// One order is one invoice. The orders table holds a row per line item, and a
+// delivery charge or gift wrap is its own row under the same invoice number, so
+// counting rows turns a single purchase into two or three "orders".
+// Keyed the same way as dedupeInvoices elsewhere, so a walk-in with no customer
+// still groups by its invoice, and two customers can never share one.
+const invoiceKey = o => (o.invoice_number ? `${o.customer_id || ''}|${o.invoice_number}` : o.id)
+const countInvoices = rows => new Set((rows || []).map(invoiceKey)).size
+
 // Recommended split of the monthly growth/marketing budget for a growing
 // online toy business. Percentages are a sensible starting framework — editable.
 const DEFAULT_ALLOC = [
@@ -193,16 +201,18 @@ export default function Statistics() {
       trend: p.older > 0 ? ((p.recent - p.older / 2) / (p.older / 2) * 100).toFixed(0) : 100,
     })).sort((a, b) => b.recent - a.recent)
 
-    // Top customers
+    // Top customers. An order is one invoice, not one row — a basket of three
+    // products, or a product plus its delivery charge, is still one order.
     const custSpend = {}
     delivered.forEach(o => {
-      if (o.customer_name) {
-        if (!custSpend[o.customer_name]) custSpend[o.customer_name] = { revenue: 0, orders: 0 }
-        custSpend[o.customer_name].revenue += Number(o.total_price || 0)
-        custSpend[o.customer_name].orders++
-      }
+      if (!o.customer_name) return
+      const c = custSpend[o.customer_name] || (custSpend[o.customer_name] = { revenue: 0, invoices: new Set() })
+      c.revenue += Number(o.total_price || 0)
+      c.invoices.add(invoiceKey(o))
     })
-    const topCustomers = Object.entries(custSpend).sort((a, b) => b[1].revenue - a[1].revenue).slice(0, 8)
+    const topCustomers = Object.entries(custSpend)
+      .map(([name, c]) => [name, { revenue: c.revenue, orders: c.invoices.size }])
+      .sort((a, b) => b[1].revenue - a[1].revenue).slice(0, 8)
 
     // Expense by category
     const expByCat = {}
@@ -215,23 +225,32 @@ export default function Statistics() {
       _category: prods.find(p => p.id === o.product_id)?.category || 'Uncategorised'
     }))
 
-    // Status breakdown
+    // Status breakdown — counted per invoice, so a multi-line order is one
+    const statusSeen = {}
     const statusCount = {}
-    ords.forEach(o => { statusCount[o.status] = (statusCount[o.status] || 0) + 1 })
+    ords.forEach(o => {
+      const k = o.status + '|' + invoiceKey(o)
+      if (statusSeen[k]) return
+      statusSeen[k] = true
+      statusCount[o.status] = (statusCount[o.status] || 0) + 1
+    })
 
     // KPIs
     const revenue = revenueOrders.reduce((s, o) => s + Number(o.total_price || 0), 0)
     const cogs = delivered.reduce((s, o) => { const p = prods.find(p => p.id === o.product_id); return s + (p ? (Number(o.qty) || 0) * Number(p.cost_price || 0) : 0) }, 0)
     const totalExp = exps.reduce((s, e) => s + Number(e.amount), 0)
     const netProfit = revenue - cogs - totalExp
-    const avgOrderValue = revenueOrders.length > 0 ? revenue / revenueOrders.length : 0
-    const returnRate = ords.length > 0 ? (statusCount['cancelled'] || 0) / ords.length * 100 : 0
+    const revenueInvoices = countInvoices(revenueOrders)
+    const totalInvoices = countInvoices(ords)
+    const deliveredInvoices = countInvoices(delivered)
+    const avgOrderValue = revenueInvoices > 0 ? revenue / revenueInvoices : 0
+    const returnRate = totalInvoices > 0 ? (statusCount['cancelled'] || 0) / totalInvoices * 100 : 0
 
     const monthsCount = Object.keys(revByMonth).length || 1
     const avgMonthlyRevenue = revenue / monthsCount
     const netMargin = revenue > 0 ? netProfit / revenue * 100 : 0
 
-    setData({ revenueChart, productChart, channelChart, forecastData, forecastMeta, hotProducts, topCustomers, expChart, statusCount, revenue, cogs, netProfit, netMargin, avgMonthlyRevenue, avgOrderValue, returnRate, totalOrders: ords.length, deliveredOrders: delivered.length, fulfilmentRate: ords.length > 0 ? (delivered.length / ords.length * 100).toFixed(0) : 0, totalCustomers: custs.length, lowStockCount: prods.filter(p => p.stock_qty <= (p.low_stock_threshold ?? 10)).length, _allDelivered: deliveredWithCat, _catPeriod: 'all', _exps: exps })
+    setData({ revenueChart, productChart, channelChart, forecastData, forecastMeta, hotProducts, topCustomers, expChart, statusCount, revenue, cogs, netProfit, netMargin, avgMonthlyRevenue, avgOrderValue, returnRate, totalOrders: totalInvoices, deliveredOrders: deliveredInvoices, fulfilmentRate: totalInvoices > 0 ? (deliveredInvoices / totalInvoices * 100).toFixed(0) : 0, totalCustomers: custs.length, lowStockCount: prods.filter(p => p.stock_qty <= (p.low_stock_threshold ?? 10)).length, _allDelivered: deliveredWithCat, _catPeriod: 'all', _exps: exps })
     setLoading(false)
   }
 
