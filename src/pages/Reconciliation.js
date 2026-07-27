@@ -35,6 +35,22 @@ function shiftPeriod(from, to, months) {
   return { from: isoOf(start), to: isoOf(end) }
 }
 
+// Two records that add up to one transfer. Same customer first, since goods and
+// their delivery charge are the usual case; capped so a long list stays quick.
+function findPair(pool, target) {
+  const list = pool.slice(0, 120)
+  const nameOf = b => (b.label || '').split('·')[0].trim().toLowerCase()
+  let fallback = null
+  for (let i = 0; i < list.length; i++) {
+    for (let j = i + 1; j < list.length; j++) {
+      if (Math.abs(list[i].amount + list[j].amount - target) > 0.01) continue
+      if (nameOf(list[i]) && nameOf(list[i]) === nameOf(list[j])) return [list[i], list[j]]
+      if (!fallback) fallback = [list[i], list[j]]
+    }
+  }
+  return fallback
+}
+
 const LS_KEY = 'bnj_reconciliations_v1'
 const readLocal = () => { try { const v = JSON.parse(localStorage.getItem(LS_KEY)); return Array.isArray(v) ? v : [] } catch { return [] } }
 const writeLocal = arr => localStorage.setItem(LS_KEY, JSON.stringify(arr))
@@ -59,7 +75,20 @@ function parseStmtDate(s, serialFallback) {
 const normRef = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '')
 const dayMs = 86400000
 const daysApart = (a, b) => (!a || !b) ? 999 : Math.abs(Math.round((a - b) / dayMs))
-const ymd = d => d ? new Date(d).toISOString().split('T')[0] : ''
+// Local calendar date. Not toISOString() — statement dates are parsed as local
+// midnight, and converting those to UTC lands on the day before anywhere east
+// of Greenwich, which put every line under the wrong day and shifted the period
+// filter by one.
+const ymd = d => {
+  if (!d) return ''
+  if (typeof d === 'string') return d.slice(0, 10)
+  const x = new Date(d)
+  return isNaN(x) ? '' : isoOf(x)
+}
+// A bank line can settle more than one record — a customer paying for the
+// goods and the delivery in one transfer. Rows carry a list, with older saved
+// reconciliations still readable through their single matchId.
+const idsOf = x => Array.isArray(x?.matchIds) ? x.matchIds.filter(Boolean) : (x?.matchId ? [x.matchId] : [])
 const fmtDate = d => d ? new Date(d).toLocaleDateString('en', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'
 
 export default function Reconciliation() {
@@ -192,7 +221,7 @@ export default function Reconciliation() {
   // and two customers paying the same amount in the same week is common.
   function autoMatch(txns, keep = []) {
     const used = new Set(reconciledIds)
-    keep.forEach(k => { if (k?.matchId) used.add(k.matchId) })
+    keep.forEach(k => idsOf(k).forEach(id => used.add(id)))
     return txns.map((t, i) => {
       const prev = keep[i]
       // Anything already decided by hand is left exactly as it was
@@ -220,26 +249,35 @@ export default function Reconciliation() {
       const solid = byRef.find(sameAmount)
       if (solid) {
         used.add(solid.id)
-        return { stmt: t, amt, isIn, matchId: solid.id, why: `Reference ${solid.ref}`, confidence: 'high', ignored: false, reason: '', manual: false }
+        return { stmt: t, amt, isIn, matchIds: [solid.id], why: `Reference ${solid.ref}`, confidence: 'high', ignored: false, reason: '', manual: false }
       }
 
       // Everything else is a suggestion to be accepted or rejected by eye
       let s = null, why = ''
       if (byRef.length) {
-        s = byRef[0]
-        why = `Reference matches but the amount differs by ${money(Math.abs(s.amount - amt))}`
+        s = { ids: [byRef[0].id], confidence: 'check' }
+        why = `Reference matches but the amount differs by ${money(Math.abs(byRef[0].amount - amt))}`
       } else {
-        const near = pool.filter(b => free(b) && sameAmount(b))
-          .sort((a, b) => daysApart(a.date, t.date) - daysApart(b.date, t.date))[0]
-        if (near && daysApart(near.date, t.date) <= 14) {
-          const d = daysApart(near.date, t.date)
+        const nearby = pool.filter(b => free(b) && daysApart(b.date, t.date) <= 14)
+        const one = nearby.filter(sameAmount).sort((a, b) => daysApart(a.date, t.date) - daysApart(b.date, t.date))[0]
+        if (one) {
+          const d = daysApart(one.date, t.date)
           why = d === 0 ? 'Same amount, same day' : `Same amount, ${d} day${d === 1 ? '' : 's'} apart`
-          s = near
+          s = { ids: [one.id], confidence: 'amount' }
+        } else {
+          // One transfer often settles two records at once — the goods and the
+          // delivery charge, or two invoices paid together. Look for a pair that
+          // adds up, preferring two for the same customer.
+          const pair = findPair(nearby, amt)
+          if (pair) {
+            why = `${pair.map(x => money(x.amount)).join(' + ')} together`
+            s = { ids: pair.map(x => x.id), confidence: 'amount' }
+          }
         }
       }
       return {
-        stmt: t, amt, isIn, matchId: null,
-        suggestion: s ? { id: s.id, why, confidence: byRef.length ? 'check' : 'amount' } : null,
+        stmt: t, amt, isIn, matchIds: [],
+        suggestion: s ? { ids: s.ids, why, confidence: s.confidence } : null,
         why: '', confidence: '', ignored: false, reason: '', manual: false,
       }
     })
@@ -247,14 +285,15 @@ export default function Reconciliation() {
 
   // Take every suggestion in one go, for when they've all been eyeballed
   function acceptAllSuggestions() {
-    const n = matches.filter(m => !m.matchId && !m.ignored && m.suggestion).length
+    const n = matches.filter(m => !idsOf(m).length && !m.ignored && m.suggestion).length
     if (!n) return
     if (!window.confirm(`Accept ${n} suggested match${n > 1 ? 'es' : ''}?\n\nThese rest on the amount rather than a reference, so check they look right first.`)) return
-    const used = new Set(matches.filter(m => m.matchId).map(m => m.matchId))
+    const used = new Set(matches.flatMap(idsOf))
     setMatches(ms => ms.map(m => {
-      if (m.matchId || m.ignored || !m.suggestion || used.has(m.suggestion.id)) return m
-      used.add(m.suggestion.id)
-      return { ...m, matchId: m.suggestion.id, manual: true, why: m.suggestion.why, confidence: 'accepted' }
+      if (idsOf(m).length || m.ignored || !m.suggestion) return m
+      if (m.suggestion.ids.some(id => used.has(id))) return m
+      m.suggestion.ids.forEach(id => used.add(id))
+      return { ...m, matchIds: [...m.suggestion.ids], manual: true, why: m.suggestion.why, confidence: 'accepted' }
     }))
   }
 
@@ -311,7 +350,7 @@ export default function Reconciliation() {
     setStmtTxns(inRange)
     const m = autoMatch(inRange)
     setMatches(m)
-    toast.success(`${inRange.length} lines in period · auto-matched ${m.filter(x => x.matchId).length}`
+    toast.success(`${inRange.length} lines in period · auto-matched ${m.filter(x => idsOf(x).length).length}`
       + (txns.length > inRange.length ? ` · ${txns.length - inRange.length} outside left out` : ''))
   }
 
@@ -327,10 +366,28 @@ export default function Reconciliation() {
     && h.period_start <= period.to && h.period_end >= period.from
   ), [history, period])
 
-  function setMatch(idx, matchId) {
-    setMatches(ms => ms.map((m, i) => i === idx
-      ? { ...m, matchId, manual: true, ignored: false, reason: '', why: matchId ? 'Matched by hand' : '', confidence: matchId ? 'manual' : '' }
-      : m))
+  // Adds a record to the line, or removes it if it is already on there. Several
+  // records can settle one transfer.
+  function setMatch(idx, id) {
+    setMatches(ms => ms.map((m, i) => {
+      if (i !== idx) return m
+      const cur = idsOf(m)
+      const next = cur.includes(id) ? cur.filter(x => x !== id) : [...cur, id]
+      return { ...m, matchIds: next, manual: true, ignored: false, reason: '',
+        why: next.length ? (next.length > 1 ? `${next.length} records` : 'Matched by hand') : '',
+        confidence: next.length ? 'manual' : '' }
+    }))
+  }
+
+  function clearMatches(idx) {
+    setMatches(ms => ms.map((m, i) => (i === idx ? { ...m, matchIds: [], manual: true, why: '', confidence: '' } : m)))
+  }
+
+  // Accept a whole suggestion, which may name more than one record
+  function acceptSuggestion(idx, ids, why) {
+    setMatches(ms => ms.map((m, i) => (i === idx
+      ? { ...m, matchIds: [...ids], manual: true, ignored: false, reason: '', why, confidence: 'accepted' }
+      : m)))
   }
 
   // Bank movements that are real but will never appear in the books — bank
@@ -338,7 +395,7 @@ export default function Reconciliation() {
   // explained stops it counting as an exception without inventing a record.
   function ignoreLine(idx, reason) {
     setMatches(ms => ms.map((m, i) => i === idx
-      ? { ...m, matchId: null, ignored: true, manual: true, reason: reason || 'Not in the books', why: '', confidence: '' }
+      ? { ...m, matchIds: [], ignored: true, manual: true, reason: reason || 'Not in the books', why: '', confidence: '' }
       : m))
   }
   const unignore = idx => setMatches(ms => ms.map((m, i) => i === idx ? { ...m, ignored: false, reason: '', manual: false } : m))
@@ -347,7 +404,7 @@ export default function Reconciliation() {
     if (!stmtTxns) return
     const next = autoMatch(stmtTxns, matches)
     setMatches(next)
-    toast.success(`Auto-matched ${next.filter(m => m.matchId).length} of ${next.length} lines`)
+    toast.success(`Auto-matched ${next.filter(m => idsOf(m).length).length} of ${next.length} lines`)
   }
 
   function clearAllMatches() {
@@ -362,7 +419,7 @@ export default function Reconciliation() {
 
   // Candidate book entries for a manual match dropdown (same direction, not used elsewhere)
   function candidates(row, idx) {
-    const usedElsewhere = new Set(matches.filter((m, i) => i !== idx && m.matchId).map(m => m.matchId))
+    const usedElsewhere = new Set(matches.flatMap((m, i) => (i === idx ? [] : idsOf(m))))
     const pool = (row.isIn ? bookIn : bookOut).filter(b => !reconciledIds.has(b.id) && !usedElsewhere.has(b.id))
     // sort by closeness in amount then date
     return pool.sort((a, b) => Math.abs(a.amount - row.amt) - Math.abs(b.amount - row.amt) || daysApart(a.date, row.stmt.date) - daysApart(b.date, row.stmt.date)).slice(0, 40)
@@ -396,22 +453,22 @@ export default function Reconciliation() {
     const tot = f => matches.filter(f).reduce((s, m) => s + m.amt, 0)
     const credits = tot(m => m.isIn)
     const debits = tot(m => !m.isIn)
-    const matchedIn = tot(m => m.isIn && m.matchId)
-    const matchedOut = tot(m => !m.isIn && m.matchId)
+    const matchedIn = tot(m => m.isIn && idsOf(m).length)
+    const matchedOut = tot(m => !m.isIn && idsOf(m).length)
     // An ignored line is explained too — it just has no counterpart in the books
     const ignoredIn = tot(m => m.isIn && m.ignored)
     const ignoredOut = tot(m => !m.isIn && m.ignored)
-    const needsReview = matches.filter(m => !m.matchId && !m.ignored)
+    const needsReview = matches.filter(m => !idsOf(m).length && !m.ignored)
     const stmtClosing = stmtTxns && stmtTxns.length ? stmtTxns[stmtTxns.length - 1].balance : 0
     return {
       credits, debits, net: credits - debits,
       matchedIn, matchedOut, matchedNet: matchedIn - matchedOut,
       ignoredIn, ignoredOut, ignoredCount: matches.filter(m => m.ignored).length,
-      matchedCount: matches.filter(m => m.matchId).length,
+      matchedCount: matches.filter(m => idsOf(m).length).length,
       suggestionCount: needsReview.filter(m => m.suggestion).length,
       unmatchedCount: needsReview.length,
-      needsReviewIn: tot(m => m.isIn && !m.matchId && !m.ignored),
-      needsReviewOut: tot(m => !m.isIn && !m.matchId && !m.ignored),
+      needsReviewIn: tot(m => m.isIn && !idsOf(m).length && !m.ignored),
+      needsReviewOut: tot(m => !m.isIn && !idsOf(m).length && !m.ignored),
       unexplained: (credits - debits) - ((matchedIn + ignoredIn) - (matchedOut + ignoredOut)),
       // How far through the review you are
       progress: matches.length ? Math.round(((matches.length - needsReview.length) / matches.length) * 100) : 0,
@@ -427,9 +484,9 @@ export default function Reconciliation() {
     return matches
       .map((m, idx) => ({ m, idx }))
       .filter(({ m }) => workFilter === 'all' ? true
-        : workFilter === 'matched' ? !!m.matchId
+        : workFilter === 'matched' ? !!idsOf(m).length
           : workFilter === 'ignored' ? !!m.ignored
-            : !m.matchId && !m.ignored)
+            : !idsOf(m).length && !m.ignored)
       .filter(({ m }) => !q
         || (m.stmt.party || '').toLowerCase().includes(q)
         || (m.stmt.type || '').toLowerCase().includes(q)
@@ -448,7 +505,7 @@ export default function Reconciliation() {
       const g = byDay.get(key)
       g.rows.push(r)
       if (r.m.isIn) g.in += r.m.amt; else g.out += r.m.amt
-      if (!r.m.matchId && !r.m.ignored) g.review += 1
+      if (!idsOf(r.m).length && !r.m.ignored) g.review += 1
     })
     return [...byDay.values()].sort((a, b) => a.key.localeCompare(b.key))
   }, [workRows])
@@ -457,7 +514,7 @@ export default function Reconciliation() {
   const unexplainedDays = useMemo(() => {
     const byDay = new Map()
     matches.forEach((m, idx) => {
-      if (m.matchId || m.ignored) return
+      if (idsOf(m).length || m.ignored) return
       const key = ymd(m.stmt.date) || 'No date'
       if (!byDay.has(key)) byDay.set(key, { key, rows: [], in: 0, out: 0 })
       const g = byDay.get(key)
@@ -468,7 +525,7 @@ export default function Reconciliation() {
   }, [matches])
 
   async function finish() {
-    const cleared = matches.filter(m => m.matchId).map(m => m.matchId)
+    const cleared = matches.flatMap(idsOf)
     if (!cleared.length && !sum.ignoredCount) { toast.error('Nothing matched to reconcile'); return }
     if (sum.unmatchedCount > 0 && !window.confirm(
       `${sum.unmatchedCount} line${sum.unmatchedCount > 1 ? 's are' : ' is'} still unreviewed, leaving ${money(Math.abs(sum.unexplained))} unexplained.\n\nFinish anyway? You can come back and match them later.`
@@ -488,7 +545,8 @@ export default function Reconciliation() {
       // Full line detail so the reconciliation can be reviewed & edited later
       lines: matches.map(m => ({
         date: ymd(m.stmt.date), party: m.stmt.party || '', type: m.stmt.type || '',
-        ref: m.stmt.ref || '', ref2: m.stmt.ref2 || '', amount: m.amt, isIn: m.isIn, matchId: m.matchId || null,
+        ref: m.stmt.ref || '', ref2: m.stmt.ref2 || '', amount: m.amt, isIn: m.isIn,
+        matchIds: idsOf(m), matchId: idsOf(m)[0] || null,
         ignored: !!m.ignored, reason: m.reason || '', why: m.why || '',
       })),
       created_at: new Date().toISOString(),
@@ -563,7 +621,7 @@ export default function Reconciliation() {
       setExpenses(prev => [...prev, created])
       // Match the bank line to the record we just made
       setMatches(ms => ms.map((m, i) => i === f.idx
-        ? { ...m, matchId: 'expense:' + created.id, manual: true, ignored: false, reason: '', why: 'Recorded from this line', confidence: 'manual' }
+        ? { ...m, matchIds: [...idsOf(m), 'expense:' + created.id], manual: true, ignored: false, reason: '', why: 'Recorded from this line', confidence: 'manual' }
         : m))
     }
     setExpenseModal(null)
@@ -573,7 +631,7 @@ export default function Reconciliation() {
   // ── Export a reconciliation that was already finished ───────────────────────
   function exportSaved(h, lines) {
     const rows = (lines || []).map(l => {
-      const b = l.matchId ? bookById[l.matchId] : null
+      const bs = idsOf(l).map(id => bookById[id]).filter(Boolean)
       return {
         'Date': l.date || '',
         'Type': l.type || '',
@@ -581,8 +639,8 @@ export default function Reconciliation() {
         'Reference': l.ref || '',
         'Money in': l.isIn ? +Number(l.amount || 0).toFixed(2) : '',
         'Money out': l.isIn ? '' : +Number(l.amount || 0).toFixed(2),
-        'Status': l.matchId ? 'Matched' : l.ignored ? 'Explained' : 'Never reviewed',
-        'Matched to': b ? b.label : (l.ignored ? l.reason : (l.matchId ? 'Record since deleted' : '')),
+        'Status': idsOf(l).length ? 'Matched' : l.ignored ? 'Explained' : 'Never reviewed',
+        'Matched to': bs.length ? bs.map(x => x.label).join(' + ') : (l.ignored ? l.reason : (idsOf(l).length ? 'Record since deleted' : '')),
         'Why': l.why || '',
       }
     })
@@ -603,7 +661,7 @@ export default function Reconciliation() {
   function exportWorking() {
     if (!matches.length) { toast.error('Nothing to export'); return }
     const rows = matches.map(m => {
-      const b = m.matchId ? bookById[m.matchId] : null
+      const bs = idsOf(m).map(id => bookById[id]).filter(Boolean)
       return {
         'Date': ymd(m.stmt.date),
         'Type': m.stmt.type || '',
@@ -612,8 +670,8 @@ export default function Reconciliation() {
         'Transaction id': m.stmt.ref2 || '',
         'Money in': m.isIn ? +m.amt.toFixed(2) : '',
         'Money out': m.isIn ? '' : +m.amt.toFixed(2),
-        'Status': m.matchId ? 'Matched' : m.ignored ? 'Explained' : 'Needs review',
-        'Matched to': b ? b.label : (m.ignored ? m.reason : ''),
+        'Status': idsOf(m).length ? 'Matched' : m.ignored ? 'Explained' : 'Needs review',
+        'Matched to': bs.length ? bs.map(x => x.label).join(' + ') : (m.ignored ? m.reason : ''),
         'Why': m.why || '',
       }
     })
@@ -645,7 +703,7 @@ export default function Reconciliation() {
   }, [history, viewRecon, reconciledIds])
 
   function reconCandidates(line, idx) {
-    const usedHere = new Set(editLines.filter((l, i) => i !== idx && l.matchId).map(l => l.matchId))
+    const usedHere = new Set(editLines.flatMap((l, i) => (i === idx ? [] : idsOf(l))))
     const pool = (line.isIn ? bookIn : bookOut).filter(b => !reconciledElsewhere.has(b.id) && !usedHere.has(b.id))
     const lineDate = line.date ? new Date(line.date) : null
     return pool.sort((a, b) =>
@@ -657,12 +715,12 @@ export default function Reconciliation() {
   async function saveReconEdits() {
     if (!viewRecon) return
     setSavingEdit(true)
-    const cleared = editLines.filter(l => l.matchId).map(l => l.matchId)
+    const cleared = editLines.flatMap(idsOf)
     const changes = {
       cleared,
       lines: editLines,
       matched_count: cleared.length,
-      unmatched_count: editLines.filter(l => !l.matchId).length,
+      unmatched_count: editLines.filter(l => !idsOf(l).length && !l.ignored).length,
     }
     if (usingLocal || String(viewRecon.id).startsWith('local-')) {
       const arr = history.map(h => h.id === viewRecon.id ? { ...h, ...changes } : h)
@@ -1054,10 +1112,10 @@ export default function Reconciliation() {
                         <span style={{ fontSize: 13, fontWeight: 800, color: m.isIn ? '#1D9E75' : '#E24B4A', whiteSpace: 'nowrap' }}>
                           {m.isIn ? '+' : '−'}{money(m.amt)}
                         </span>
-                        {m.suggestion && bookById[m.suggestion.id] && (
-                          <button onClick={() => setMatch(idx, m.suggestion.id)} title={`${m.suggestion.why} — click to accept`}
+                        {m.suggestion && m.suggestion.ids.every(id => bookById[id]) && (
+                          <button onClick={() => acceptSuggestion(idx, m.suggestion.ids, m.suggestion.why)} title={`${m.suggestion.why} — click to accept`}
                             style={{ display: 'inline-flex', alignItems: 'center', gap: 5, border: '1px dashed #bcd9c9', background: '#f4fbf7', borderRadius: 99, cursor: 'pointer', padding: '4px 10px', fontSize: 11, fontFamily: 'inherit', color: '#3f7a5e' }}>
-                            <Plus size={11} /> {bookById[m.suggestion.id].label}
+                            <Plus size={11} /> {m.suggestion.ids.map(id => bookById[id].label).join(' + ')}
                             <span style={{ color: '#9dbfae' }}>· {m.suggestion.why}</span>
                           </button>
                         )}
@@ -1132,9 +1190,13 @@ export default function Reconciliation() {
                     <td />
                   </tr>
                   {day.rows.map(({ m, idx }) => {
-                    const matched = m.matchId ? bookById[m.matchId] : null
+                    const mine = idsOf(m)
+                    const matchedRecs = mine.map(id => bookById[id]).filter(Boolean)
+                    // With several records on one line, show whether they add up
+                    const matchedTotal = matchedRecs.reduce((a, b) => a + b.amount, 0)
+                    const shortBy = mine.length ? m.amt - matchedTotal : 0
                     return (
-                      <tr key={idx} className={m.matchId || m.ignored ? '' : 'unmatched'}>
+                      <tr key={idx} className={mine.length || m.ignored ? '' : 'unmatched'}>
                         <td style={{ whiteSpace: 'nowrap', color: '#bbb', fontSize: 11.5 }}>{fmtDate(m.stmt.date)}</td>
                         <td>
                           <div style={{ fontWeight: 600, color: '#0d1b2a' }}>{m.stmt.party || m.stmt.type || 'Transaction'}</div>
@@ -1147,16 +1209,36 @@ export default function Reconciliation() {
                           {m.isIn ? '+' : '−'}{money(m.amt)}
                         </td>
                         <td>
-                          {matched ? (
-                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                              <span className="rec-pill" style={{ background: '#E1F5EE', color: '#1D9E75' }}><CheckCircle size={12} /> {matched.label}</span>
+                          {mine.length ? (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                              {matchedRecs.map(b => (
+                                <span key={b.id} className="rec-pill" style={{ background: '#E1F5EE', color: '#1D9E75' }}>
+                                  <CheckCircle size={12} /> {b.label}
+                                  <button onClick={() => setMatch(idx, b.id)} title="Take this one off"
+                                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#8fc4ad', padding: 0, marginLeft: 2, display: 'inline-flex' }}><X size={11} /></button>
+                                </span>
+                              ))}
+                              {Math.abs(shortBy) > 0.01 && (
+                                <span className="rec-pill" style={{ background: '#FFF3D6', color: '#b8740a' }}>
+                                  {money(Math.abs(shortBy))} {shortBy > 0 ? 'still unaccounted' : 'over'}
+                                </span>
+                              )}
+                              {/* room to add another record to the same transfer */}
+                              {Math.abs(shortBy) > 0.01 && (
+                                <select className="rec-sel" style={{ maxWidth: 190 }} value="" onChange={e => e.target.value && setMatch(idx, e.target.value)}>
+                                  <option value="">Add another…</option>
+                                  {candidates(m, idx).map(b => (
+                                    <option key={b.id} value={b.id}>{money(b.amount)} · {fmtDate(b.date)} · {b.label}</option>
+                                  ))}
+                                </select>
+                              )}
                               {m.why && (
                                 <span className="rec-pill" title="Why this was matched"
-                                  style={{ background: m.confidence === 'medium' ? '#FFF3D6' : '#f3f1ec', color: m.confidence === 'medium' ? '#b8740a' : '#999' }}>
+                                  style={{ background: m.confidence === 'accepted' ? '#FFF3D6' : '#f3f1ec', color: m.confidence === 'accepted' ? '#b8740a' : '#999' }}>
                                   {m.why}
                                 </span>
                               )}
-                              <button onClick={() => setMatch(idx, null)} title="Unmatch" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ccc' }}><X size={13} /></button>
+                              <button onClick={() => clearMatches(idx)} title="Unmatch all" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ccc' }}><X size={13} /></button>
                             </span>
                           ) : m.ignored ? (
                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -1167,13 +1249,13 @@ export default function Reconciliation() {
                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                               <span className="rec-pill" style={{ background: '#FFF3D6', color: '#b8740a' }}><AlertTriangle size={12} /> Needs review</span>
                               {/* what it thinks this is, without deciding for you */}
-                              {m.suggestion && bookById[m.suggestion.id] && (
-                                <button onClick={() => setMatch(idx, m.suggestion.id)}
+                              {m.suggestion && m.suggestion.ids.every(id => bookById[id]) && (
+                                <button onClick={() => acceptSuggestion(idx, m.suggestion.ids, m.suggestion.why)}
                                   title={`${m.suggestion.why} — click to accept`}
                                   style={{ display: 'inline-flex', alignItems: 'center', gap: 5, border: '1px dashed #bcd9c9', background: '#f4fbf7', borderRadius: 99, cursor: 'pointer', padding: '4px 10px', fontSize: 11, fontFamily: 'inherit', color: '#3f7a5e' }}>
-                                  <Plus size={11} /> {bookById[m.suggestion.id].label}
+                                  <Plus size={11} /> {m.suggestion.ids.map(id => bookById[id].label).join(' + ')}
                                   <span style={{ color: '#9dbfae' }}>· {m.suggestion.why}</span>
-                                  {isCarriedOver(bookById[m.suggestion.id]) && <span style={{ color: '#b8740a', fontWeight: 700 }}>· last period</span>}
+                                  {m.suggestion.ids.some(id => isCarriedOver(bookById[id])) && <span style={{ color: '#b8740a', fontWeight: 700 }}>· last period</span>}
                                 </button>
                               )}
                               <select className="rec-sel" value="" onChange={e => e.target.value && setMatch(idx, e.target.value)}>
@@ -1215,11 +1297,11 @@ export default function Reconciliation() {
 
       {/* ── View / edit a saved reconciliation ── */}
       {viewRecon && (() => {
-        const matchedN = editLines.filter(l => l.matchId).length
-        const unmatchedN = editLines.filter(l => !l.matchId && !l.ignored).length
+        const matchedN = editLines.filter(l => idsOf(l).length).length
+        const unmatchedN = editLines.filter(l => !idsOf(l).length && !l.ignored).length
         const shown = editLines
           .map((l, idx) => ({ l, idx }))
-          .filter(({ l }) => reconFilter === 'all' ? true : reconFilter === 'matched' ? !!l.matchId : (!l.matchId && !l.ignored))
+          .filter(({ l }) => reconFilter === 'all' ? true : reconFilter === 'matched' ? !!idsOf(l).length : (!idsOf(l).length && !l.ignored))
         // Same day-by-day grouping as the working view
         const shownDays = (() => {
           const byDay = new Map()
@@ -1242,8 +1324,8 @@ export default function Reconciliation() {
               const ignoredN = editLines.filter(l => l.ignored).length
               const inTot = editLines.filter(l => l.isIn).reduce((s, l) => s + Number(l.amount || 0), 0)
               const outTot = editLines.filter(l => !l.isIn).reduce((s, l) => s + Number(l.amount || 0), 0)
-              const accountedIn = editLines.filter(l => l.isIn && (l.matchId || l.ignored)).reduce((s, l) => s + Number(l.amount || 0), 0)
-              const accountedOut = editLines.filter(l => !l.isIn && (l.matchId || l.ignored)).reduce((s, l) => s + Number(l.amount || 0), 0)
+              const accountedIn = editLines.filter(l => l.isIn && (idsOf(l).length || l.ignored)).reduce((s, l) => s + Number(l.amount || 0), 0)
+              const accountedOut = editLines.filter(l => !l.isIn && (idsOf(l).length || l.ignored)).reduce((s, l) => s + Number(l.amount || 0), 0)
               const gap = editLines.length
                 ? (inTot - outTot) - (accountedIn - accountedOut)
                 : Number(viewRecon.statement_in || 0) - Number(viewRecon.statement_out || 0)
@@ -1324,9 +1406,10 @@ export default function Reconciliation() {
                         <td />
                       </tr>
                       {day.rows.map(({ l, idx }) => {
-                        const matched = l.matchId ? bookById[l.matchId] : null
+                        const mine = idsOf(l)
+                        const matchedRecs = mine.map(id => bookById[id]).filter(Boolean)
                         return (
-                          <tr key={idx} className={l.matchId || l.ignored ? '' : 'unmatched'}>
+                          <tr key={idx} className={mine.length || l.ignored ? '' : 'unmatched'}>
                             <td style={{ whiteSpace: 'nowrap', color: '#bbb', fontSize: 11.5 }}>{fmtDate(l.date)}</td>
                             <td>
                               <div style={{ fontWeight: 600, color: '#0d1b2a' }}>{l.party || l.type || 'Transaction'}</div>
@@ -1336,17 +1419,19 @@ export default function Reconciliation() {
                               {l.isIn ? '+' : '−'}{money(l.amount)}
                             </td>
                             <td>
-                              {matched ? (
-                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                                  <span className="rec-pill" style={{ background: '#E1F5EE', color: '#1D9E75' }}><CheckCircle size={12} /> {matched.label}</span>
-                                  <button onClick={() => setEditLines(ls => ls.map((x, i) => i === idx ? { ...x, matchId: null } : x))} title="Unmatch"
+                              {matchedRecs.length ? (
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                  {matchedRecs.map(b => (
+                                    <span key={b.id} className="rec-pill" style={{ background: '#E1F5EE', color: '#1D9E75' }}><CheckCircle size={12} /> {b.label}</span>
+                                  ))}
+                                  <button onClick={() => setEditLines(ls => ls.map((x, i) => i === idx ? { ...x, matchIds: [], matchId: null } : x))} title="Unmatch"
                                     style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ccc' }}><X size={13} /></button>
                                 </span>
-                              ) : l.matchId ? (
+                              ) : mine.length ? (
                                 // matched to a book entry that no longer exists
                                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                                   <span className="rec-pill" style={{ background: '#f5f5f5', color: '#999' }}>Matched (record deleted)</span>
-                                  <button onClick={() => setEditLines(ls => ls.map((x, i) => i === idx ? { ...x, matchId: null } : x))} title="Unmatch"
+                                  <button onClick={() => setEditLines(ls => ls.map((x, i) => i === idx ? { ...x, matchIds: [], matchId: null } : x))} title="Unmatch"
                                     style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ccc' }}><X size={13} /></button>
                                 </span>
                               ) : l.ignored ? (
@@ -1358,7 +1443,7 @@ export default function Reconciliation() {
                               ) : (
                                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                                   <span className="rec-pill" style={{ background: '#FFF3D6', color: '#b8740a' }}><AlertTriangle size={12} /> Unreviewed</span>
-                                  <select className="rec-sel" value="" onChange={e => { const v = e.target.value; if (v) setEditLines(ls => ls.map((x, i) => i === idx ? { ...x, matchId: v } : x)) }}>
+                                  <select className="rec-sel" value="" onChange={e => { const v = e.target.value; if (v) setEditLines(ls => ls.map((x, i) => i === idx ? { ...x, matchIds: [...idsOf(x), v], matchId: idsOf(x)[0] || v } : x)) }}>
                                     <option value="">Match to…</option>
                                     {reconCandidates(l, idx).map(b => (
                                       <option key={b.id} value={b.id}>{money(b.amount)} · {fmtDate(b.date)} · {b.label}</option>
