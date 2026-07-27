@@ -90,6 +90,7 @@ export default function Reconciliation() {
   const [allTxns, setAllTxns] = useState(null)   // everything read from the file, before the period filter
   const [outsideCount, setOutsideCount] = useState(0)
   const [showGuide, setShowGuide] = useState(() => localStorage.getItem('bnj_recon_guide_hidden') !== '1')
+  const [openGroup, setOpenGroup] = useState(null)   // which unreconciled group is expanded
   const fileRef = useRef(null)
   const toast = useToast()
 
@@ -185,10 +186,10 @@ export default function Reconciliation() {
     return m
   }, [bookIn, bookOut])
 
-  // Auto-match, strongest evidence first: the exact reference, then the exact
-  // amount on the same day, then the exact amount within five days. Each book
-  // entry can only be used once. `why` explains the match so it can be trusted
-  // or overruled at a glance.
+  // Only a reference AND the amount agreeing is proof enough to match on its
+  // own. Anything resting on the amount alone is offered as a suggestion and
+  // stays in review — a payment can easily land days after the order it pays,
+  // and two customers paying the same amount in the same week is common.
   function autoMatch(txns, keep = []) {
     const used = new Set(reconciledIds)
     keep.forEach(k => { if (k?.matchId) used.add(k.matchId) })
@@ -199,22 +200,50 @@ export default function Reconciliation() {
       const isIn = t.credit > 0
       const amt = isIn ? t.credit : t.debit
       const pool = isIn ? bookIn : bookOut
-      let m = null, why = '', confidence = ''
-      if (t.ref) {
-        m = pool.find(b => !used.has(b.id) && b.ref && normRef(b.ref) === normRef(t.ref))
-        if (m) { why = `Reference ${t.ref}`; confidence = 'high' }
+      const free = b => !used.has(b.id)
+      const sameAmount = b => Math.abs(b.amount - amt) < 0.01
+
+      // Proof: the reference matches and so does the amount
+      const byRef = t.ref ? pool.filter(b => free(b) && b.ref && normRef(b.ref) === normRef(t.ref)) : []
+      const solid = byRef.find(sameAmount)
+      if (solid) {
+        used.add(solid.id)
+        return { stmt: t, amt, isIn, matchId: solid.id, why: `Reference ${t.ref}`, confidence: 'high', ignored: false, reason: '', manual: false }
       }
-      if (!m) {
-        m = pool.find(b => !used.has(b.id) && Math.abs(b.amount - amt) < 0.01 && daysApart(b.date, t.date) === 0)
-        if (m) { why = 'Same amount, same day'; confidence = 'high' }
+
+      // Everything else is a suggestion to be accepted or rejected by eye
+      let s = null, why = ''
+      if (byRef.length) {
+        s = byRef[0]
+        why = `Reference matches but the amount differs by ${money(Math.abs(s.amount - amt))}`
+      } else {
+        const near = pool.filter(b => free(b) && sameAmount(b))
+          .sort((a, b) => daysApart(a.date, t.date) - daysApart(b.date, t.date))[0]
+        if (near && daysApart(near.date, t.date) <= 14) {
+          const d = daysApart(near.date, t.date)
+          why = d === 0 ? 'Same amount, same day' : `Same amount, ${d} day${d === 1 ? '' : 's'} apart`
+          s = near
+        }
       }
-      if (!m) {
-        m = pool.find(b => !used.has(b.id) && Math.abs(b.amount - amt) < 0.01 && daysApart(b.date, t.date) <= 5)
-        if (m) { why = `Same amount, ${daysApart(m.date, t.date)} day${daysApart(m.date, t.date) === 1 ? '' : 's'} apart`; confidence = 'medium' }
+      return {
+        stmt: t, amt, isIn, matchId: null,
+        suggestion: s ? { id: s.id, why, confidence: byRef.length ? 'check' : 'amount' } : null,
+        why: '', confidence: '', ignored: false, reason: '', manual: false,
       }
-      if (m) used.add(m.id)
-      return { stmt: t, amt, isIn, matchId: m ? m.id : null, why, confidence, ignored: false, reason: '', manual: false }
     })
+  }
+
+  // Take every suggestion in one go, for when they've all been eyeballed
+  function acceptAllSuggestions() {
+    const n = matches.filter(m => !m.matchId && !m.ignored && m.suggestion).length
+    if (!n) return
+    if (!window.confirm(`Accept ${n} suggested match${n > 1 ? 'es' : ''}?\n\nThese rest on the amount rather than a reference, so check they look right first.`)) return
+    const used = new Set(matches.filter(m => m.matchId).map(m => m.matchId))
+    setMatches(ms => ms.map(m => {
+      if (m.matchId || m.ignored || !m.suggestion || used.has(m.suggestion.id)) return m
+      used.add(m.suggestion.id)
+      return { ...m, matchId: m.suggestion.id, manual: true, why: m.suggestion.why, confidence: 'accepted' }
+    }))
   }
 
   async function handleUpload(e) {
@@ -311,6 +340,11 @@ export default function Reconciliation() {
     setMatches(autoMatch(stmtTxns, []))
   }
 
+  // A record dated before this period that has never been reconciled — an order
+  // placed on the 26th and paid on the 29th falls into the next cycle, so these
+  // must stay available rather than being written off with the period they sat in.
+  const isCarriedOver = b => !!(b && period.from && ymd(b.date) && ymd(b.date) < period.from)
+
   // Candidate book entries for a manual match dropdown (same direction, not used elsewhere)
   function candidates(row, idx) {
     const usedElsewhere = new Set(matches.filter((m, i) => i !== idx && m.matchId).map(m => m.matchId))
@@ -318,6 +352,29 @@ export default function Reconciliation() {
     // sort by closeness in amount then date
     return pool.sort((a, b) => Math.abs(a.amount - row.amt) - Math.abs(b.amount - row.amt) || daysApart(a.date, row.stmt.date) - daysApart(b.date, row.stmt.date)).slice(0, 40)
   }
+
+  // ── Everything the books have that no reconciliation has ever cleared ───────
+  // Visible without uploading anything, so unpaid sales and unlogged costs can
+  // be chased between statements.
+  const unreconciled = useMemo(() => {
+    const rows = [...bookIn.map(b => ({ ...b, dir: 'in' })), ...bookOut.map(b => ({ ...b, dir: 'out' }))]
+      .filter(b => !reconciledIds.has(b.id))
+      .sort((a, b) => (b.date || 0) - (a.date || 0))
+    const KIND = { order: 'Sales', loan: 'Loans received', expense: 'Costs', spay: 'Supplier payments', lpay: 'Loan repayments' }
+    const groups = {}
+    rows.forEach(r => {
+      const k = KIND[r.kind] || 'Other'
+      if (!groups[k]) groups[k] = { name: k, dir: r.dir, rows: [], total: 0 }
+      groups[k].rows.push(r)
+      groups[k].total += r.amount
+    })
+    return {
+      rows,
+      groups: Object.values(groups).sort((a, b) => b.total - a.total),
+      totalIn: rows.filter(r => r.dir === 'in').reduce((s, r) => s + r.amount, 0),
+      totalOut: rows.filter(r => r.dir === 'out').reduce((s, r) => s + r.amount, 0),
+    }
+  }, [bookIn, bookOut, reconciledIds])
 
   // Summary
   const sum = useMemo(() => {
@@ -336,6 +393,7 @@ export default function Reconciliation() {
       matchedIn, matchedOut, matchedNet: matchedIn - matchedOut,
       ignoredIn, ignoredOut, ignoredCount: matches.filter(m => m.ignored).length,
       matchedCount: matches.filter(m => m.matchId).length,
+      suggestionCount: needsReview.filter(m => m.suggestion).length,
       unmatchedCount: needsReview.length,
       needsReviewIn: tot(m => m.isIn && !m.matchId && !m.ignored),
       needsReviewOut: tot(m => !m.isIn && !m.matchId && !m.ignored),
@@ -699,6 +757,66 @@ export default function Reconciliation() {
             </div>
           </Card>
 
+          {/* Not yet reconciled — visible without uploading anything */}
+          {unreconciled.rows.length > 0 && (
+            <Card style={{ marginBottom: 18 }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#0d1b2a' }}>
+                    Not yet reconciled — {unreconciled.rows.length} record{unreconciled.rows.length > 1 ? 's' : ''}
+                  </div>
+                  <div style={{ fontSize: 11.5, color: '#aaa', marginTop: 3 }}>
+                    Sales and costs in your books that no statement has cleared yet. They stay here until a bank line matches them, however many months that takes.
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 22 }}>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: 9.5, color: '#c4bcb0', textTransform: 'uppercase', letterSpacing: '0.6px', fontWeight: 700 }}>Money in</div>
+                    <div style={{ fontSize: 16, fontWeight: 800, color: '#1D9E75' }}>{money(unreconciled.totalIn)}</div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: 9.5, color: '#c4bcb0', textTransform: 'uppercase', letterSpacing: '0.6px', fontWeight: 700 }}>Money out</div>
+                    <div style={{ fontSize: 16, fontWeight: 800, color: '#E24B4A' }}>{money(unreconciled.totalOut)}</div>
+                  </div>
+                </div>
+              </div>
+
+              {unreconciled.groups.map(g => (
+                <div key={g.name} style={{ marginBottom: 12 }}>
+                  <button onClick={() => setOpenGroup(o => (o === g.name ? null : g.name))}
+                    style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, background: '#fbfaf8', border: '1px solid #f0ece6', borderRadius: 9, padding: '9px 13px', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' }}>
+                    <span style={{ fontSize: 12.5, fontWeight: 700, color: '#0d1b2a' }}>{g.name}</span>
+                    <span style={{ fontSize: 11.5, color: '#bbb' }}>{g.rows.length}</span>
+                    <span style={{ marginLeft: 'auto', fontSize: 13, fontWeight: 800, color: g.dir === 'in' ? '#1D9E75' : '#E24B4A' }}>
+                      {g.dir === 'in' ? '+' : '−'}{money(g.total)}
+                    </span>
+                    <span style={{ color: '#ccc', fontSize: 12 }}>{openGroup === g.name ? '▴' : '▾'}</span>
+                  </button>
+                  {openGroup === g.name && (
+                    <div className="rec-scroll" style={{ marginTop: 6, border: '1px solid #f2f2f2', borderRadius: 9, maxHeight: 300, overflowY: 'auto' }}>
+                      <table className="rec-table" style={{ minWidth: 460 }}>
+                        <tbody>
+                          {g.rows.map(r => (
+                            <tr key={r.id}>
+                              <td style={{ whiteSpace: 'nowrap', color: '#999', width: 110 }}>{fmtDate(r.date)}</td>
+                              <td>{r.label}{r.ref ? <span style={{ color: '#ccc' }}> · {r.ref}</span> : null}</td>
+                              <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }} className={r.dir === 'in' ? 'rec-in' : 'rec-out'}>
+                                {r.dir === 'in' ? '+' : '−'}{money(r.amount)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              ))}
+              <div style={{ fontSize: 11.5, color: '#bbb', lineHeight: 1.6 }}>
+                A sale on the 26th paid on the 29th sits here until next month's statement, then matches then — nothing is lost by closing a period without it.
+              </div>
+            </Card>
+          )}
+
           {/* History */}
           <Card>
             <div style={{ fontSize: 13, fontWeight: 700, color: '#0d1b2a', marginBottom: 12 }}>Past reconciliations</div>
@@ -771,6 +889,11 @@ export default function Reconciliation() {
                 {fileName && <span style={{ color: '#aaa' }}> · {fileName}</span>}
               </div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {sum.suggestionCount > 0 && (
+                  <Button variant="ghost" onClick={acceptAllSuggestions} title="Accept every suggested match at once">
+                    <CheckCircle size={14} /> Accept {sum.suggestionCount} suggestion{sum.suggestionCount > 1 ? 's' : ''}
+                  </Button>
+                )}
                 <Button variant="ghost" onClick={exportWorking}><FileSpreadsheet size={14} /> Excel</Button>
                 <Button variant="ghost" onClick={rerunAutoMatch} title="Match again, keeping anything you set by hand"><RefreshCw size={14} /> Re-match</Button>
                 <Button variant="ghost" onClick={clearAllMatches}>Start over</Button>
@@ -833,8 +956,8 @@ export default function Reconciliation() {
                 {[
                   {
                     Icon: CheckCircle, colour: '#1D9E75', bg: '#E9F7F1', title: `Matched — ${sum.matchedCount}`,
-                    body: 'The bank moved money and your books already have it: a paid order, an expense, a supplier payment, a loan drawdown or repayment.',
-                    todo: 'Nothing to do. Check the amber "why" tags though — those matched on amount a few days apart, so they can be wrong.',
+                    body: 'The reference on the bank line and the reference on your record are the same, and so is the amount. Nothing else matches on its own.',
+                    todo: 'Nothing to do — a matching reference and amount is proof, not a guess.',
                   },
                   {
                     Icon: EyeOff, colour: '#7F77DD', bg: '#EFEDFB', title: `Explained — ${sum.ignoredCount}`,
@@ -843,8 +966,8 @@ export default function Reconciliation() {
                   },
                   {
                     Icon: AlertTriangle, colour: '#b8740a', bg: '#FFF8E1', title: `Needs review — ${sum.unmatchedCount}`,
-                    body: 'The bank moved money your books know nothing about. Usually a sale taken in cash, an expense nobody logged, or a payment recorded under a different amount or date.',
-                    todo: 'Match it to an existing record, Record expense to write it in on the spot, or Explain it if it belongs above.',
+                    body: 'No reference matched. Either your books know nothing about it — a cash sale, an unlogged expense — or the record has no reference saved, so it can only be recognised by eye.',
+                    todo: 'A green dashed suggestion means the amount matches something; click it to accept. Otherwise match it yourself, Record expense, or Explain it.',
                   },
                 ].map(s => (
                   <div key={s.title} style={{ background: s.bg, borderRadius: 12, padding: '14px 16px' }}>
@@ -913,6 +1036,13 @@ export default function Reconciliation() {
                         <span style={{ fontSize: 13, fontWeight: 800, color: m.isIn ? '#1D9E75' : '#E24B4A', whiteSpace: 'nowrap' }}>
                           {m.isIn ? '+' : '−'}{money(m.amt)}
                         </span>
+                        {m.suggestion && bookById[m.suggestion.id] && (
+                          <button onClick={() => setMatch(idx, m.suggestion.id)} title={`${m.suggestion.why} — click to accept`}
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, border: '1px dashed #bcd9c9', background: '#f4fbf7', borderRadius: 99, cursor: 'pointer', padding: '4px 10px', fontSize: 11, fontFamily: 'inherit', color: '#3f7a5e' }}>
+                            <Plus size={11} /> {bookById[m.suggestion.id].label}
+                            <span style={{ color: '#9dbfae' }}>· {m.suggestion.why}</span>
+                          </button>
+                        )}
                         {!m.isIn && (
                           <Button size="sm" variant="ghost" onClick={() => openAddExpense(idx)}><Plus size={11} /> Record expense</Button>
                         )}
@@ -1015,6 +1145,16 @@ export default function Reconciliation() {
                           ) : (
                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                               <span className="rec-pill" style={{ background: '#FFF3D6', color: '#b8740a' }}><AlertTriangle size={12} /> Needs review</span>
+                              {/* what it thinks this is, without deciding for you */}
+                              {m.suggestion && bookById[m.suggestion.id] && (
+                                <button onClick={() => setMatch(idx, m.suggestion.id)}
+                                  title={`${m.suggestion.why} — click to accept`}
+                                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, border: '1px dashed #bcd9c9', background: '#f4fbf7', borderRadius: 99, cursor: 'pointer', padding: '4px 10px', fontSize: 11, fontFamily: 'inherit', color: '#3f7a5e' }}>
+                                  <Plus size={11} /> {bookById[m.suggestion.id].label}
+                                  <span style={{ color: '#9dbfae' }}>· {m.suggestion.why}</span>
+                                  {isCarriedOver(bookById[m.suggestion.id]) && <span style={{ color: '#b8740a', fontWeight: 700 }}>· last period</span>}
+                                </button>
+                              )}
                               <select className="rec-sel" value="" onChange={e => e.target.value && setMatch(idx, e.target.value)}>
                                 <option value="">Match to…</option>
                                 {candidates(m, idx).map(b => (
