@@ -3,12 +3,13 @@ import { supabase } from '../lib/supabase'
 import { localToday } from '../lib/dates'
 import { logAudit } from '../lib/audit'
 import { matchAll, cleanFileName } from '../lib/photoMatch'
+import { compressImage, worthCompressing, storagePathFromUrl, isStorageUrl, isDataUrl, isHttpUrl, humanBytes } from '../lib/imageCompress'
 import { PageHeader, Card, Button, Input, Select, Modal, Spinner, FormRow, useToast, Toasts, Badge, ImageTile } from '../components/UI'
 import {
   Plus, Trash2, Edit2, Eye, Search, Building2, Package, Truck,
   Barcode, QrCode, Upload, Download, FileSpreadsheet, Camera,
   ArrowUpDown, ChevronDown, CheckCircle, AlertTriangle, RefreshCw, X,
-  LayoutGrid, List, Percent, MoreVertical, Star, Calculator, Images
+  LayoutGrid, List, Percent, MoreVertical, Star, Calculator, Images, Minimize2
 } from 'lucide-react'
 import JsBarcode from 'jsbarcode'
 import QRCode from 'qrcode'
@@ -171,6 +172,10 @@ export default function SupplierCatalog() {
   const [photoProgress, setPhotoProgress] = useState(null)  // { done, total } | null
   // Release the preview object URLs if the page unmounts before the modal closes
   useEffect(() => () => { photoModal?.rows.forEach(r => { try { URL.revokeObjectURL(r.preview) } catch { /* noop */ } }) }, [photoModal])
+  // Compressing photos already uploaded
+  const [compressModal, setCompressModal] = useState(null)  // { storage, data, external, none } | null
+  const [compressBusy, setCompressBusy] = useState(false)
+  const [compressProgress, setCompressProgress] = useState(null)  // { done, total, saved, shrunk, skipped, failed }
   const toast = useToast()
 
   useEffect(() => { load() }, [])
@@ -419,6 +424,69 @@ export default function SupplierCatalog() {
     if (ok) logAudit('update', 'supplier_products', `Bulk photos — ${ok} matched`, { applied: ok, failed })
     toast[failed ? 'info' : 'success'](`${ok} photo${ok === 1 ? '' : 's'} set${failed ? `, ${failed} failed` : ''}`)
     closePhotoModal()
+    load()
+  }
+
+  // ── Compressing photos already uploaded ─────────────────────────────────────
+  // Report what's there first, then re-save each photo smaller over the original,
+  // which keeps its link and so keeps every product pointing at it working.
+  function openCompress() {
+    let storage = 0, data = 0, external = 0, none = 0
+    catalog.forEach(c => {
+      const u = c.image_url
+      if (!u) none++
+      else if (isStorageUrl(u)) storage++
+      else if (isDataUrl(u)) data++
+      else if (isHttpUrl(u)) external++
+      else none++
+    })
+    setCompressProgress(null)
+    setCompressModal({ storage, data, external, none })
+  }
+
+  async function runCompress() {
+    // Only what lives in our own storage or is pasted-in base64 can be shrunk;
+    // an external link belongs to another site and is left alone.
+    const items = catalog.filter(c => isStorageUrl(c.image_url) || isDataUrl(c.image_url))
+    if (!items.length) { toast.info('Nothing to compress'); return }
+    setCompressBusy(true)
+    let done = 0, saved = 0, shrunk = 0, skipped = 0, failed = 0
+    const tick = () => setCompressProgress({ done, total: items.length, saved, shrunk, skipped, failed })
+    tick()
+    for (const it of items) {
+      try {
+        const resp = await fetch(it.image_url)
+        if (!resp.ok) throw new Error('fetch failed')
+        const orig = await resp.blob()
+        const before = orig.size
+        if (!worthCompressing(before)) { skipped++ }
+        else {
+          const { blob } = await compressImage(orig, { maxDim: 1000, quality: 0.82 })
+          // Only keep it if it actually saved something worth the quality cost
+          if (blob.size < before * 0.9) {
+            const path = storagePathFromUrl(it.image_url)
+            if (path) {
+              // Overwrite the same object — the URL, and every product on it, is unchanged
+              const { error } = await supabase.storage.from('uploads').upload(path, blob, { upsert: true, contentType: 'image/jpeg' })
+              if (error) throw error
+            } else {
+              // A base64 image lived in the database — move it to storage and repoint
+              const fileName = `catalog-${it.id}-${Date.now()}.jpg`
+              const { error } = await supabase.storage.from('uploads').upload(fileName, blob, { upsert: true, contentType: 'image/jpeg' })
+              if (error) throw error
+              const url = supabase.storage.from('uploads').getPublicUrl(fileName).data.publicUrl
+              const { error: upErr } = await supabase.from('supplier_products').update({ image_url: url }).eq('id', it.id)
+              if (upErr) throw upErr
+            }
+            saved += before - blob.size; shrunk++
+          } else { skipped++ }
+        }
+      } catch { failed++ }
+      done++; tick()
+    }
+    setCompressBusy(false)
+    if (shrunk) logAudit('update', 'supplier_products', `Compressed ${shrunk} photos`, { shrunk, savedBytes: saved, skipped, failed })
+    toast[failed ? 'info' : 'success'](`${shrunk} photo${shrunk === 1 ? '' : 's'} compressed · ${humanBytes(saved)} saved${failed ? ` · ${failed} couldn't be read` : ''}`)
     load()
   }
 
@@ -1125,6 +1193,9 @@ export default function SupplierCatalog() {
             <Button variant="ghost" onClick={() => photoRef.current.click()}>
               <Images size={14} /> Match photos
             </Button>
+            <Button variant="ghost" onClick={openCompress}>
+              <Minimize2 size={14} /> Compress photos
+            </Button>
             {activeSupplier && <Button onClick={openAdd}><Plus size={14} /> Add product</Button>}
           </div>
         }
@@ -1685,6 +1756,69 @@ export default function SupplierCatalog() {
             </Button>
           </div>
         </Modal>
+        )
+      })()}
+
+      {compressModal && (() => {
+        const { storage, data, external, none } = compressModal
+        const eligible = storage + data
+        const p = compressProgress
+        const finished = p && !compressBusy && p.done === p.total
+        return (
+          <Modal title="Compress uploaded photos"
+            subtitle="Re-saves each photo at web size over the original — smaller storage, same links"
+            onClose={compressBusy ? () => {} : () => { setCompressModal(null); setCompressProgress(null) }} width={520}>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
+              {[
+                ['On your storage', storage, '#1D9E75', 'will be compressed in place'],
+                ['Pasted-in images', data, '#378ADD', 'moved to storage & shrunk'],
+                ['External links', external, '#b8ab97', 'left alone — not yours to change'],
+                ['No photo', none, '#c4bcb0', 'nothing to do'],
+              ].map(([l, v, c, sub]) => (
+                <div key={l} style={{ border: '1px solid #f0ece4', borderRadius: 11, padding: '11px 13px', background: '#fffdfa' }}>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: c, letterSpacing: '-0.4px' }}>{v}</div>
+                  <div style={{ fontSize: 11.5, fontWeight: 700, color: '#0d1b2a' }}>{l}</div>
+                  <div style={{ fontSize: 10.5, color: '#b8ab97', marginTop: 1 }}>{sub}</div>
+                </div>
+              ))}
+            </div>
+
+            {!p && (
+              <div style={{ background: '#fffaf2', border: '1px solid #f3e4c8', borderRadius: 10, padding: '11px 13px', fontSize: 12, color: '#8a6a2a', lineHeight: 1.6, marginBottom: 16 }}>
+                <AlertTriangle size={13} style={{ verticalAlign: -2, marginRight: 5 }} />
+                Photos are shrunk to ~1000px and re-saved <b>over the originals</b>. On screen they look the same, but the full-size original is replaced and this can't be undone. Photos already small enough are skipped. Anything that can't be read is left untouched.
+              </div>
+            )}
+
+            {p && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ height: 8, background: '#f2f0ec', borderRadius: 99, overflow: 'hidden' }}>
+                  <div style={{ width: `${p.total ? Math.round(p.done / p.total * 100) : 0}%`, height: '100%', background: finished ? '#1D9E75' : 'linear-gradient(90deg,#FFA500,#ff8c00)', transition: 'width .2s' }} />
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#666', marginTop: 8 }}>
+                  <span>{finished ? 'Done' : `Compressing ${p.done} of ${p.total}…`}</span>
+                  <span><b style={{ color: '#1D9E75' }}>{humanBytes(p.saved)}</b> saved</span>
+                </div>
+                {finished && (
+                  <div style={{ fontSize: 11.5, color: '#aaa', marginTop: 4 }}>
+                    {p.shrunk} shrunk · {p.skipped} already small · {p.failed} couldn't be read
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              <Button variant="ghost" onClick={() => { setCompressModal(null); setCompressProgress(null) }} disabled={compressBusy}>
+                {finished ? 'Close' : 'Cancel'}
+              </Button>
+              {!finished && (
+                <Button onClick={runCompress} disabled={compressBusy || eligible === 0}>
+                  <Minimize2 size={14} /> {compressBusy ? 'Working…' : `Compress ${eligible} photo${eligible === 1 ? '' : 's'}`}
+                </Button>
+              )}
+            </div>
+          </Modal>
         )
       })()}
 
