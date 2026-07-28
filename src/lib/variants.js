@@ -43,9 +43,24 @@ const NAME_ORDER = [
 
 const clean = s => String(s || '').trim().replace(/\s+/g, ' ')
 
+// Parsing a name means running several regexes over it, and the lists that use
+// this re-parse the same few hundred names on every keystroke of a search box.
+// Names barely change, so the answer is remembered.
+const cache = new Map()
+const CACHE_MAX = 4000
+
 // Split a product name into the family and the size written on the end.
 // Returns { base, size } with size null when the name carries no size.
 export function splitName(name) {
+  const hit = cache.get(name)
+  if (hit) return hit
+  const out = parseName(name)
+  if (cache.size >= CACHE_MAX) cache.clear()
+  cache.set(name, out)
+  return out
+}
+
+function parseName(name) {
   const n = clean(name)
   if (!n) return { base: '', size: null }
   for (const { re } of SIZE_PATTERNS) {
@@ -76,7 +91,17 @@ export function sizeOf(p) {
 
 // Case- and punctuation-insensitive, so "Ferrari SF-24" and "ferrari sf 24"
 // land in the same family.
-export const familyKey = p => familyOf(p).toLowerCase().replace(/[^a-z0-9]+/g, '')
+const keyCache = new Map()
+export const familyKey = p => {
+  const fam = familyOf(p)
+  let k = keyCache.get(fam)
+  if (k === undefined) {
+    k = fam.toLowerCase().replace(/[^a-z0-9]+/g, '')
+    if (keyCache.size >= CACHE_MAX) keyCache.clear()
+    keyCache.set(fam, k)
+  }
+  return k
+}
 
 // Sorts sizes within a family: named sizes by the order above, anything with
 // numbers by the number, everything else alphabetically.

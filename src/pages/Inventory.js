@@ -542,16 +542,22 @@ export default function Inventory() {
   const invProfit = invValue.retail - invValue.cost
   const money0 = n => `MVR ${Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
 
-  const filtered = products.filter(p => {
-    const ms = p.name.toLowerCase().includes(search.toLowerCase()) || (p.brand || '').toLowerCase().includes(search.toLowerCase()) || (p.sku || '').toLowerCase().includes(search.toLowerCase()) || (p.barcode || '').includes(search)
-    const mc = filterCat === 'all' || p.category === filterCat
-    let ms2 = true
-    if (stockFilter === 'active') ms2 = !p.discontinued
-    else if (stockFilter === 'retired') ms2 = p.discontinued
-    else if (stockFilter === 'lowstock') ms2 = !p.discontinued && p.stock_qty > 0 && p.stock_qty <= (p.low_stock_threshold ?? 10)
-    else if (stockFilter === 'cleared') ms2 = !p.discontinued && p.stock_qty <= 0
-    return ms && mc && ms2
-  })
+  // Memoised on what it actually depends on. Rebuilt on every render it handed
+  // a new array to everything downstream, so their own memos could never hold
+  // and the whole list was re-filtered and re-grouped on each keystroke.
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase()
+    return products.filter(p => {
+      const ms = p.name.toLowerCase().includes(q) || (p.brand || '').toLowerCase().includes(q) || (p.sku || '').toLowerCase().includes(q) || (p.barcode || '').includes(search)
+      const mc = filterCat === 'all' || p.category === filterCat
+      let ms2 = true
+      if (stockFilter === 'active') ms2 = !p.discontinued
+      else if (stockFilter === 'retired') ms2 = p.discontinued
+      else if (stockFilter === 'lowstock') ms2 = !p.discontinued && p.stock_qty > 0 && p.stock_qty <= (p.low_stock_threshold ?? 10)
+      else if (stockFilter === 'cleared') ms2 = !p.discontinued && p.stock_qty <= 0
+      return ms && mc && ms2
+    })
+  }, [products, search, filterCat, stockFilter])
   // Sizes of one product are shown together — separate records, but one thing to
   // stock, so seeing "4 Large, 9 Small" side by side is what makes them useful.
   const shown = useMemo(() => groupAdjacent(filtered), [filtered])
