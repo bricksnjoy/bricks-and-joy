@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Button, Spinner, useToast, Toasts, Modal } from '../components/UI'
-import { Upload, CheckCircle, AlertTriangle, X, Trash2, Plus, FileSpreadsheet, Eye, EyeOff, RefreshCw, Scale, Lock, History } from 'lucide-react'
+import { Upload, CheckCircle, AlertTriangle, X, Trash2, Plus, FileSpreadsheet, Eye, EyeOff, RefreshCw, Scale, Lock, History, MoreHorizontal } from 'lucide-react'
 import { getSettings } from '../lib/settings'
 import { getLock, setLock } from '../lib/periodLock'
 
@@ -149,6 +149,7 @@ export default function Reconciliation() {
   const [settled, setSettled] = useState(readSettled)       // { bookId: { reason, at } }
   const [settleTarget, setSettleTarget] = useState(null)    // the row being settled, or null
   const [settleReason, setSettleReason] = useState('')
+  const [showSetup, setShowSetup] = useState(false)         // the tucked-away setup & records panel
   const fileRef = useRef(null)
   const toast = useToast()
 
@@ -1007,6 +1008,25 @@ export default function Reconciliation() {
             </div>
           </Card>
 
+          {/* Setup & records — the once-set details, tucked behind a menu so the
+              page opens on the work rather than the settings */}
+          <div style={{ marginBottom: 18 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '11px 15px', background: '#fff', border: '1px solid #f0ece6', borderRadius: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 12, color: '#999' }}>
+                <span style={{ fontWeight: 700, color: '#0d1b2a', fontSize: 12.5 }}>Setup &amp; records</span>
+                <span style={{ color: '#e6e2da' }}>·</span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><History size={12} color={booksStart ? '#1D9E75' : '#c4bcb0'} /> {booksStart ? `records from ${fmtDate(booksStart)}` : 'no start date set'}</span>
+                <span style={{ color: '#e6e2da' }}>·</span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Lock size={12} color={lock?.lockedThrough ? '#1D9E75' : '#c4bcb0'} /> {lock?.lockedThrough ? `closed to ${fmtDate(lock.lockedThrough)}` : 'books open'}</span>
+              </div>
+              <button onClick={() => setShowSetup(s => !s)} title="Backlog date & closing the books"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: showSetup ? '#f4f0e8' : 'none', border: '1px solid #eadfce', borderRadius: 8, padding: '5px 9px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 11.5, fontWeight: 700, color: '#8a6a2a' }}>
+                {showSetup ? 'Hide' : 'Manage'} <MoreHorizontal size={15} />
+              </button>
+            </div>
+          </div>
+
+          {showSetup && (<>
           {/* Where the records begin */}
           <Card style={{ marginBottom: 18, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
@@ -1052,6 +1072,7 @@ export default function Reconciliation() {
               </Button>
             </div>
           </Card>
+          </>)}
 
           {/* Not yet reconciled — visible without uploading anything */}
           {unreconciled.rows.length > 0 && (
