@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react'
+import React, { useDeferredValue, useEffect, useMemo, useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { localToday } from '../lib/dates'
 import { PageHeader, Card, Button, Input, Select, Modal, Spinner, FormRow, useToast, Toasts, Badge, ImageTile } from '../components/UI'
@@ -18,6 +18,22 @@ const AVATAR_COLORS = ['#7F77DD','#1D9E75','#FFA500','#378ADD','#E24B4A','#0F6E5
 const CATEGORIES = ['Building & Blocks','Action Figures','Dolls & Plush','Board Games','Outdoor & Sports','Educational','Vehicles & RC','Arts & Crafts','Puzzles','Other']
 const AGE_RANGES = ['0–2','3–5','6–8','9–12','12+','All ages']
 const UNITS = ['piece','box','set','pack','dozen','kg','litre']
+// How many catalog items are drawn before "show more" takes over
+const PAGE = 60
+
+// Drawn under a capped list, so it is always clear the rest is there.
+function ShowMore({ shown, total, onMore }) {
+  if (shown >= total) return null
+  const left = total - shown
+  return (
+    <div style={{ textAlign: 'center', padding: '18px 0 4px' }}>
+      <Button variant="ghost" onClick={onMore}>Show {Math.min(left, PAGE)} more</Button>
+      <div style={{ fontSize: 11.5, color: '#b8ab97', marginTop: 7 }}>
+        Showing {shown} of {total} — search or filter to narrow it down
+      </div>
+    </div>
+  )
+}
 
 // Header aliases the importer already understands — any Excel column NOT in this
 // set is imported into the product's custom_fields under its original name.
@@ -112,6 +128,10 @@ export default function SupplierCatalog() {
   const [loading, setLoading] = useState(true)
   const [activeSupplier, setActiveSupplier] = useState(null) // supplier obj
   const [search, setSearch] = useState('')
+  // How much of the list is actually drawn. A catalog of thousands rendered in
+  // full is what made typing stall — nobody scrolls past the first screenful
+  // before narrowing the search anyway.
+  const [limit, setLimit] = useState(PAGE)
   const [compareMode, setCompareMode] = useState(false)
   const [inventoryNames, setInventoryNames] = useState(() => new Set()) // normalized inventory product names
   const [inventoryByName, setInventoryByName] = useState(() => new Map()) // normalized name -> { id, stock_qty }
@@ -208,12 +228,20 @@ export default function SupplierCatalog() {
 
   // ── Filter ──────────────────────────────────────────────────────────────────
   const inInventory = item => inventoryNames.has((item.product_name || '').toLowerCase().trim())
-  const scopedCatalog = catalog.filter(item => {
-    const matchSupplier = compareMode ? true : (!activeSupplier || item.supplier_id === activeSupplier.id)
-    const matchSearch = !search || item.product_name?.toLowerCase().includes(search.toLowerCase()) || item.sku?.toLowerCase().includes(search.toLowerCase())
-    return matchSupplier && matchSearch
-  })
-  const missingCount = scopedCatalog.filter(i => !inInventory(i)).length
+  // A catalog runs to thousands of rows, and every keystroke re-filtered, re-sorted
+  // and re-rendered all of them. Deferring the search term lets the box update
+  // immediately and the list catch up a moment later, interruptibly, so typing
+  // never waits for the grid.
+  const listSearch = useDeferredValue(search)
+  const scopedCatalog = useMemo(() => {
+    const q = listSearch.toLowerCase()
+    return catalog.filter(item => {
+      const matchSupplier = compareMode ? true : (!activeSupplier || item.supplier_id === activeSupplier.id)
+      const matchSearch = !q || item.product_name?.toLowerCase().includes(q) || item.sku?.toLowerCase().includes(q)
+      return matchSupplier && matchSearch
+    })
+  }, [catalog, listSearch, compareMode, activeSupplier])
+  const missingCount = useMemo(() => scopedCatalog.filter(i => !inInventory(i)).length, [scopedCatalog, inventoryNames]) // eslint-disable-line
   // Sort key: when sorting by tag, use the first tag's letter; if a product has no
   // tag, fall back to its product name so it still slots in alphabetically.
   const sortKey = item => {
@@ -238,19 +266,23 @@ export default function SupplierCatalog() {
     }
     return sortKey(a).localeCompare(sortKey(b))
   }
-  const visibleCatalog = scopedCatalog.filter(item =>
+  const visibleCatalog = useMemo(() => scopedCatalog.filter(item =>
     (invFilter === 'all' ? true : invFilter === 'missing' ? !inInventory(item) : inInventory(item))
     && (!favFilter || favs.has(item.id))
-  ).sort(compareItems)
+  ).sort(compareItems), [scopedCatalog, invFilter, favFilter, favs, sortMode, inventoryNames]) // eslint-disable-line
+  const pagedCatalog = useMemo(() => visibleCatalog.slice(0, limit), [visibleCatalog, limit])
+  // Narrowing the list starts it from the top again
+  useEffect(() => { setLimit(PAGE) }, [listSearch, invFilter, favFilter, sortMode, activeSupplier, compareMode])
   const favCountForSupplier = s => catalog.filter(i => i.supplier_id === s.id && favs.has(i.id)).length
 
   // Dropdown options grow from data: base presets + any value already used by a
   // product (e.g. an age imported from Excel) so it's reusable on every product.
   const ADD_NEW = '__add_new__'
   const uniq = arr => [...new Set(arr.filter(Boolean).map(v => String(v).trim()).filter(Boolean))]
-  const dynCategories = uniq([...CATEGORIES, ...catalog.map(c => c.category)])
-  const dynAges = uniq([...AGE_RANGES, ...catalog.map(c => c.age_range)])
-  const dynUnits = uniq([...UNITS, ...catalog.map(c => c.unit)])
+  // Three more full passes over the catalog that only change when it does
+  const dynCategories = useMemo(() => uniq([...CATEGORIES, ...catalog.map(c => c.category)]), [catalog]) // eslint-disable-line
+  const dynAges = useMemo(() => uniq([...AGE_RANGES, ...catalog.map(c => c.age_range)]), [catalog]) // eslint-disable-line
+  const dynUnits = useMemo(() => uniq([...UNITS, ...catalog.map(c => c.unit)]), [catalog]) // eslint-disable-line
   // When the user picks "➕ Add new…", prompt for a value and use it
   const pickOrAdd = (field, value, label) => {
     if (value === ADD_NEW) {
@@ -262,14 +294,18 @@ export default function SupplierCatalog() {
   }
 
   // Group by product name for comparison view
-  const grouped = {}
-  visibleCatalog.forEach(item => {
-    const key = item.product_name?.trim().toLowerCase()
-    if (!grouped[key]) grouped[key] = []
-    grouped[key].push(item)
-  })
-  const comparedGroups = Object.values(grouped).filter(g => g.length > 1).sort((a,b) => b.length - a.length)
-  const singleItems = Object.values(grouped).filter(g => g.length === 1).map(g => g[0])
+  const { comparedGroups, singleItems } = useMemo(() => {
+    const grouped = {}
+    visibleCatalog.forEach(item => {
+      const key = item.product_name?.trim().toLowerCase()
+      if (!grouped[key]) grouped[key] = []
+      grouped[key].push(item)
+    })
+    return {
+      comparedGroups: Object.values(grouped).filter(g => g.length > 1).sort((a, b) => b.length - a.length),
+      singleItems: Object.values(grouped).filter(g => g.length === 1).map(g => g[0]),
+    }
+  }, [visibleCatalog])
 
   // ── Add / Edit ───────────────────────────────────────────────────────────────
   function genSKU(productName, supplierName) {
@@ -1217,10 +1253,13 @@ export default function SupplierCatalog() {
                 )}
 
                 {view === 'grid' ? (
-                  <CatalogGrid items={visibleCatalog} activeSupplier={activeSupplier} suppliers={suppliers} selectMode={selectMode}
-                    selectedIds={selectedIds} onToggleSelect={toggleSelect} inventoryNames={inventoryNames}
-                    onView={setViewItem} onPO={openPO} onEdit={openEdit} onBarcode={showBarcode} onDelete={del}
-                    favs={favs} onToggleFav={toggleFav} />
+                  <>
+                    <CatalogGrid items={pagedCatalog} activeSupplier={activeSupplier} suppliers={suppliers} selectMode={selectMode}
+                      selectedIds={selectedIds} onToggleSelect={toggleSelect} inventoryNames={inventoryNames}
+                      onView={setViewItem} onPO={openPO} onEdit={openEdit} onBarcode={showBarcode} onDelete={del}
+                      favs={favs} onToggleFav={toggleFav} />
+                    <ShowMore shown={pagedCatalog.length} total={visibleCatalog.length} onMore={() => setLimit(n => n + PAGE)} />
+                  </>
                 ) : (
                   <Card>
                     <div style={{ display:'grid', gridTemplateColumns:`${selectMode?'32px ':''}1fr auto auto auto auto`, gap:12, padding:'8px 16px', borderBottom:'2px solid #f0f0f0', fontSize:10, color:'#bbb', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.5px' }}>
@@ -1231,7 +1270,7 @@ export default function SupplierCatalog() {
                       <div style={{ width:30 }}></div>
                       <div style={{ width:30 }}></div>
                     </div>
-                    {visibleCatalog.map(item => (
+                    {pagedCatalog.map(item => (
                       <div key={item.id} style={{ display:'grid', gridTemplateColumns:`${selectMode?'32px ':''}1fr auto auto auto auto`, gap:12, alignItems:'center', padding:'11px 16px', borderBottom:'1px solid #f5f5f5', transition:'background 0.1s', background: selectedIds.has(item.id) ? '#FFF8E1' : '' }}
                         onMouseEnter={e=>{ if(!selectedIds.has(item.id)) e.currentTarget.style.background='#fafafa' }}
                         onMouseLeave={e=>{ if(!selectedIds.has(item.id)) e.currentTarget.style.background='' }}>
@@ -1274,6 +1313,7 @@ export default function SupplierCatalog() {
                         </div>
                       </div>
                     ))}
+                    <ShowMore shown={pagedCatalog.length} total={visibleCatalog.length} onMore={() => setLimit(n => n + PAGE)} />
                   </Card>
                 )}
               </div>
