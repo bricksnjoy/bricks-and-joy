@@ -620,6 +620,13 @@ alter table products add column if not exists weight           text;
 alter table products add column if not exists dimensions       text;
 alter table products add column if not exists tags             text;
 alter table products add column if not exists discontinued     boolean default false;
+-- The same toy in several sizes. Each size stays its own product so it keeps its
+-- own stock, cost and barcode; these two columns say which family it belongs to
+-- and what this one is. Both are optional — when they are blank the family is
+-- worked out from a size written on the end of the name.
+alter table products add column if not exists variant_group    text;
+alter table products add column if not exists variant_label    text;
+create index if not exists products_variant_group_idx on products(variant_group);
 
 -- PURCHASE ORDERS: batching, import costs and the received-into-stock flag
 alter table purchase_orders add column if not exists batch_id     text;

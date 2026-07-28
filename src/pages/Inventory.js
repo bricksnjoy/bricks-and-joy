@@ -1,9 +1,9 @@
-import React, { useEffect, useState, useRef } from 'react'
+import React, { useEffect, useMemo, useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { localToday } from '../lib/dates'
 import { logAudit } from '../lib/audit'
 import { PageHeader, Card, Button, Input, Select, Table, Modal, Badge, StockBadge, Spinner, FormRow, useToast, Toasts, ImageTile } from '../components/UI'
-import { Plus, Trash2, Edit2, Upload, X, Package, Eye, Barcode, Download, Printer, Camera, LayoutGrid, List, MoreVertical, ShoppingBag, Percent, Minus, RotateCcw } from 'lucide-react'
+import { Plus, Trash2, Edit2, Upload, X, Package, Eye, Barcode, Download, Printer, Camera, LayoutGrid, List, MoreVertical, ShoppingBag, Percent, Minus, RotateCcw, Layers } from 'lucide-react'
 
 // Custom line-art icons matching the toy/store brand
 const BrickIcon = ({ size = 14, color = '#FFA500' }) => (
@@ -24,10 +24,11 @@ import JsBarcode from 'jsbarcode'
 import QRCode from 'qrcode'
 import BarcodeScanner from '../components/BarcodeScanner'
 import { restockPredictions, costHistoryByProduct } from '../lib/insights'
+import { groupAdjacent, familyRuns, sizeOf, splitName } from '../lib/variants'
 
 const CATEGORIES = ['Building & Blocks','Action Figures','Dolls & Plush','Board Games','Outdoor & Sports','Educational','Vehicles & RC','Arts & Crafts','Puzzles','Other']
 const AGE_RANGES = ['0–2','3–5','6–8','9–12','12+','All ages']
-const EMPTY = { name:'', category:'Building & Blocks', age_range:'3–5', brand:'', sku:'', barcode:'', pieces:'', stock_qty:0, low_stock_threshold:10, cost_price:0, sell_price:0, description:'', sizes:'', weight:'', dimensions:'', tags:'', photo_url:'', discontinued:false, featured:false, badge:'', sale_price:'', video_url:'', battery:'', materials:'', safety_warnings:'', images:[] }
+const EMPTY = { name:'', category:'Building & Blocks', age_range:'3–5', brand:'', sku:'', barcode:'', pieces:'', stock_qty:0, low_stock_threshold:10, cost_price:0, sell_price:0, description:'', sizes:'', weight:'', dimensions:'', tags:'', photo_url:'', discontinued:false, variant_group:'', variant_label:'', featured:false, badge:'', sale_price:'', video_url:'', battery:'', materials:'', safety_warnings:'', images:[] }
 
 // Generate a unique barcode number
 function genBarcode(name, id) {
@@ -117,7 +118,7 @@ export default function Inventory() {
     setForm({ ...EMPTY, barcode: bc })
     setModal('add') 
   }
-  function openEdit(p) { setForm({ ...EMPTY, ...p, sizes: p.sizes || '', tags: p.tags || '', images: Array.isArray(p.images) && p.images.length ? p.images : (p.photo_url ? [p.photo_url] : []), _origStock: p.stock_qty }); setModal('edit') }
+  function openEdit(p) { setForm({ ...EMPTY, ...p, sizes: p.sizes || '', tags: p.tags || '', variant_group: p.variant_group || '', variant_label: p.variant_label || '', images: Array.isArray(p.images) && p.images.length ? p.images : (p.photo_url ? [p.photo_url] : []), _origStock: p.stock_qty }); setModal('edit') }
   function openView(p) { setViewModal(p) }
   function startScanner() { setScanModal(true); setScanResult(null) }
   function openBarcode(p) {
@@ -182,7 +183,7 @@ export default function Inventory() {
     const barcode = form.barcode || genBarcode(form.name, form.id || Date.now())
     // Strip nested relation data + edit-only helper that Supabase rejects on update
     const { suppliers: _s, supplier_name: _sn, _origStock, ...cleanForm } = form
-    const payload = { ...cleanForm, barcode, pieces: form.pieces === '' || form.pieces == null ? null : parseInt(form.pieces) || null, stock_qty: parseInt(form.stock_qty) || 0, cost_price: parseFloat(form.cost_price) || 0, sell_price: parseFloat(form.sell_price) || 0, sale_price: (form.sale_price === '' || form.sale_price == null) ? null : (parseFloat(form.sale_price) || null), low_stock_threshold: (form.low_stock_threshold === '' || form.low_stock_threshold == null || isNaN(parseInt(form.low_stock_threshold))) ? 10 : parseInt(form.low_stock_threshold), photo_url: (Array.isArray(form.images) && form.images.length ? form.images[0] : (form.photo_url || null)), images: Array.isArray(form.images) ? form.images : [] }
+    const payload = { ...cleanForm, barcode, variant_group: form.variant_group?.trim() || null, variant_label: form.variant_label?.trim() || null, pieces: form.pieces === '' || form.pieces == null ? null : parseInt(form.pieces) || null, stock_qty: parseInt(form.stock_qty) || 0, cost_price: parseFloat(form.cost_price) || 0, sell_price: parseFloat(form.sell_price) || 0, sale_price: (form.sale_price === '' || form.sale_price == null) ? null : (parseFloat(form.sale_price) || null), low_stock_threshold: (form.low_stock_threshold === '' || form.low_stock_threshold == null || isNaN(parseInt(form.low_stock_threshold))) ? 10 : parseInt(form.low_stock_threshold), photo_url: (Array.isArray(form.images) && form.images.length ? form.images[0] : (form.photo_url || null)), images: Array.isArray(form.images) ? form.images : [] }
     // On edit, don't overwrite stock if the user didn't change it — avoids clobbering
     // stock changes made by orders while the edit modal was open.
     if (modal === 'edit' && _origStock != null && (parseInt(form.stock_qty) || 0) === (Number(_origStock) || 0)) delete payload.stock_qty
@@ -551,18 +552,41 @@ export default function Inventory() {
     else if (stockFilter === 'cleared') ms2 = !p.discontinued && p.stock_qty <= 0
     return ms && mc && ms2
   })
+  // Sizes of one product are shown together — separate records, but one thing to
+  // stock, so seeing "4 Large, 9 Small" side by side is what makes them useful.
+  const shown = useMemo(() => groupAdjacent(filtered), [filtered])
+  // What the name alone says about the size, shown in the form as a placeholder
+  const autoFamily = useMemo(() => splitName(form.name), [form.name])
+  const runsByKey = useMemo(() => {
+    const m = {}
+    familyRuns(shown).forEach(run => { if (run.count > 1) run.items.forEach((it, i) => { m[it.id] = { run, i } }) })
+    return m
+  }, [shown])
 
   const columns = [
     { key: 'photo', label: '', render: r => r.photo_url
         ? <img src={r.photo_url} alt={r.name} style={{ width: 36, height: 36, borderRadius: 8, objectFit: 'cover', border: '1px solid #eee' }} />
         : <div style={{ width: 36, height: 36, borderRadius: 8, background: '#f0f0f0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Package size={16} color="#ccc" /></div>
     },
-    { key: 'name', label: 'Product', render: r => (
-      <div>
-        <div style={{ fontWeight: 600, color: '#0d1b2a' }}>{r.name}</div>
-        <div style={{ fontSize: 11, color: '#aaa', fontFamily: 'monospace' }}>{r.barcode || 'No barcode'}</div>
-      </div>
-    )},
+    { key: 'name', label: 'Product', render: r => {
+      const fam = runsByKey[r.id]
+      return (
+        <div>
+          {fam && fam.i === 0 && (
+            <div style={{ fontSize: 10, fontWeight: 800, color: '#b8740a', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', gap: 4, marginBottom: 3 }}>
+              <Layers size={11} /> {fam.run.name} · {fam.run.count} sizes
+            </div>
+          )}
+          <div style={{ fontWeight: 600, color: '#0d1b2a', display: 'flex', alignItems: 'center', gap: 7 }}>
+            {fam && sizeOf(r) && (
+              <span style={{ background: '#FFF3DB', color: '#8a5a00', border: '1px solid #f3e0bb', borderRadius: 6, padding: '1px 7px', fontSize: 11, fontWeight: 800, whiteSpace: 'nowrap' }}>{sizeOf(r)}</span>
+            )}
+            <span style={fam ? { color: '#8a8278', fontWeight: 500 } : undefined}>{r.name}</span>
+          </div>
+          <div style={{ fontSize: 11, color: '#aaa', fontFamily: 'monospace' }}>{r.barcode || 'No barcode'}</div>
+        </div>
+      )
+    }},
     { key: 'category', label: 'Category', render: r => <Badge color="purple">{r.category}</Badge> },
     { key: 'age_range', label: 'Age', render: r => <Badge color="blue">{r.age_range}</Badge> },
     { key: 'sizes', label: 'Sizes', render: r => r.sizes ? <span style={{ fontSize: 11, color: '#888' }}>{r.sizes}</span> : <span style={{ color: '#ddd' }}>—</span> },
@@ -693,10 +717,10 @@ export default function Inventory() {
         {loading ? <Spinner /> : stockFilter === 'restock'
           ? <RestockView rows={restock} onView={openView} onReorder={p => { setViewModal(null); openOrder(p) }} products={products} />
           : view === 'list'
-          ? <Table columns={columns} data={filtered} emptyMessage="No products found." />
-          : (filtered.length === 0
+          ? <Table columns={columns} data={shown} emptyMessage="No products found." />
+          : (shown.length === 0
               ? <div style={{ textAlign: 'center', padding: '60px 20px', color: '#bbb' }}>No products found.</div>
-              : <ProductGrid products={filtered} onView={openView} onEdit={openEdit} onBarcode={openBarcode} onDelete={del} onToggle={toggleDiscontinued} onOrder={openOrder}
+              : <ProductGrid products={shown} onView={openView} onEdit={openEdit} onBarcode={openBarcode} onDelete={del} onToggle={toggleDiscontinued} onOrder={openOrder}
                   selectMode={selectMode} selected={selected} onToggleSelect={toggleSelect}
                   openMenuId={openMenuId} setOpenMenuId={setOpenMenuId} />
           )}
@@ -1016,6 +1040,22 @@ export default function Inventory() {
           </FormRow>
           <FormRow>
             <Input label="Sizes" value={form.sizes} onChange={f('sizes')} placeholder="e.g. Small, Medium or 3-5yrs, 6-8yrs" style={{ gridColumn: 'span 2' }} />
+
+            {/* Only needed when the name doesn't already say the size */}
+            <div style={{ gridColumn: 'span 2', background: '#fffdf8', border: '1px solid #f4e7cd', borderRadius: 10, padding: '12px 14px' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#b8740a', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                <Layers size={13} /> Same product, different size
+              </div>
+              <div style={{ fontSize: 11.5, color: '#a9a094', lineHeight: 1.6, marginBottom: 10 }}>
+                {autoFamily.size
+                  ? <>Worked out from the name: this is the <b>{autoFamily.size}</b> of <b>{autoFamily.base}</b>. Leave both boxes empty unless that's wrong.</>
+                  : <>Leave both empty for a one-off product. Fill them in when several products are the same thing in different sizes but the names don't say so.</>}
+              </div>
+              <FormRow cols={2}>
+                <Input label="Product family" value={form.variant_group || ''} onChange={f('variant_group')} placeholder={autoFamily.base || 'e.g. Ferrari SF 24'} />
+                <Input label="This one's size" value={form.variant_label || ''} onChange={f('variant_label')} placeholder={autoFamily.size || 'e.g. 1:18 or Large'} />
+              </FormRow>
+            </div>
           </FormRow>
           <FormRow>
             <Input label="Weight" value={form.weight} onChange={f('weight')} placeholder="e.g. 500g" />
@@ -1262,6 +1302,11 @@ function ProductCard({ p, onView, onEdit, onBarcode, onDelete, onOrder, selectMo
       <div style={{ textAlign: 'center', padding: '16px 8px 0', display: 'flex', flexDirection: 'column', flex: 1 }}>
         {isNew && <div style={{ fontSize: 12, fontWeight: 700, color: '#FFA500', marginBottom: 2 }}>New</div>}
         <div style={{ fontSize: 19, fontWeight: 700, color: '#0d1b2a', letterSpacing: '-0.3px', lineHeight: 1.2, minHeight: '2.4em', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{p.name}</div>
+        {sizeOf(p) && (
+          <div style={{ marginTop: 5 }}>
+            <span style={{ background: '#FFF3DB', color: '#8a5a00', border: '1px solid #f3e0bb', borderRadius: 7, padding: '2px 9px', fontSize: 12, fontWeight: 800 }}>{sizeOf(p)}</span>
+          </div>
+        )}
         <div style={{ fontSize: 12, color: '#aaa', marginTop: 4, fontWeight: 600 }}>{p.category}</div>
         <div style={{ fontSize: 15, color: out ? '#E24B4A' : low ? '#f57f17' : '#1D9E75', marginTop: 9, fontWeight: 800 }}>
           {out ? 'Cleared out' : low ? `⚠ ${p.stock_qty} left` : `${p.stock_qty} in stock`}

@@ -2,10 +2,11 @@ import React, { useEffect, useState, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
 import { localDaysAgo, localToday } from '../lib/dates'
 import { logAudit } from '../lib/audit'
+import { groupAdjacent, familyRuns, familyOf, sizeOf } from '../lib/variants'
 import { PageHeader, Card, Button, Input, Select, Modal, Spinner, useToast, Toasts, Badge, ImageTile } from '../components/UI'
 import {
   Plus, Trash2, Calculator, Search, Package, BookOpen, TrendingUp, TrendingDown,
-  ArrowLeft, Truck, FileSpreadsheet, AlertTriangle, CheckCircle, Copy, Percent, X, Building2
+  ArrowLeft, Truck, FileSpreadsheet, AlertTriangle, CheckCircle, Copy, Percent, X, Building2, Layers
 } from 'lucide-react'
 import * as XLSX from 'xlsx'
 
@@ -131,7 +132,13 @@ function analyse(items, extraCosts, targetMargin, velocityFor, vendorOf) {
     acc[key].rows.push(r)
     return acc
   }, {}))
-  groups.forEach(g => { g.totals = sum(g.rows) })
+  // Within a vendor, the sizes of one product sit together — you cannot judge
+  // how many 1:18s to buy without seeing what the 1:24 is doing beside it.
+  groups.forEach(g => {
+    g.rows = groupAdjacent(g.rows)
+    g.runs = familyRuns(g.rows)
+    g.totals = sum(g.rows)
+  })
   groups.sort((a, b) => (b.totals.landed - a.totals.landed))
 
   return { rows, groups, totals: sum(rows) }
@@ -728,6 +735,12 @@ export default function OrderAnalysis() {
           .oa-kpi-l { font-size: 9.5px; }
           .oa-kpi-v { font-size: 14px; }
           .oa-cellpad { gap: 10px; }
+          /* Sizes of one product. The heading names the family once; each row
+             then leads with its own size rather than repeating the whole name. */
+          .oa-family { font-size: 10px; font-weight: 800; color: #b8740a; text-transform: uppercase;
+            letter-spacing: 0.5px; display: flex; align-items: center; gap: 4px; margin-bottom: 3px; }
+          .oa-size { display: inline-block; background: #FFF3DB; color: #8a5a00; border: 1px solid #f3e0bb;
+            border-radius: 6px; padding: 1px 7px; font-size: 11px; font-weight: 800; white-space: nowrap; }
 
           @media (min-width: 769px) {
             .oa-table { font-size: 13px; min-width: 1260px; }
@@ -751,6 +764,8 @@ export default function OrderAnalysis() {
             .oa-kpi-l { font-size: 10px; }
             .oa-kpi-v { font-size: 16px; }
             .oa-cellpad { gap: 14px; }
+            .oa-family { font-size: 10.5px; margin-bottom: 5px; }
+            .oa-size { font-size: 12px; padding: 2px 9px; }
           }
         `}</style>
         <Toasts toasts={toast.toasts} />
@@ -990,20 +1005,31 @@ export default function OrderAnalysis() {
                   </tr>
                 </thead>
                 <tbody>
-                  {g.rows.map(r => {
+                  {g.rows.map((r, ri) => {
+                    // Where this row sits in its family, so a set of sizes can be
+                    // drawn as one block rather than repeating the same name.
+                    const run = (g.runs || []).find(x => ri >= x.start && ri < x.start + x.count)
+                    const inFamily = !!run && run.count > 1
+                    const firstOfFamily = inFamily && ri === run.start
+                    const size = inFamily ? sizeOf(r) : null
                     const v = VERDICT[r.verdict]
                     const marginColor = r.verdict === 'good' ? '#1D9E75' : r.verdict === 'thin' ? '#e6940a' : r.verdict === 'loss' ? '#E24B4A' : '#aaa'
                     const cell = { textAlign: 'right', whiteSpace: 'nowrap', borderTop: '1px solid #f5f5f5' }
                     const editStyle = { border: '1px solid #e6e2da', borderRadius: 7, fontFamily: 'inherit', textAlign: 'right' }
                     const ticked = selected.has(r.id)
                     return (
-                      <tr key={r.id} style={ticked ? { background: '#fffaf0' } : undefined}>
+                      <tr key={r.id} style={{
+                        ...(ticked ? { background: '#fffaf0' } : null),
+                        // A family reads as one block: the rows after the first
+                        // lose their divider so the set holds together.
+                        ...(inFamily && !firstOfFamily ? { borderTop: 'none' } : null),
+                      }}>
                         {!converted && (
-                          <td style={{ ...cell, textAlign: 'center', paddingLeft: 14 }}>
+                          <td style={{ ...cell, textAlign: 'center', paddingLeft: 14, ...(inFamily && !firstOfFamily ? { borderTop: 'none' } : null) }}>
                             <input type="checkbox" className="oa-check" checked={ticked} onChange={() => toggleSelect(r.id)} />
                           </td>
                         )}
-                        <td style={{ ...cell, textAlign: 'left', minWidth: 250 }}>
+                        <td style={{ ...cell, textAlign: 'left', minWidth: 250, ...(inFamily && !firstOfFamily ? { borderTop: 'none' } : null) }}>
                           <div className="oa-cellpad" style={{ display: 'flex', alignItems: 'center' }}>
                             <ImageTile src={r.image_url} className="oa-img" style={{ background: '#f7f5f2', flexShrink: 0, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                               {r.image_url
@@ -1011,7 +1037,21 @@ export default function OrderAnalysis() {
                                 : <Package size={18} color="#d5cfc6" />}
                             </ImageTile>
                             <div style={{ minWidth: 0 }}>
-                              <div className="oa-name" style={{ fontWeight: 600, color: '#0d1b2a', whiteSpace: 'normal' }}>{r.product_name}</div>
+                              {inFamily ? (
+                                <>
+                                  {firstOfFamily && (
+                                    <div className="oa-family" title={`${run.count} sizes of this product`}>
+                                      <Layers size={11} /> {familyOf(r)} · {run.count} sizes
+                                    </div>
+                                  )}
+                                  <div className="oa-name" style={{ fontWeight: 600, color: '#0d1b2a', whiteSpace: 'normal', display: 'flex', alignItems: 'center', gap: 7 }}>
+                                    {size ? <span className="oa-size">{size}</span> : null}
+                                    <span style={{ color: '#8a8278', fontWeight: 500 }}>{r.product_name}</span>
+                                  </div>
+                                </>
+                              ) : (
+                                <div className="oa-name" style={{ fontWeight: 600, color: '#0d1b2a', whiteSpace: 'normal' }}>{r.product_name}</div>
+                              )}
                               <div className="oa-sub" style={{ color: '#bbb', display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                                 {r.sku && <span>{r.sku}</span>}
                                 <Badge color={v.color}>{v.label}</Badge>
