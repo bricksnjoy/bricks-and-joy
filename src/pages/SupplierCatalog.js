@@ -1,12 +1,14 @@
 import React, { useDeferredValue, useEffect, useMemo, useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { localToday } from '../lib/dates'
+import { logAudit } from '../lib/audit'
+import { matchAll, cleanFileName } from '../lib/photoMatch'
 import { PageHeader, Card, Button, Input, Select, Modal, Spinner, FormRow, useToast, Toasts, Badge, ImageTile } from '../components/UI'
 import {
   Plus, Trash2, Edit2, Eye, Search, Building2, Package, Truck,
   Barcode, QrCode, Upload, Download, FileSpreadsheet, Camera,
   ArrowUpDown, ChevronDown, CheckCircle, AlertTriangle, RefreshCw, X,
-  LayoutGrid, List, Percent, MoreVertical, Star, Calculator
+  LayoutGrid, List, Percent, MoreVertical, Star, Calculator, Images
 } from 'lucide-react'
 import JsBarcode from 'jsbarcode'
 import QRCode from 'qrcode'
@@ -162,6 +164,13 @@ export default function SupplierCatalog() {
   const [sortMode, setSortMode] = useState(() => localStorage.getItem('bnj_cat_sort') || 'name') // 'name' | 'tag'
   const changeSort = v => { setSortMode(v); localStorage.setItem('bnj_cat_sort', v) }
   const fileRef = useRef()
+  const photoRef = useRef()
+  // Bulk photo matching: the picked files matched to catalog rows, awaiting review
+  const [photoModal, setPhotoModal] = useState(null)   // { rows } | null
+  const [photoBusy, setPhotoBusy] = useState(false)
+  const [photoProgress, setPhotoProgress] = useState(null)  // { done, total } | null
+  // Release the preview object URLs if the page unmounts before the modal closes
+  useEffect(() => () => { photoModal?.rows.forEach(r => { try { URL.revokeObjectURL(r.preview) } catch { /* noop */ } }) }, [photoModal])
   const toast = useToast()
 
   useEffect(() => { load() }, [])
@@ -351,6 +360,66 @@ export default function SupplierCatalog() {
     const { data: { publicUrl } } = supabase.storage.from('uploads').getPublicUrl(fileName)
     setForm(p => ({ ...p, image_url: publicUrl }))
     setUploading(false); toast.success('Photo uploaded!')
+  }
+
+  // ── Bulk photo matching ─────────────────────────────────────────────────────
+  // Pick a folder of photos and let filenames find their products. Matching runs
+  // against the supplier in view when one is chosen, else the whole catalog, so
+  // "Bouquet of Roses.jpg" never lands on another supplier's namesake by mistake.
+  function onPhotosPicked(e) {
+    const files = Array.from(e.target.files || [])
+    e.target.value = ''
+    if (!files.length) return
+    const pool = activeSupplier ? catalog.filter(c => c.supplier_id === activeSupplier.id) : catalog
+    if (!pool.length) { toast.error('No catalog products to match against'); return }
+    const products = pool.map(c => ({ id: c.id, name: c.product_name, sku: c.sku, image_url: c.image_url }))
+    const rows = matchAll(files, products).map(r => ({
+      ...r,
+      preview: URL.createObjectURL(r.file),
+      // Only fill empty ones: a product that already has a photo starts off, but
+      // the target is still there to be turned back on deliberately.
+      chosenId: r.productId,
+      enabled: r.productId != null && !r.duplicate && !pool.find(c => c.id === r.productId)?.image_url,
+    }))
+    setPhotoModal({ rows })
+  }
+
+  function setPhotoRow(index, patch) {
+    setPhotoModal(m => ({ ...m, rows: m.rows.map(r => r.index === index ? { ...r, ...patch } : r) }))
+  }
+
+  function closePhotoModal() {
+    photoModal?.rows.forEach(r => { try { URL.revokeObjectURL(r.preview) } catch { /* noop */ } })
+    setPhotoModal(null); setPhotoProgress(null)
+  }
+
+  async function applyPhotoMatches() {
+    const todo = photoModal.rows.filter(r => r.enabled && r.chosenId != null)
+    if (!todo.length) { toast.error('Nothing ticked to apply'); return }
+    setPhotoBusy(true); setPhotoProgress({ done: 0, total: todo.length })
+    let ok = 0, failed = 0
+    for (const r of todo) {
+      let url = null
+      const ext = (r.file.name.split('.').pop() || 'jpg').toLowerCase()
+      const fileName = `catalog-${r.chosenId}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}.${ext}`
+      const { error } = await supabase.storage.from('uploads').upload(fileName, r.file, { upsert: true })
+      if (error) {
+        // Storage unavailable — fall back to an inline data URL, as the rest of the app does
+        url = await new Promise(res => { const rd = new FileReader(); rd.onload = ev => res(ev.target.result); rd.onerror = () => res(null); rd.readAsDataURL(r.file) })
+      } else {
+        url = supabase.storage.from('uploads').getPublicUrl(fileName).data.publicUrl
+      }
+      if (url) {
+        const { error: upErr } = await supabase.from('supplier_products').update({ image_url: url }).eq('id', r.chosenId)
+        if (upErr) failed++; else ok++
+      } else failed++
+      setPhotoProgress(p => ({ ...p, done: p.done + 1 }))
+    }
+    setPhotoBusy(false)
+    if (ok) logAudit('update', 'supplier_products', `Bulk photos — ${ok} matched`, { applied: ok, failed })
+    toast[failed ? 'info' : 'success'](`${ok} photo${ok === 1 ? '' : 's'} set${failed ? `, ${failed} failed` : ''}`)
+    closePhotoModal()
+    load()
   }
 
   async function save() {
@@ -1052,6 +1121,10 @@ export default function SupplierCatalog() {
             <Button variant="ghost" onClick={() => fileRef.current.click()}>
               <Upload size={14} /> Import Excel
             </Button>
+            <input ref={photoRef} type="file" accept="image/*" multiple style={{ display:'none' }} onChange={onPhotosPicked} />
+            <Button variant="ghost" onClick={() => photoRef.current.click()}>
+              <Images size={14} /> Match photos
+            </Button>
             {activeSupplier && <Button onClick={openAdd}><Plus size={14} /> Add product</Button>}
           </div>
         }
@@ -1540,6 +1613,81 @@ export default function SupplierCatalog() {
       )}
 
       {/* Create Purchase Order modal */}
+      {photoModal && (() => {
+        const pool = activeSupplier ? catalog.filter(c => c.supplier_id === activeSupplier.id) : catalog
+        const opts = [...pool].sort((a, b) => (a.product_name || '').localeCompare(b.product_name || ''))
+        const hasPhoto = id => !!pool.find(c => c.id === id)?.image_url
+        const rows = photoModal.rows
+        const willApply = rows.filter(r => r.enabled && r.chosenId != null).length
+        const CONF = {
+          exact:  { label: 'Matched',    bg: '#EAF7EF', fg: '#1D8A5B', bd: '#c9ebd6' },
+          strong: { label: 'Likely',     bg: '#EAF2FD', fg: '#2f6fc0', bd: '#d0e4ff' },
+          weak:   { label: 'Not sure',   bg: '#FFF6E5', fg: '#b8740a', bd: '#f3e0bb' },
+          none:   { label: 'No match',   bg: '#FBECEC', fg: '#c0392b', bd: '#f3d4d4' },
+        }
+        return (
+        <Modal title="Match photos to products"
+          subtitle={`${rows.length} photo${rows.length === 1 ? '' : 's'} · matched against ${activeSupplier ? activeSupplier.name : 'the whole catalog'} · only products without a photo are set`}
+          onClose={photoBusy ? () => {} : closePhotoModal} width={860}>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 14, fontSize: 12, color: '#888' }}>
+            <span><b style={{ color: '#0d1b2a' }}>{willApply}</b> will be set</span>
+            <span style={{ color: '#ddd' }}>·</span>
+            <button onClick={() => setPhotoModal(m => ({ ...m, rows: m.rows.map(r => ({ ...r, enabled: r.chosenId != null && !hasPhoto(r.chosenId) })) }))}
+              style={{ background: 'none', border: 'none', color: '#FFA500', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12 }}>Reset to matches</button>
+            <span style={{ color: '#ddd' }}>·</span>
+            <button onClick={() => setPhotoModal(m => ({ ...m, rows: m.rows.map(r => ({ ...r, enabled: false })) }))}
+              style={{ background: 'none', border: 'none', color: '#aaa', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12 }}>Untick all</button>
+          </div>
+
+          <div style={{ maxHeight: '54vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {rows.map(r => {
+              const c = CONF[r.confidence] || CONF.none
+              const already = r.chosenId != null && hasPhoto(r.chosenId)
+              return (
+                <div key={r.index} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 11px', border: '1px solid #f0ece4', borderRadius: 11, background: r.enabled ? '#fffdfa' : '#fafafa', opacity: r.enabled ? 1 : 0.72 }}>
+                  <input type="checkbox" checked={r.enabled} disabled={r.chosenId == null}
+                    onChange={e => setPhotoRow(r.index, { enabled: e.target.checked })} style={{ width: 16, height: 16, flexShrink: 0 }} />
+                  <img src={r.preview} alt="" style={{ width: 46, height: 46, borderRadius: 8, objectFit: 'cover', background: '#f0f0f0', flexShrink: 0 }} />
+                  <div style={{ minWidth: 0, flex: '0 0 190px' }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 600, color: '#0d1b2a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={r.name}>{r.name}</div>
+                    <div style={{ fontSize: 10.5, color: '#bbb', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>reads as "{cleanFileName(r.name)}"</div>
+                  </div>
+                  <span style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.4px', color: c.fg, background: c.bg, border: `1px solid ${c.bd}`, borderRadius: 6, padding: '2px 7px', flexShrink: 0 }}>{c.label}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <select value={r.chosenId ?? ''} onChange={e => { const v = e.target.value ? (isNaN(Number(e.target.value)) ? e.target.value : Number(e.target.value)) : null; setPhotoRow(r.index, { chosenId: v || null, enabled: !!v && !hasPhoto(v) }) }}
+                      style={{ width: '100%', border: '1px solid #e6e2da', borderRadius: 8, padding: '7px 9px', fontSize: 12.5, fontFamily: 'inherit', background: '#fff', color: r.chosenId ? '#0d1b2a' : '#aaa' }}>
+                      <option value="">— no product —</option>
+                      {opts.map(o => <option key={o.id} value={o.id}>{o.product_name}{o.image_url ? '  (has photo)' : ''}</option>)}
+                    </select>
+                    <div style={{ fontSize: 10.5, color: r.duplicate ? '#c0392b' : already ? '#b8740a' : '#c4bcb0', marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {r.duplicate ? 'Another photo already matched this product' : already ? 'This product already has a photo — tick to replace it' : r.why}
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          {photoProgress && (
+            <div style={{ marginTop: 14 }}>
+              <div style={{ height: 7, background: '#f2f0ec', borderRadius: 99, overflow: 'hidden' }}>
+                <div style={{ width: `${Math.round(photoProgress.done / photoProgress.total * 100)}%`, height: '100%', background: 'linear-gradient(90deg,#FFA500,#ff8c00)', transition: 'width .2s' }} />
+              </div>
+              <div style={{ fontSize: 11.5, color: '#bbb', marginTop: 5, textAlign: 'center' }}>Uploading {photoProgress.done} of {photoProgress.total}…</div>
+            </div>
+          )}
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 18 }}>
+            <Button variant="ghost" onClick={closePhotoModal} disabled={photoBusy}>Cancel</Button>
+            <Button onClick={applyPhotoMatches} disabled={photoBusy || willApply === 0}>
+              <CheckCircle size={14} /> {photoBusy ? 'Setting…' : `Set ${willApply} photo${willApply === 1 ? '' : 's'}`}
+            </Button>
+          </div>
+        </Modal>
+        )
+      })()}
+
       {poModal && (
         <Modal title="Create Purchase Order" subtitle={`${poModal.product_name} · ${poModal.supplier_name}`} onClose={() => setPoModal(null)} width={440}>
           <div style={{ display:'flex', alignItems:'center', gap:12, background:'#f8f7f4', borderRadius:10, padding:'12px 14px', marginBottom:20 }}>
