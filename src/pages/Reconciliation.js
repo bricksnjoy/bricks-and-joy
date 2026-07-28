@@ -140,10 +140,15 @@ export default function Reconciliation() {
 
   async function load() {
     setLoading(true)
+    // These select every column rather than a named list on purpose: naming a
+    // column the table has not been migrated to have (paid_from, reference,
+    // transfer_reference…) makes Supabase reject the whole query, which silently
+    // emptied every cost or sale from the reconciliation. The mapping below
+    // guards each optional field, so extra or missing columns are both fine.
     const [o, e, sp, ln, lp, cm] = await Promise.all([
-      supabase.from('orders').select('id, customer_name, invoice_number, total_price, payment_status, payment_method, transfer_reference, paid_at, order_date'),
-      supabase.from('expenses').select('id, expense_date, category, amount, description, reference, paid_from'),
-      supabase.from('supplier_payments').select('id, supplier_name, amount, payment_date, reference'),
+      supabase.from('orders').select('*'),
+      supabase.from('expenses').select('*'),
+      supabase.from('supplier_payments').select('*'),
       supabase.from('loans').select('*'),
       supabase.from('loan_payments').select('*'),
       supabase.from('cash_movements').select('*'),

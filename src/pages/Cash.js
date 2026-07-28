@@ -30,9 +30,11 @@ export default function Cash() {
 
   async function load() {
     setLoading(true)
+    // select('*') on purpose — naming paid_from (or paid_at) would make the whole
+    // query fail on a table not yet migrated to have it, emptying the page.
     const [o, e, m] = await Promise.all([
-      supabase.from('orders').select('id, total_price, payment_method, payment_status, status, order_date, paid_at, customer_name, invoice_number'),
-      supabase.from('expenses').select('id, amount, category, description, expense_date, paid_from'),
+      supabase.from('orders').select('*'),
+      supabase.from('expenses').select('*'),
       supabase.from('cash_movements').select('*').order('occurred_on', { ascending: false }),
     ])
     if (m.error && /relation|does not exist|schema cache/i.test(m.error.message || '')) setNeedsSetup(true)
