@@ -152,14 +152,14 @@ export function exportBusinessExcel(data, opening = getOpening()) {
 const DELIVERY_CATS = ['Delivery', 'Shipping']
 const PERSONAL_CATS = ['Personal use', 'Personal', 'Owner draw']
 
-export async function exportBusinessSummary(data, opening = getOpening()) {
-  if (!data) data = await loadBusinessData()
+// Pure computation behind both the on-screen Business Sheet and the Excel export, so
+// the two can never drift apart. Splits each month's spending the way the owner's
+// own spreadsheet does: Cost of Sales + Delivery, Advertise, Loan, Personal use, Other.
+export function computeSummary(data, opening = getOpening()) {
   const { orders, products, expenses, purchases, loanPays } = data
   const costOf = {}; products.forEach(p => { costOf[p.id] = num(p.cost_price) })
   const liveOrders = orders.filter(o => o.status !== 'cancelled')
-  const r2 = n => Math.round(num(n) * 100) / 100
 
-  // rich monthly breakdown (Cash Out split into Advertise / Loan / Personal use)
   const keys = new Set()
   liveOrders.forEach(o => o.order_date && keys.add(o.order_date.slice(0, 7)))
   expenses.forEach(e => e.expense_date && keys.add(e.expense_date.slice(0, 7)))
@@ -181,6 +181,19 @@ export async function exportBusinessSummary(data, opening = getOpening()) {
   const T = months.reduce((t, r) => ({ orderCount: t.orderCount + r.orderCount, revenue: t.revenue + r.revenue, cos: t.cos + r.cos, other: t.other + r.other, ad: t.ad + r.ad, loan: t.loan + r.loan, personal: t.personal + r.personal, totalExp: t.totalExp + r.totalExp, profit: t.profit + r.profit }),
     { orderCount: 0, revenue: 0, cos: 0, other: 0, ad: 0, loan: 0, personal: 0, totalExp: 0, profit: 0 })
 
+  // Advertising, split by sales channel — orders and revenue come straight from the
+  // orders; ad spend can't be attributed per channel, so it sits only in the total.
+  const chan = {}
+  liveOrders.forEach(o => {
+    const name = (o.channel || 'Other').trim() || 'Other'
+    if (!chan[name]) chan[name] = { channel: name, invoices: new Set(), revenue: 0 }
+    chan[name].invoices.add(o.invoice_number || o.id)
+    chan[name].revenue += num(o.total_price)
+  })
+  const channels = Object.values(chan)
+    .map(c => ({ channel: c.channel, orders: c.invoices.size, revenue: c.revenue }))
+    .sort((a, b) => b.revenue - a.revenue)
+
   // inventory
   const soldQty = liveOrders.reduce((s, o) => s + (parseInt(o.qty) || 0), 0)
   const cogsTotal = liveOrders.reduce((s, o) => s + (costOf[o.product_id] || 0) * (parseInt(o.qty) || 0), 0)
@@ -194,6 +207,20 @@ export async function exportBusinessSummary(data, opening = getOpening()) {
   const days = turn > 0 ? 365 / turn : 0
   const closingBank = opening + T.revenue - T.totalExp
 
+  return {
+    months, T, channels, opening, closingBank,
+    inventory: { soldQty, cogsTotal, closing, closingQty, purchasesVal, purchasedQty, openingInv, turn, days },
+  }
+}
+
+export async function exportBusinessSummary(data, opening = getOpening()) {
+  if (!data) data = await loadBusinessData()
+  const r2 = n => Math.round(num(n) * 100) / 100
+  const s = computeSummary(data, opening)
+  const { months, T, channels } = s
+  const { soldQty, cogsTotal, closing, closingQty, purchasesVal, purchasedQty, openingInv, turn, days } = s.inventory
+  const closingBank = s.closingBank
+
   const B = '' // blank cell
   const rows = []
   rows.push(['Last Year Performance'])
@@ -202,8 +229,9 @@ export async function exportBusinessSummary(data, opening = getOpening()) {
   rows.push(['Total', T.orderCount, r2(T.revenue), r2(T.cos), r2(T.other), r2(T.ad), r2(T.loan), r2(T.personal), r2(T.totalExp), r2(T.profit)])
   rows.push([])
   rows.push(['Advertising platforms spent', 'order', 'spent for Adv', 'Revenue'])
-  rows.push(['Instagram', B, B, B]); rows.push(['TikTok', B, B, B]); rows.push(['Facebook', B, B, B])
-  rows.push(['Total', B, r2(T.ad), B])
+  if (channels.length) channels.forEach(ch => rows.push([ch.channel, ch.orders, B, r2(ch.revenue)]))
+  else { rows.push(['Instagram', B, B, B]); rows.push(['TikTok', B, B, B]); rows.push(['Facebook', B, B, B]) }
+  rows.push(['Total', T.orderCount, r2(T.ad), r2(T.revenue)])
   rows.push([])
   rows.push(['Cashflow', 'MVR'])
   rows.push(['Opening Balance at Bank', r2(opening)])

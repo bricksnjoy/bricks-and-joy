@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { Card, Button, Badge, Spinner } from './UI'
-import { TrendingUp, Wallet, Boxes, Package, CheckCircle2, XCircle, Download } from 'lucide-react'
-import { loadBusinessData, computeBusiness, exportBusinessExcel, monthLabel, num, getOpening, setOpening } from '../lib/business'
+import { TrendingUp, Wallet, Boxes, Package, CheckCircle2, XCircle, Download, Megaphone } from 'lucide-react'
+import { loadBusinessData, computeBusiness, computeSummary, exportBusinessExcel, exportBusinessSummary, monthLabel, num, getOpening, setOpening } from '../lib/business'
 
 const money = n => `MVR ${num(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
@@ -113,40 +113,101 @@ export function AnalyticsCategories() {
   )
 }
 
-// ── Financial Reports → Business Sheet tab: cashflow + inventory ──────────────────
+// ── Financial Reports → Business Sheet tab ───────────────────────────────────────
+// Laid out to mirror the owner's own spreadsheet: Last Year Performance (month by
+// month), advertising by channel, cashflow, then inventory with quantities.
 export function FinancialBusiness() {
   const data = useBusiness()
   const [opening, setOpen] = useState(getOpening)
   if (!data) return <Card style={{ marginTop: 20 }}><Spinner /></Card>
-  const c = computeBusiness(data)
-  const closing = opening + c.totals.revenue - c.totals.totalExp
+  const s = computeSummary(data, opening)
+  const { months, T, channels, inventory: inv, closingBank } = s
   const saveOpen = v => { setOpen(v); setOpening(v) }
+  const qty = n => num(n).toLocaleString('en-US')
   return (
     <div style={{ marginTop: 24 }}>
       <BsStyles />
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}><DownloadBtn data={data} /></div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+        <Button variant="ghost" onClick={() => exportBusinessSummary(data, opening)} style={{ border: '1px solid #e0e0e0' }}><Download size={15} /> Download Excel</Button>
+      </div>
+
+      {/* Last Year Performance — month by month */}
+      <Card style={{ marginBottom: 20 }}>
+        <h3 style={{ fontSize: 15, fontWeight: 700, margin: '0 0 14px', display: 'flex', alignItems: 'center', gap: 8 }}><TrendingUp size={17} color="#FFA500" /> Performance, month by month</h3>
+        <div className="bs-scroll">
+          <table className="bs" style={{ minWidth: 900 }}>
+            <thead><tr>
+              <th>Month</th><th>Orders</th><th>Revenue</th><th>Cost of sales + delivery</th><th>Other costs</th><th>Advertise</th><th>Loan</th><th>Personal use</th><th>Total exp</th><th>Profit</th>
+            </tr></thead>
+            <tbody>
+              {months.map(r => (
+                <tr key={r.m}>
+                  <td>{monthLabel(r.m)}</td><td>{r.orderCount}</td><td>{money(r.revenue)}</td><td>{money(r.cos)}</td>
+                  <td>{money(r.other)}</td><td>{money(r.ad)}</td><td>{money(r.loan)}</td><td>{money(r.personal)}</td>
+                  <td>{money(r.totalExp)}</td><td className={r.profit >= 0 ? 'pos' : 'neg'}>{money(r.profit)}</td>
+                </tr>
+              ))}
+              {months.length === 0 && <tr><td colSpan={10} style={{ textAlign: 'center', color: '#aaa', padding: 24 }}>No orders or expenses yet.</td></tr>}
+            </tbody>
+            {months.length > 0 && <tfoot><tr>
+              <td>Total</td><td>{T.orderCount}</td><td>{money(T.revenue)}</td><td>{money(T.cos)}</td>
+              <td>{money(T.other)}</td><td>{money(T.ad)}</td><td>{money(T.loan)}</td><td>{money(T.personal)}</td>
+              <td>{money(T.totalExp)}</td><td className={T.profit >= 0 ? 'pos' : 'neg'}>{money(T.profit)}</td>
+            </tr></tfoot>}
+          </table>
+        </div>
+      </Card>
+
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, alignItems: 'start' }} className="grid-collapse">
+        {/* Advertising by channel */}
+        <Card>
+          <h3 style={{ fontSize: 15, fontWeight: 700, margin: '0 0 6px', display: 'flex', alignItems: 'center', gap: 8 }}><Megaphone size={17} color="#FFA500" /> Advertising &amp; channels</h3>
+          <p style={{ fontSize: 11.5, color: '#999', margin: '0 0 12px' }}>Orders and revenue are by sales channel. Ad spend can't be split per channel, so it shows in the total only.</p>
+          <div className="bs-scroll">
+            <table className="bs" style={{ minWidth: 0 }}>
+              <thead><tr><th>Channel</th><th>Orders</th><th>Spent on ads</th><th>Revenue</th></tr></thead>
+              <tbody>
+                {channels.map(ch => (
+                  <tr key={ch.channel}><td>{ch.channel}</td><td>{ch.orders}</td><td style={{ color: '#ccc' }}>—</td><td>{money(ch.revenue)}</td></tr>
+                ))}
+                {channels.length === 0 && <tr><td colSpan={4} style={{ textAlign: 'center', color: '#aaa', padding: 20 }}>No orders yet.</td></tr>}
+              </tbody>
+              <tfoot><tr><td>Total</td><td>{T.orderCount}</td><td>{money(T.ad)}</td><td>{money(T.revenue)}</td></tr></tfoot>
+            </table>
+          </div>
+        </Card>
+
+        {/* Cashflow */}
         <Card>
           <h3 style={{ fontSize: 15, fontWeight: 700, margin: '0 0 14px', display: 'flex', alignItems: 'center', gap: 8 }}><Wallet size={17} color="#FFA500" /> Cashflow</h3>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 0', borderBottom: '1px solid #f2f2f2' }}>
             <span style={{ color: '#667' }}>Opening balance at bank</span>
             <input type="number" value={opening} onChange={e => saveOpen(parseFloat(e.target.value) || 0)} style={{ width: 130, textAlign: 'right', padding: '6px 10px', border: '1px solid #e0e0e0', borderRadius: 8, fontSize: 13, fontFamily: 'inherit' }} />
           </div>
-          <Row label="Total revenue (cash in)" value={money(c.totals.revenue)} color="#1D9E75" />
-          <Row label="Total expenses (cash out)" value={'− ' + money(c.totals.totalExp)} color="#E24B4A" />
+          <Row label="Total revenue (cash in)" value={money(T.revenue)} color="#1D9E75" />
+          <Row label="Total expenses (cash out)" value={'− ' + money(T.totalExp)} color="#E24B4A" />
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0 2px', marginTop: 6, borderTop: '2px solid #eee', fontWeight: 800, fontSize: 16 }}>
-            <span>Closing balance at bank</span><span style={{ color: closing >= 0 ? '#2f6fc0' : '#E24B4A' }}>{money(closing)}</span>
+            <span>Closing balance at bank</span><span style={{ color: closingBank >= 0 ? '#2f6fc0' : '#E24B4A' }}>{money(closingBank)}</span>
           </div>
           <p style={{ fontSize: 11.5, color: '#aaa', marginTop: 10 }}>Set your bank opening balance above; it's saved on this device.</p>
         </Card>
+
+        {/* Inventory with quantities */}
         <Card>
           <h3 style={{ fontSize: 15, fontWeight: 700, margin: '0 0 14px', display: 'flex', alignItems: 'center', gap: 8 }}><Boxes size={17} color="#FFA500" /> Inventory</h3>
-          <Row label="Opening inventory value" value={money(c.inventory.openingInv)} />
-          <Row label="Purchases during period" value={money(c.inventory.purchasesVal)} />
-          <Row label="Cost of goods sold" value={money(c.inventory.cogs)} />
-          <Row label="Closing inventory value" value={money(c.inventory.closing)} bold />
-          <Row label="Stock turn" value={`${c.inventory.turn.toFixed(2)}×`} />
-          <Row label="How long to sell (days)" value={`${Math.round(c.inventory.days)} days`} />
+          <div className="bs-scroll">
+            <table className="bs" style={{ minWidth: 0 }}>
+              <thead><tr><th>&nbsp;</th><th>Qty</th><th>Value</th></tr></thead>
+              <tbody>
+                <tr><td>Opening inventory value</td><td style={{ color: '#ccc' }}>—</td><td>{money(inv.openingInv)}</td></tr>
+                <tr><td>Purchases during period</td><td>{qty(inv.purchasedQty)}</td><td>{money(inv.purchasesVal)}</td></tr>
+                <tr><td>Cost of goods sold (sold qty)</td><td>{qty(inv.soldQty)}</td><td>{money(inv.cogsTotal)}</td></tr>
+              </tbody>
+              <tfoot><tr><td>Closing inventory value</td><td>{qty(inv.closingQty)}</td><td>{money(inv.closing)}</td></tr></tfoot>
+            </table>
+          </div>
+          <Row label="Stock turn" value={`${inv.turn.toFixed(2)}×`} />
+          <Row label="How long to sell (days)" value={`${Math.round(inv.days)} days`} />
           <p style={{ fontSize: 11.5, color: '#aaa', marginTop: 10 }}>Closing value = current stock × cost price. Opening is derived (closing + COGS − purchases).</p>
         </Card>
       </div>
