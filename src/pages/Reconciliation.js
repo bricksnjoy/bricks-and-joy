@@ -1018,8 +1018,12 @@ export default function Reconciliation() {
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><History size={12} color={booksStart ? '#1D9E75' : '#c4bcb0'} /> {booksStart ? `records from ${fmtDate(booksStart)}` : 'no start date set'}</span>
                 <span style={{ color: '#e6e2da' }}>·</span>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Lock size={12} color={lock?.lockedThrough ? '#1D9E75' : '#c4bcb0'} /> {lock?.lockedThrough ? `closed to ${fmtDate(lock.lockedThrough)}` : 'books open'}</span>
+                {settledRows.length > 0 && <>
+                  <span style={{ color: '#e6e2da' }}>·</span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><CheckCircle size={12} color="#1D9E75" /> {settledRows.length} settled — won't appear</span>
+                </>}
               </div>
-              <button onClick={() => setShowSetup(s => !s)} title="Backlog date & closing the books"
+              <button onClick={() => setShowSetup(s => !s)} title="Backlog date, closing the books & settled entries"
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: showSetup ? '#f4f0e8' : 'none', border: '1px solid #eadfce', borderRadius: 8, padding: '5px 9px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 11.5, fontWeight: 700, color: '#8a6a2a' }}>
                 {showSetup ? 'Hide' : 'Manage'} <MoreHorizontal size={15} />
               </button>
@@ -1072,6 +1076,38 @@ export default function Reconciliation() {
               </Button>
             </div>
           </Card>
+
+          {/* Settled — real, but never on this statement */}
+          {settledRows.length > 0 && (
+            <Card style={{ marginBottom: 18, background: '#fbfaf8' }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#0d1b2a', display: 'flex', alignItems: 'center', gap: 7, marginBottom: 4 }}>
+                <CheckCircle size={14} color="#1D9E75" /> Settled — won't appear on any statement
+              </div>
+              <div style={{ fontSize: 11.5, color: '#aaa', marginBottom: 12, lineHeight: 1.6, maxWidth: 640 }}>
+                These are still real costs and sales — they stay in your books and your Profit &amp; Loss. They're just marked as never reaching this bank account, so the reconciliation stops asking. Undo any to put it back.
+              </div>
+              <div className="rec-scroll" style={{ border: '1px solid #f2f2f2', borderRadius: 9, overflowX: 'auto' }}>
+                <table className="rec-table" style={{ minWidth: 520 }}>
+                  <tbody>
+                    {settledRows.map(r => (
+                      <tr key={r.id}>
+                        <td style={{ whiteSpace: 'nowrap', color: '#999', width: 110 }}>{fmtDate(r.entry.date)}</td>
+                        <td>{r.entry.label}</td>
+                        <td style={{ color: '#b8740a', fontSize: 11.5 }}>{r.reason}</td>
+                        <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }} className={/order|loan:|cash/.test(r.id) ? 'rec-in' : 'rec-out'}>
+                          {money(r.entry.amount)}
+                        </td>
+                        <td style={{ textAlign: 'right', width: 70 }}>
+                          <button onClick={() => unsettle(r.id)} title="Put back on the reconciliation list"
+                            style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', fontFamily: 'inherit', fontSize: 11, fontWeight: 700, textDecoration: 'underline' }}>Undo</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          )}
           </>)}
 
           {/* Not yet reconciled — visible without uploading anything */}
@@ -1137,38 +1173,6 @@ export default function Reconciliation() {
               <div style={{ fontSize: 11.5, color: '#bbb', lineHeight: 1.6 }}>
                 A sale on the 26th paid on the 29th sits here until next month's statement, then matches then — nothing is lost by closing a period without it.
                 {' '}Something that will never reach this account — paid from elsewhere, given away, taken in cash — use <b style={{ color: '#b8740a' }}>Won't appear</b> to settle it with a note.
-              </div>
-            </Card>
-          )}
-
-          {/* Settled — real, but never on this statement */}
-          {settledRows.length > 0 && (
-            <Card style={{ marginBottom: 18, background: '#fbfaf8' }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: '#0d1b2a', display: 'flex', alignItems: 'center', gap: 7, marginBottom: 4 }}>
-                <CheckCircle size={14} color="#1D9E75" /> Settled — won't appear on any statement
-              </div>
-              <div style={{ fontSize: 11.5, color: '#aaa', marginBottom: 12, lineHeight: 1.6, maxWidth: 640 }}>
-                These are still real costs and sales — they stay in your books and your Profit &amp; Loss. They're just marked as never reaching this bank account, so the reconciliation stops asking. Undo any to put it back.
-              </div>
-              <div className="rec-scroll" style={{ border: '1px solid #f2f2f2', borderRadius: 9, overflowX: 'auto' }}>
-                <table className="rec-table" style={{ minWidth: 520 }}>
-                  <tbody>
-                    {settledRows.map(r => (
-                      <tr key={r.id}>
-                        <td style={{ whiteSpace: 'nowrap', color: '#999', width: 110 }}>{fmtDate(r.entry.date)}</td>
-                        <td>{r.entry.label}</td>
-                        <td style={{ color: '#b8740a', fontSize: 11.5 }}>{r.reason}</td>
-                        <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }} className={/order|loan:|cash/.test(r.id) ? 'rec-in' : 'rec-out'}>
-                          {money(r.entry.amount)}
-                        </td>
-                        <td style={{ textAlign: 'right', width: 70 }}>
-                          <button onClick={() => unsettle(r.id)} title="Put back on the reconciliation list"
-                            style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', fontFamily: 'inherit', fontSize: 11, fontWeight: 700, textDecoration: 'underline' }}>Undo</button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
               </div>
             </Card>
           )}
