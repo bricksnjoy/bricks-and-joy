@@ -11,6 +11,22 @@ import { getLock, setLock } from '../lib/periodLock'
 const BACKLOG_REASON = 'Backlog — traded before the system'
 const BOOKS_START_KEY = 'bnj_books_start'
 
+// Book entries that are real costs or sales but will never show on THIS bank
+// statement — paid from another account, given away as a product, taken in cash.
+// Settling one keeps the cost in the books and in Profit & Loss; it only stops
+// the reconciliation asking about it forever. Kept on the device, like the
+// reconciliation history's own fallback.
+const SETTLED_KEY = 'bnj_settled_entries_v1'
+const readSettled = () => { try { const v = JSON.parse(localStorage.getItem(SETTLED_KEY)); return v && typeof v === 'object' ? v : {} } catch { return {} } }
+const writeSettled = obj => localStorage.setItem(SETTLED_KEY, JSON.stringify(obj))
+const SETTLE_REASONS = [
+  'Paid from another account, before this bank existed',
+  'Product given away — no money moved',
+  'Paid in cash, not through the bank',
+  'Owner paid it personally',
+  'Recorded twice / not really owed',
+]
+
 // Common reasons a real bank movement will never appear in the books
 const IGNORE_REASONS = [
   BACKLOG_REASON,
@@ -130,6 +146,9 @@ export default function Reconciliation() {
   const [openGroup, setOpenGroup] = useState(null)   // which unreconciled group is expanded
   const [lock, setLockState] = useState(null)        // books closed up to this date
   const [booksStart, setBooksStart] = useState(() => localStorage.getItem(BOOKS_START_KEY) || '')
+  const [settled, setSettled] = useState(readSettled)       // { bookId: { reason, at } }
+  const [settleTarget, setSettleTarget] = useState(null)    // the row being settled, or null
+  const [settleReason, setSettleReason] = useState('')
   const fileRef = useRef(null)
   const toast = useToast()
 
@@ -171,12 +190,29 @@ export default function Reconciliation() {
     setLoading(false)
   }
 
-  // IDs already cleared in a saved reconciliation — excluded from new matching.
+  // IDs already accounted for and so excluded from matching — either cleared by a
+  // saved reconciliation, or settled by hand as never going to reach this bank.
   const reconciledIds = useMemo(() => {
     const set = new Set()
     history.forEach(h => (h.cleared || []).forEach(id => set.add(id)))
+    Object.keys(settled).forEach(id => set.add(id))
     return set
-  }, [history])
+  }, [history, settled])
+
+  function openSettle(row) { setSettleTarget(row); setSettleReason(SETTLE_REASONS[0]) }
+  function confirmSettle() {
+    const reason = settleReason.trim()
+    if (!settleTarget || !reason) return
+    const next = { ...settled, [settleTarget.id]: { reason, at: Date.now() } }
+    setSettled(next); writeSettled(next)
+    setSettleTarget(null)
+    toast.success('Settled — kept in your books, off the reconciliation')
+  }
+  function unsettle(id) {
+    const next = { ...settled }; delete next[id]
+    setSettled(next); writeSettled(next)
+    toast.info('Back on the reconciliation list')
+  }
 
   // Money settled in cash never reaches the bank, so it can only ever sit here
   // unexplained and drag the balance proof out. It belongs to Cash in Hand.
@@ -245,6 +281,14 @@ export default function Reconciliation() {
     ;[...bookIn, ...bookOut].forEach(b => { m[b.id] = b })
     return m
   }, [bookIn, bookOut])
+
+  // Book entries settled by hand, paired back with the entry for display
+  const settledRows = useMemo(() =>
+    Object.entries(settled)
+      .map(([id, meta]) => ({ id, ...meta, entry: bookById[id] }))
+      .filter(r => r.entry)
+      .sort((a, b) => (b.at || 0) - (a.at || 0)),
+  [settled, bookById])
 
   // Dated before the shop started recording here, so no book entry exists for it
   const isBacklog = d => { const s = ymd(d); return !!(booksStart && s && s < booksStart) }
@@ -1055,6 +1099,12 @@ export default function Reconciliation() {
                               <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }} className={r.dir === 'in' ? 'rec-in' : 'rec-out'}>
                                 {r.dir === 'in' ? '+' : '−'}{money(r.amount)}
                               </td>
+                              <td style={{ textAlign: 'right', width: 92, whiteSpace: 'nowrap' }}>
+                                <button onClick={() => openSettle(r)} title="This is real, but it will never appear on this bank statement"
+                                  style={{ background: 'none', border: '1px solid #eadfce', color: '#b8740a', borderRadius: 7, padding: '3px 9px', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+                                  Won't appear
+                                </button>
+                              </td>
                             </tr>
                           ))}
                         </tbody>
@@ -1065,6 +1115,39 @@ export default function Reconciliation() {
               ))}
               <div style={{ fontSize: 11.5, color: '#bbb', lineHeight: 1.6 }}>
                 A sale on the 26th paid on the 29th sits here until next month's statement, then matches then — nothing is lost by closing a period without it.
+                {' '}Something that will never reach this account — paid from elsewhere, given away, taken in cash — use <b style={{ color: '#b8740a' }}>Won't appear</b> to settle it with a note.
+              </div>
+            </Card>
+          )}
+
+          {/* Settled — real, but never on this statement */}
+          {settledRows.length > 0 && (
+            <Card style={{ marginBottom: 18, background: '#fbfaf8' }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#0d1b2a', display: 'flex', alignItems: 'center', gap: 7, marginBottom: 4 }}>
+                <CheckCircle size={14} color="#1D9E75" /> Settled — won't appear on any statement
+              </div>
+              <div style={{ fontSize: 11.5, color: '#aaa', marginBottom: 12, lineHeight: 1.6, maxWidth: 640 }}>
+                These are still real costs and sales — they stay in your books and your Profit &amp; Loss. They're just marked as never reaching this bank account, so the reconciliation stops asking. Undo any to put it back.
+              </div>
+              <div className="rec-scroll" style={{ border: '1px solid #f2f2f2', borderRadius: 9, overflowX: 'auto' }}>
+                <table className="rec-table" style={{ minWidth: 520 }}>
+                  <tbody>
+                    {settledRows.map(r => (
+                      <tr key={r.id}>
+                        <td style={{ whiteSpace: 'nowrap', color: '#999', width: 110 }}>{fmtDate(r.entry.date)}</td>
+                        <td>{r.entry.label}</td>
+                        <td style={{ color: '#b8740a', fontSize: 11.5 }}>{r.reason}</td>
+                        <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }} className={/order|loan:|cash/.test(r.id) ? 'rec-in' : 'rec-out'}>
+                          {money(r.entry.amount)}
+                        </td>
+                        <td style={{ textAlign: 'right', width: 70 }}>
+                          <button onClick={() => unsettle(r.id)} title="Put back on the reconciliation list"
+                            style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', fontFamily: 'inherit', fontSize: 11, fontWeight: 700, textDecoration: 'underline' }}>Undo</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </Card>
           )}
@@ -1740,6 +1823,43 @@ export default function Reconciliation() {
           </Modal>
         )
       })()}
+
+      {/* ── Settle a book entry that will never reach this bank account ── */}
+      {settleTarget && (
+        <Modal title="This won't appear on the statement"
+          subtitle="It stays a real cost in your books — this only takes it off the reconciliation"
+          onClose={() => setSettleTarget(null)} width={460}>
+          <div style={{ background: '#fbfaf8', border: '1px solid #f0ece6', borderRadius: 10, padding: '11px 13px', marginBottom: 16, display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#0d1b2a' }}>{settleTarget.label}</div>
+              <div style={{ fontSize: 11.5, color: '#aaa', marginTop: 2 }}>{fmtDate(settleTarget.date)}{settleTarget.ref ? ` · ${settleTarget.ref}` : ''}</div>
+            </div>
+            <div style={{ fontSize: 15, fontWeight: 800, whiteSpace: 'nowrap' }} className={settleTarget.dir === 'in' ? 'rec-in' : 'rec-out'}>
+              {settleTarget.dir === 'in' ? '+' : '−'}{money(settleTarget.amount)}
+            </div>
+          </div>
+
+          <label style={{ fontSize: 11, color: '#888', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: 8 }}>Why won't it show?</label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 7, marginBottom: 12 }}>
+            {SETTLE_REASONS.map(reason => (
+              <button key={reason} onClick={() => setSettleReason(reason)}
+                style={{ textAlign: 'left', padding: '10px 12px', borderRadius: 9, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5,
+                  border: `1px solid ${settleReason === reason ? '#FFA500' : '#e6e2da'}`, background: settleReason === reason ? '#FFF8EC' : '#fff',
+                  color: settleReason === reason ? '#0d1b2a' : '#666', fontWeight: settleReason === reason ? 700 : 500 }}>
+                {reason}
+              </button>
+            ))}
+          </div>
+          <input value={SETTLE_REASONS.includes(settleReason) ? '' : settleReason}
+            onChange={e => setSettleReason(e.target.value)} placeholder="…or write your own reason"
+            style={{ width: '100%', boxSizing: 'border-box', padding: '10px 13px', border: '1px solid #e0e0e0', borderRadius: 9, fontSize: 13, fontFamily: 'inherit', marginBottom: 18 }} />
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+            <Button variant="ghost" onClick={() => setSettleTarget(null)}>Cancel</Button>
+            <Button onClick={confirmSettle} disabled={!settleReason.trim()}><CheckCircle size={14} /> Settle it</Button>
+          </div>
+        </Modal>
+      )}
 
       {/* ── Record a missing expense straight from a bank line ── */}
       {expenseModal && (
