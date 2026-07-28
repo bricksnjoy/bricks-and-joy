@@ -704,6 +704,55 @@ export default function OrderAnalysis() {
 
     return (
       <div>
+        {/* Products under consideration is sized here rather than inline, because
+            the two screens want opposite things. A phone has no room to spare, so
+            it keeps the compact original. A desktop has room but the table is read
+            a row at a time — so it gets tall rows and a large photo while the type
+            stays small, which is easier to read down a column than big text is. */}
+        <style>{`
+          .oa-table { font-size: 12.5px; min-width: 1180px; }
+          .oa-table th { padding: 10px 12px; font-size: 10.5px; }
+          .oa-table td { padding: 10px 12px; }
+          .oa-table tfoot td { padding: 12px; }
+          .oa-name { font-size: 12.5px; }
+          .oa-sub { font-size: 11px; margin-top: 2px; }
+          .oa-tiny { font-size: 10px; }
+          .oa-demand { font-size: 11.5px; min-width: 190px; line-height: 1.45; }
+          .oa-img { width: 38px; height: 38px; border-radius: 8px; }
+          .oa-in { width: 82px; padding: 6px 8px; font-size: 12.5px; }
+          .oa-in-qty { width: 62px; }
+          .oa-check { width: 13px; height: 13px; }
+          .oa-vendor { font-size: 13.5px; }
+          .oa-vendor-sub { font-size: 11px; }
+          .oa-no { width: 26px; height: 26px; font-size: 11px; }
+          .oa-kpi-l { font-size: 9.5px; }
+          .oa-kpi-v { font-size: 14px; }
+          .oa-cellpad { gap: 10px; }
+
+          @media (min-width: 769px) {
+            .oa-table { font-size: 13px; min-width: 1260px; }
+            .oa-table th { padding: 12px 14px; font-size: 10.5px; }
+            /* The row height is the change that does the work — it gives every
+               product its own band to be read in, without enlarging the type. */
+            .oa-table td { padding: 24px 14px; }
+            /* The totals line is a summary, not a row to be read — it stays tight */
+            .oa-table tfoot td { padding: 14px; }
+            .oa-name { font-size: 13.5px; }
+            .oa-sub { font-size: 11px; margin-top: 4px; }
+            .oa-tiny { font-size: 10px; }
+            .oa-demand { font-size: 11.5px; min-width: 210px; line-height: 1.6; }
+            .oa-img { width: 84px; height: 84px; border-radius: 11px; }
+            .oa-in { width: 92px; padding: 9px 10px; font-size: 13px; }
+            .oa-in-qty { width: 72px; }
+            .oa-check { width: 16px; height: 16px; }
+            .oa-vendor { font-size: 15px; }
+            .oa-vendor-sub { font-size: 12px; }
+            .oa-no { width: 30px; height: 30px; font-size: 12px; }
+            .oa-kpi-l { font-size: 10px; }
+            .oa-kpi-v { font-size: 16px; }
+            .oa-cellpad { gap: 14px; }
+          }
+        `}</style>
         <Toasts toasts={toast.toasts} />
         <button onClick={() => setOpenId(null)}
           style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', color: '#888', fontSize: 13, fontFamily: 'inherit', padding: 0, marginBottom: 14 }}>
@@ -893,12 +942,12 @@ export default function OrderAnalysis() {
             {/* Order header — vendor and what this one order costs and returns */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, padding: '13px 18px', background: '#fbfaf8', borderBottom: '1px solid #f0ece6', flexWrap: 'wrap' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{ width: 32, height: 32, borderRadius: 9, background: '#0d1b2a', color: '#FFA500', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 800, flexShrink: 0 }}>{gi + 1}</span>
+                <span className="oa-no" style={{ borderRadius: 8, background: '#0d1b2a', color: '#FFA500', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, flexShrink: 0 }}>{gi + 1}</span>
                 <div>
-                  <div style={{ fontSize: 16, fontWeight: 800, color: '#0d1b2a', display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <Building2 size={17} color="#c4bcb0" /> {g.label}
+                  <div className="oa-vendor" style={{ fontWeight: 800, color: '#0d1b2a', display: 'flex', alignItems: 'center', gap: 7 }}>
+                    <Building2 size={15} color="#c4bcb0" /> {g.label}
                   </div>
-                  <div style={{ fontSize: 12.5, color: '#aaa', marginTop: 3 }}>
+                  <div className="oa-vendor-sub" style={{ color: '#aaa', marginTop: 2 }}>
                     Order {gi + 1} of {groups.length} · {g.totals.lines} product{g.totals.lines === 1 ? '' : 's'} · {g.totals.qty} units
                   </div>
                 </div>
@@ -911,8 +960,8 @@ export default function OrderAnalysis() {
                   ['Margin', pct(g.totals.margin), g.totals.margin >= target ? '#1D9E75' : g.totals.margin >= 0 ? '#e6940a' : '#E24B4A'],
                 ].map(([l, v, c]) => (
                   <div key={l} style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: 11, color: '#c4bcb0', textTransform: 'uppercase', letterSpacing: '0.6px', fontWeight: 700 }}>{l}</div>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: c, marginTop: 2 }}>{v}</div>
+                    <div className="oa-kpi-l" style={{ color: '#c4bcb0', textTransform: 'uppercase', letterSpacing: '0.6px', fontWeight: 700 }}>{l}</div>
+                    <div className="oa-kpi-v" style={{ fontWeight: 800, color: c, marginTop: 1 }}>{v}</div>
                   </div>
                 ))}
                 {!converted && (
@@ -925,21 +974,18 @@ export default function OrderAnalysis() {
             </div>
 
             <div className="x-scroll-wrap">
-              {/* This is the table the whole decision is made from, so it is set
-                  larger than the app's other tables — the figures are meant to be
-                  read carefully, not scanned. */}
-              <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 15, minWidth: 1420 }}>
+              <table className="data-table oa-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ background: '#fff' }}>
                     {!converted && (
-                      <th style={{ padding: '14px 0 14px 18px', width: 38, borderBottom: '1px solid #f2f2f2' }}>
-                        <input type="checkbox" title={`Select every product from ${g.label}`} style={{ width: 17, height: 17 }}
+                      <th style={{ width: 34, paddingLeft: 14, borderBottom: '1px solid #f2f2f2' }}>
+                        <input type="checkbox" className="oa-check" title={`Select every product from ${g.label}`}
                           checked={g.rows.every(r => selected.has(r.id))}
                           onChange={() => toggleSelectMany(g.rows.map(r => r.id))} />
                       </th>
                     )}
                     {['Product', 'Qty', 'Unit cost', 'Landed cost', 'Sell price', 'Profit / unit', 'Margin', 'Total cost', 'Total profit', 'ROI', 'Stock & demand', ''].map((h, i) => (
-                      <th key={h + i} style={{ padding: '14px 15px', textAlign: i === 0 || i === 10 ? 'left' : 'right', fontSize: 12, fontWeight: 700, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.5px', whiteSpace: 'nowrap', borderBottom: '1px solid #f2f2f2' }}>{h}</th>
+                      <th key={h + i} style={{ textAlign: i === 0 || i === 10 ? 'left' : 'right', fontWeight: 700, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.5px', whiteSpace: 'nowrap', borderBottom: '1px solid #f2f2f2' }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
@@ -947,26 +993,26 @@ export default function OrderAnalysis() {
                   {g.rows.map(r => {
                     const v = VERDICT[r.verdict]
                     const marginColor = r.verdict === 'good' ? '#1D9E75' : r.verdict === 'thin' ? '#e6940a' : r.verdict === 'loss' ? '#E24B4A' : '#aaa'
-                    const cell = { padding: '16px 15px', textAlign: 'right', whiteSpace: 'nowrap', borderTop: '1px solid #f5f5f5' }
-                    const editStyle = { width: 108, padding: '10px 11px', border: '1px solid #e6e2da', borderRadius: 8, fontSize: 15, fontFamily: 'inherit', textAlign: 'right' }
+                    const cell = { textAlign: 'right', whiteSpace: 'nowrap', borderTop: '1px solid #f5f5f5' }
+                    const editStyle = { border: '1px solid #e6e2da', borderRadius: 7, fontFamily: 'inherit', textAlign: 'right' }
                     const ticked = selected.has(r.id)
                     return (
                       <tr key={r.id} style={ticked ? { background: '#fffaf0' } : undefined}>
                         {!converted && (
-                          <td style={{ ...cell, textAlign: 'center', padding: '16px 0 16px 18px' }}>
-                            <input type="checkbox" checked={ticked} onChange={() => toggleSelect(r.id)} style={{ width: 17, height: 17 }} />
+                          <td style={{ ...cell, textAlign: 'center', paddingLeft: 14 }}>
+                            <input type="checkbox" className="oa-check" checked={ticked} onChange={() => toggleSelect(r.id)} />
                           </td>
                         )}
-                        <td style={{ ...cell, textAlign: 'left', minWidth: 290 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 13 }}>
-                            <ImageTile src={r.image_url} style={{ width: 58, height: 58, borderRadius: 10, background: '#f7f5f2', flexShrink: 0, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <td style={{ ...cell, textAlign: 'left', minWidth: 250 }}>
+                          <div className="oa-cellpad" style={{ display: 'flex', alignItems: 'center' }}>
+                            <ImageTile src={r.image_url} className="oa-img" style={{ background: '#f7f5f2', flexShrink: 0, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                               {r.image_url
                                 ? <img src={r.image_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-                                : <Package size={22} color="#d5cfc6" />}
+                                : <Package size={18} color="#d5cfc6" />}
                             </ImageTile>
                             <div style={{ minWidth: 0 }}>
-                              <div style={{ fontWeight: 600, fontSize: 15.5, color: '#0d1b2a', whiteSpace: 'normal' }}>{r.product_name}</div>
-                              <div style={{ fontSize: 13, color: '#bbb', marginTop: 4, display: 'flex', gap: 7, alignItems: 'center', flexWrap: 'wrap' }}>
+                              <div className="oa-name" style={{ fontWeight: 600, color: '#0d1b2a', whiteSpace: 'normal' }}>{r.product_name}</div>
+                              <div className="oa-sub" style={{ color: '#bbb', display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                                 {r.sku && <span>{r.sku}</span>}
                                 <Badge color={v.color}>{v.label}</Badge>
                                 {!r.known && <Badge color="blue">New product</Badge>}
@@ -975,32 +1021,32 @@ export default function OrderAnalysis() {
                           </div>
                         </td>
                         <td style={cell}>
-                          <input type="number" value={r.qty} disabled={converted} style={{ ...editStyle, width: 82 }}
+                          <input type="number" className="oa-in oa-in-qty" value={r.qty} disabled={converted} style={editStyle}
                             onChange={e => updateItem(r.id, { qty: e.target.value })} onBlur={() => saveItem(r.id)} />
                         </td>
                         <td style={cell}>
-                          <input type="number" value={r.unit_cost} disabled={converted} style={editStyle}
+                          <input type="number" className="oa-in" value={r.unit_cost} disabled={converted} style={editStyle}
                             onChange={e => updateItem(r.id, { unit_cost: e.target.value })} onBlur={() => saveItem(r.id)} />
                         </td>
                         <td style={{ ...cell, color: '#666' }} title={`Supplier ${mv(r.unitCost)} + ${mv(r.allocated / (r.qty || 1))} share of extra costs`}>
                           {mv(r.landedUnit)}
                         </td>
                         <td style={cell}>
-                          <input type="number" value={r.sell_price} disabled={converted} style={editStyle}
+                          <input type="number" className="oa-in" value={r.sell_price} disabled={converted} style={editStyle}
                             onChange={e => updateItem(r.id, { sell_price: e.target.value })} onBlur={() => saveItem(r.id)} />
                         </td>
                         <td style={{ ...cell, color: r.profitUnit >= 0 ? '#1D9E75' : '#E24B4A', fontWeight: 600 }}>{mv(r.profitUnit)}</td>
                         <td style={{ ...cell, fontWeight: 700, color: marginColor }}>
                           {pct(r.margin)}
-                          <div style={{ fontSize: 12, color: '#c4c0b8', fontWeight: 500, marginTop: 2 }}>{pct(r.markup)} mark-up</div>
+                          <div className="oa-tiny" style={{ color: '#c4c0b8', fontWeight: 500, marginTop: 2 }}>{pct(r.markup)} mark-up</div>
                         </td>
                         <td style={{ ...cell, color: '#666' }}>{mv0(r.landedLine)}</td>
                         <td style={{ ...cell, fontWeight: 700, color: r.profit >= 0 ? '#1D9E75' : '#E24B4A' }}>{mv0(r.profit)}</td>
                         <td style={{ ...cell, color: r.roi >= 0 ? '#1D9E75' : '#E24B4A' }}>
                           {pct(r.roi)}
-                          {r.breakEven != null && <div style={{ fontSize: 12, color: '#c4c0b8', marginTop: 2 }}>{r.breakEven} to break even</div>}
+                          {r.breakEven != null && <div className="oa-tiny" style={{ color: '#c4c0b8', marginTop: 2 }}>{r.breakEven} to break even</div>}
                         </td>
-                        <td style={{ ...cell, textAlign: 'left', fontSize: 13.5, color: '#888', minWidth: 240, whiteSpace: 'normal', lineHeight: 1.5 }}>
+                        <td className="oa-demand" style={{ ...cell, textAlign: 'left', color: '#888', whiteSpace: 'normal' }}>
                           {r.known ? (
                             <>
                               <div>{r.stock} in stock · sells {r.perMonth.toFixed(1)}/month</div>
@@ -1018,7 +1064,7 @@ export default function OrderAnalysis() {
                         <td style={{ ...cell, textAlign: 'right' }}>
                           <button onClick={() => removeItem(r)} title="Remove from analysis"
                             style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 5, display: 'flex' }}>
-                            <Trash2 size={17} color="#c0392b" />
+                            <Trash2 size={15} color="#c0392b" />
                           </button>
                         </td>
                       </tr>
@@ -1028,17 +1074,17 @@ export default function OrderAnalysis() {
                 <tfoot>
                   <tr style={{ background: '#fbfaf8', fontWeight: 700 }}>
                     {!converted && <td style={{ borderTop: '2px solid #f0ece6' }} />}
-                    <td style={{ padding: '16px 15px', borderTop: '2px solid #f0ece6' }}>{g.label} total</td>
-                    <td style={{ padding: '16px 15px', textAlign: 'right', borderTop: '2px solid #f0ece6' }}>{g.totals.qty}</td>
-                    <td colSpan={2} style={{ padding: '16px 15px', textAlign: 'right', borderTop: '2px solid #f0ece6', color: '#aaa', fontWeight: 500, fontSize: 13 }}>
+                    <td style={{ borderTop: '2px solid #f0ece6' }}>{g.label} total</td>
+                    <td style={{ textAlign: 'right', borderTop: '2px solid #f0ece6' }}>{g.totals.qty}</td>
+                    <td colSpan={2} style={{ textAlign: 'right', borderTop: '2px solid #f0ece6', color: '#aaa', fontWeight: 500 }}>
                       incl. {mv0(g.totals.extras)} extra costs
                     </td>
-                    <td colSpan={3} style={{ padding: '16px 15px', textAlign: 'right', borderTop: '2px solid #f0ece6', color: g.totals.margin >= target ? '#1D9E75' : '#e6940a' }}>
+                    <td colSpan={3} style={{ textAlign: 'right', borderTop: '2px solid #f0ece6', color: g.totals.margin >= target ? '#1D9E75' : '#e6940a' }}>
                       {pct(g.totals.margin)} margin
                     </td>
-                    <td style={{ padding: '16px 15px', textAlign: 'right', borderTop: '2px solid #f0ece6' }}>{mv0(g.totals.landed)}</td>
-                    <td style={{ padding: '16px 15px', textAlign: 'right', borderTop: '2px solid #f0ece6', color: g.totals.profit >= 0 ? '#1D9E75' : '#E24B4A' }}>{mv0(g.totals.profit)}</td>
-                    <td colSpan={3} style={{ padding: '16px 15px', textAlign: 'right', borderTop: '2px solid #f0ece6', color: g.totals.roi >= 0 ? '#1D9E75' : '#E24B4A' }}>{pct(g.totals.roi)} ROI</td>
+                    <td style={{ textAlign: 'right', borderTop: '2px solid #f0ece6' }}>{mv0(g.totals.landed)}</td>
+                    <td style={{ textAlign: 'right', borderTop: '2px solid #f0ece6', color: g.totals.profit >= 0 ? '#1D9E75' : '#E24B4A' }}>{mv0(g.totals.profit)}</td>
+                    <td colSpan={3} style={{ textAlign: 'right', borderTop: '2px solid #f0ece6', color: g.totals.roi >= 0 ? '#1D9E75' : '#E24B4A' }}>{pct(g.totals.roi)} ROI</td>
                   </tr>
                 </tfoot>
               </table>
