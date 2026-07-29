@@ -5,20 +5,17 @@ import { PageHeader, Card, Button, Spinner, useToast, Toasts, Modal } from '../c
 import { Upload, CheckCircle, AlertTriangle, X, Trash2, Plus, FileSpreadsheet, Eye, EyeOff, RefreshCw, Scale, Lock, History, MoreHorizontal } from 'lucide-react'
 import { getSettings } from '../lib/settings'
 import { getLock, setLock } from '../lib/periodLock'
+import { loadBooksStart, saveBooksStart as persistBooksStart, loadSettled, addSettled, removeSettled, readLocalStart, readLocalSettled } from '../lib/reconStore'
 
 // Trading that happened before the shop started keeping records here has no
 // counterpart to match and never will. It is explained, not missing.
 const BACKLOG_REASON = 'Backlog — traded before the system'
-const BOOKS_START_KEY = 'bnj_books_start'
 
 // Book entries that are real costs or sales but will never show on THIS bank
 // statement — paid from another account, given away as a product, taken in cash.
 // Settling one keeps the cost in the books and in Profit & Loss; it only stops
-// the reconciliation asking about it forever. Kept on the device, like the
-// reconciliation history's own fallback.
-const SETTLED_KEY = 'bnj_settled_entries_v1'
-const readSettled = () => { try { const v = JSON.parse(localStorage.getItem(SETTLED_KEY)); return v && typeof v === 'object' ? v : {} } catch { return {} } }
-const writeSettled = obj => localStorage.setItem(SETTLED_KEY, JSON.stringify(obj))
+// the reconciliation asking about it forever. Stored in Supabase (settled_entries)
+// so it follows the shop, with a localStorage copy as a cache — see lib/reconStore.
 const SETTLE_REASONS = [
   'Paid from another account, before this bank existed',
   'Product given away — no money moved',
@@ -145,8 +142,9 @@ export default function Reconciliation() {
   const [showGuide, setShowGuide] = useState(() => localStorage.getItem('bnj_recon_guide_hidden') !== '1')
   const [openGroup, setOpenGroup] = useState(null)   // which unreconciled group is expanded
   const [lock, setLockState] = useState(null)        // books closed up to this date
-  const [booksStart, setBooksStart] = useState(() => localStorage.getItem(BOOKS_START_KEY) || '')
-  const [settled, setSettled] = useState(readSettled)       // { bookId: { reason, at } }
+  const [booksStart, setBooksStart] = useState(readLocalStart)   // cache first, cloud on load
+  const [settled, setSettled] = useState(readLocalSettled)       // { bookId: { reason, at } }
+  const [settleSynced, setSettleSynced] = useState(true)         // false until the sync tables exist
   const [settleTarget, setSettleTarget] = useState(null)    // the row being settled, or null
   const [settleReason, setSettleReason] = useState('')
   const [showSetup, setShowSetup] = useState(false)         // the tucked-away setup & records panel
@@ -188,6 +186,11 @@ export default function Reconciliation() {
       if (rows.length === 0 && local.length > 0) { setUsingLocal(true); setHistory(local) }
       else { setUsingLocal(false); setHistory(rows) }
     }
+    // Start date & settled entries — Supabase, cached on the device
+    const [bs, st] = await Promise.all([loadBooksStart(), loadSettled()])
+    setBooksStart(bs.value)
+    setSettled(st.map)
+    setSettleSynced(bs.synced && st.synced)
     setLoading(false)
   }
 
@@ -201,17 +204,22 @@ export default function Reconciliation() {
   }, [history, settled])
 
   function openSettle(row) { setSettleTarget(row); setSettleReason(SETTLE_REASONS[0]) }
-  function confirmSettle() {
+  async function confirmSettle() {
     const reason = settleReason.trim()
     if (!settleTarget || !reason) return
-    const next = { ...settled, [settleTarget.id]: { reason, at: Date.now() } }
-    setSettled(next); writeSettled(next)
+    const id = settleTarget.id
+    const next = { ...settled, [id]: { reason, at: Date.now() } }
+    setSettled(next)
     setSettleTarget(null)
-    toast.success('Settled — kept in your books, off the reconciliation')
+    const { synced } = await addSettled(id, reason, next)
+    toast.success(synced
+      ? 'Settled — kept in your books, off the reconciliation'
+      : 'Settled on this device — run reconciliation-sync-setup.sql to sync it')
   }
-  function unsettle(id) {
+  async function unsettle(id) {
     const next = { ...settled }; delete next[id]
-    setSettled(next); writeSettled(next)
+    setSettled(next)
+    await removeSettled(id, next)
     toast.info('Back on the reconciliation list')
   }
 
@@ -296,7 +304,7 @@ export default function Reconciliation() {
 
   function saveBooksStart(v) {
     setBooksStart(v)
-    if (v) localStorage.setItem(BOOKS_START_KEY, v); else localStorage.removeItem(BOOKS_START_KEY)
+    persistBooksStart(v)   // writes the device cache, then Supabase
   }
 
   // Changing the start date after a statement is open re-settles the lines it
@@ -474,6 +482,25 @@ export default function Reconciliation() {
     h.period_start && h.period_end && period.from && period.to
     && h.period_start <= period.to && h.period_end >= period.from
   ), [history, period])
+
+  // The next statement to reconcile: the cycle right after the latest one already
+  // reconciled. This is what turns "I closed a month" into "here's the next one".
+  const nextPeriod = useMemo(() => {
+    const done = history.filter(h => h.period_end)
+    if (!done.length) return defaultPeriod()
+    const latest = done.reduce((a, b) => (a.period_end >= b.period_end ? a : b))
+    return shiftPeriod(latest.period_start || latest.period_end, latest.period_end, 1)
+  }, [history])
+  const onNextPeriod = period.from === nextPeriod.from && period.to === nextPeriod.to
+
+  // Land on the next unreconciled cycle once history is known, unless the person
+  // has already moved the dates themselves.
+  const pickedPeriodRef = useRef(false)
+  useEffect(() => {
+    if (loading || pickedPeriodRef.current) return
+    pickedPeriodRef.current = true
+    if (history.length) setPeriod(nextPeriod)
+  }, [loading, history, nextPeriod])
 
   // Adds a record to the line, or removes it if it is already on there. Several
   // records can settle one transfer.
@@ -732,7 +759,11 @@ export default function Reconciliation() {
     }
     setSaving(false)
     setStmtTxns(null); setMatches([]); setFileName('')
-    toast.success(`Reconciled ${cleared.length} transaction${cleared.length === 1 ? '' : 's'}`)
+    // Roll the picker on to the next cycle, so finishing one month lands you ready
+    // for the next — the dates for the statement to upload next.
+    setPeriod(shiftPeriod(rec.period_start, rec.period_end, 1))
+    setAllTxns(null); setOutsideCount(0)
+    toast.success(`Reconciled ${cleared.length} transaction${cleared.length === 1 ? '' : 's'} · next: ${fmtDate(shiftPeriod(rec.period_start, rec.period_end, 1).from)} – ${fmtDate(shiftPeriod(rec.period_start, rec.period_end, 1).to)}`)
   }
 
   // Closing the books fixes everything up to a date, so a later edit cannot
@@ -973,7 +1004,23 @@ export default function Reconciliation() {
                 </datalist>
               </div>
 
-              {/* period — set by hand, defaulting to the last complete 29th→28th cycle */}
+              {/* Next statement to reconcile — the cycle after the last one closed */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, flexWrap: 'wrap', background: onNextPeriod ? '#EAF7F1' : '#FFF8E1', border: `1px solid ${onNextPeriod ? '#CDEBDD' : '#FAEEDA'}`, borderRadius: 12, padding: '11px 16px', maxWidth: 560, margin: '0 auto 12px' }}>
+                <History size={15} color={onNextPeriod ? '#1D9E75' : '#b8860b'} />
+                <span style={{ fontSize: 12.5, color: '#555' }}>
+                  {history.length
+                    ? <>Next statement to reconcile: <b style={{ color: '#0d1b2a' }}>{fmtDate(nextPeriod.from)} – {fmtDate(nextPeriod.to)}</b></>
+                    : <>First statement to reconcile: <b style={{ color: '#0d1b2a' }}>{fmtDate(nextPeriod.from)} – {fmtDate(nextPeriod.to)}</b></>}
+                </span>
+                {!onNextPeriod && (
+                  <button onClick={() => setPeriod(nextPeriod)}
+                    style={{ background: '#fff', border: '1px solid #eadfce', borderRadius: 8, padding: '5px 11px', fontSize: 11.5, fontWeight: 700, color: '#b8740a', cursor: 'pointer', fontFamily: 'inherit' }}>
+                    Use these dates
+                  </button>
+                )}
+              </div>
+
+              {/* period — set by hand, defaulting to the next unreconciled 29th→28th cycle */}
               <div style={{ background: '#f8f7f4', borderRadius: 12, padding: '14px 16px', maxWidth: 560, margin: '0 auto 18px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, flexWrap: 'wrap' }}>
                   <button onClick={() => setPeriod(p => shiftPeriod(p.from, p.to, -1))} title="Previous cycle"
@@ -1021,6 +1068,10 @@ export default function Reconciliation() {
                 {settledRows.length > 0 && <>
                   <span style={{ color: '#e6e2da' }}>·</span>
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><CheckCircle size={12} color="#1D9E75" /> {settledRows.length} settled — won't appear</span>
+                </>}
+                {!settleSynced && <>
+                  <span style={{ color: '#e6e2da' }}>·</span>
+                  <span title="Run integrations/reconciliation-sync-setup.sql in Supabase to sync these across devices" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#b8860b' }}><AlertTriangle size={12} color="#b8860b" /> on this device only</span>
                 </>}
               </div>
               <button onClick={() => setShowSetup(s => !s)} title="Backlog date, closing the books & settled entries"
