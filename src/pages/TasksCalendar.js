@@ -30,7 +30,7 @@ function getFirstDayOfMonth(year, month) {
 
 export default function TasksCalendar() {
   const [tasks, setTasks] = useState([])
-  const [taskHistory, setTaskHistory] = useState(() => { try { return JSON.parse(localStorage.getItem('bj_tasks_history') || '[]') } catch { return [] } })
+  const [taskHistory, setTaskHistory] = useState([])
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('calendar')
@@ -45,52 +45,65 @@ export default function TasksCalendar() {
 
   async function load() {
     setLoading(true)
-    const storedTasks = JSON.parse(localStorage.getItem('bj_tasks') || '[]')
-    const { data: ords } = await supabase
-      .from('orders')
-      .select('*')
-      .in('status', ['created', 'pending', 'transit'])
-      .order('order_date')
-    setTasks(storedTasks)
+    await migrateLocalTasks()
+    const [{ data: taskRows }, { data: ords }] = await Promise.all([
+      supabase.from('tasks').select('*').order('task_date', { ascending: true }),
+      supabase.from('orders').select('*').in('status', ['created', 'pending', 'transit']).order('order_date'),
+    ])
+    // The rest of the page speaks `date`, the column is `task_date` — map across.
+    const all = (taskRows || []).map(r => ({ ...r, date: r.task_date }))
+    setTasks(all.filter(t => !t.done))
+    setTaskHistory(all.filter(t => t.done).sort((a, b) => (b.completed_at || '').localeCompare(a.completed_at || '')))
     setOrders(ords || [])
     setLoading(false)
   }
 
-  function saveTasks(updated) {
-    localStorage.setItem('bj_tasks', JSON.stringify(updated))
-    setTasks(updated)
-  }
-
-  function saveHistory(updated) {
-    localStorage.setItem('bj_tasks_history', JSON.stringify(updated))
-    setTaskHistory(updated)
-  }
-
-  function completeTask(id) {
-    const task = tasks.find(t => t.id === id)
-    if (task) {
-      const completed = { ...task, done: true, completed_at: new Date().toISOString() }
-      saveHistory([completed, ...taskHistory])
+  // One-time lift of tasks that were saved on this device before they lived in the
+  // database, so nobody loses what they'd already jotted down. Runs once per browser.
+  async function migrateLocalTasks() {
+    if (localStorage.getItem('bj_tasks_migrated')) return
+    let local = [], hist = []
+    try { local = JSON.parse(localStorage.getItem('bj_tasks') || '[]') } catch {}
+    try { hist = JSON.parse(localStorage.getItem('bj_tasks_history') || '[]') } catch {}
+    const rows = [
+      ...local.map(t => ({ title: t.title, task_date: t.date || null, priority: t.priority || 'Medium', notes: t.notes || null, done: false, created_at: t.created_at || new Date().toISOString() })),
+      ...hist.map(t => ({ title: t.title, task_date: t.date || null, priority: t.priority || 'Medium', notes: t.notes || null, done: true, created_at: t.created_at || new Date().toISOString(), completed_at: t.completed_at || new Date().toISOString() })),
+    ].filter(r => r.title)
+    if (rows.length) {
+      const { error } = await supabase.from('tasks').insert(rows)
+      if (error) return // leave the flag unset so it retries on the next load
     }
-    saveTasks(tasks.filter(t => t.id !== id))
+    localStorage.setItem('bj_tasks_migrated', '1')
+  }
+
+  async function completeTask(id) {
+    const { error } = await supabase.from('tasks').update({ done: true, completed_at: new Date().toISOString() }).eq('id', id)
+    if (error) { toast.error('Failed to update'); return }
     toast.success('Task completed!')
+    load()
   }
 
-  function deleteTask(id) {
+  async function deleteTask(id) {
     if (!window.confirm('Delete this task?')) return
-    saveTasks(tasks.filter(t => t.id !== id))
+    const { error } = await supabase.from('tasks').delete().eq('id', id)
+    if (error) { toast.error('Failed to delete'); return }
     toast.success('Deleted')
+    load()
   }
 
-  function deleteHistoryTask(id) {
-    saveHistory(taskHistory.filter(t => t.id !== id))
+  async function deleteHistoryTask(id) {
+    const { error } = await supabase.from('tasks').delete().eq('id', id)
+    if (error) { toast.error('Failed to delete'); return }
     toast.success('Removed from history')
+    load()
   }
 
-  function clearHistory() {
+  async function clearHistory() {
     if (!window.confirm('Clear all task history?')) return
-    saveHistory([])
+    const { error } = await supabase.from('tasks').delete().eq('done', true)
+    if (error) { toast.error('Failed to clear'); return }
     toast.success('History cleared')
+    load()
   }
 
   function openAdd(date) {
@@ -98,14 +111,17 @@ export default function TasksCalendar() {
     setModal(true)
   }
 
-  function addTask() {
+  async function addTask() {
     if (!form.title) return
     setSaving(true)
-    const newTask = { ...form, id: Date.now().toString(), done: false, created_at: new Date().toISOString() }
-    saveTasks([...tasks, newTask])
+    const { error } = await supabase.from('tasks').insert({
+      title: form.title, task_date: form.date || null, priority: form.priority || 'Medium', notes: form.notes || null, done: false,
+    })
     setSaving(false)
+    if (error) { toast.error('Failed to save'); return }
     setModal(false)
     toast.success('Task added!')
+    load()
   }
 
   const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))

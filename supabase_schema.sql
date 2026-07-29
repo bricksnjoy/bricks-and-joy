@@ -716,3 +716,23 @@ drop policy if exists "Authenticated users can do everything" on cash_movements;
 drop policy if exists "Authenticated users can do everything" on period_locks;
 create policy "Authenticated users can do everything" on cash_movements for all using (auth.role() = 'authenticated');
 create policy "Authenticated users can do everything" on period_locks   for all using (auth.role() = 'authenticated');
+
+-- Tasks & calendar. Pending and completed tasks live in the same table
+-- (done=false vs done=true), replacing the old device-only localStorage store so
+-- tasks sync across every device the owner signs in from.
+create table if not exists tasks (
+  id uuid primary key default gen_random_uuid(),
+  title text not null,
+  task_date date,
+  priority text default 'Medium',
+  notes text,
+  done boolean default false,
+  created_at timestamptz default now(),
+  completed_at timestamptz
+);
+create index if not exists tasks_date_idx on tasks(task_date);
+create index if not exists tasks_done_idx on tasks(done);
+alter table tasks enable row level security;
+drop policy if exists "Authenticated users can do everything" on tasks;
+create policy "Authenticated users can do everything" on tasks for all using (auth.role() = 'authenticated');
+grant all on tasks to authenticated;
