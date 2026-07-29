@@ -5,7 +5,7 @@ import { localToday } from '../lib/dates'
 import { logAudit } from '../lib/audit'
 import { blockedByLock } from '../lib/periodLock'
 import { PageHeader, Card, Button, Input, Select, Table, Modal, Spinner, FormRow, useToast, Toasts, Badge } from '../components/UI'
-import { Plus, Trash2, Edit2, Gift, FlaskConical, Megaphone, Instagram, Users, Package, Truck, User, Store, Lightbulb, Undo2, FileText, ArrowLeftRight, Tag, PieChart, Filter, Paperclip, X } from 'lucide-react'
+import { Plus, Trash2, Edit2, Gift, FlaskConical, Megaphone, Instagram, Users, Package, Truck, User, Store, Lightbulb, Undo2, FileText, ArrowLeftRight, Tag, PieChart, Filter, Paperclip, X, Laptop, ScrollText } from 'lucide-react'
 
 const MVR_RATE = 15.42
 
@@ -19,6 +19,8 @@ const COST_CATEGORIES = [
   { value: 'Shipping', label: 'Shipping', icon: Truck },
   { value: 'Delivery', label: 'Delivery', icon: User },
   { value: 'Returns / Refunds', label: 'Returns / Refunds', icon: Undo2 },
+  { value: 'Software', label: 'Software', icon: Laptop },
+  { value: 'Document', label: 'Document', icon: ScrollText },
   { value: 'Other', label: 'Other', icon: FileText },
 ]
 
@@ -38,7 +40,7 @@ const CAT_COLORS = {
   'Meta Ads': 'amber', 'Promotions': 'purple', 'Sponsorship': 'blue',
   'Giveaway': 'purple', 'Sample Testing': 'blue', 'Packaging': 'green',
   'Shipping': 'blue', 'Delivery': 'amber',
-  'Returns / Refunds': 'red', 'Other': 'gray',
+  'Returns / Refunds': 'red', 'Software': 'blue', 'Document': 'purple', 'Other': 'gray',
 }
 
 const EMPTY = { description: '', category: 'Meta Ads', amount: '', currency: 'MVR', expense_date: localToday(), reference: '', slips: [], paid_from: 'bank' }
