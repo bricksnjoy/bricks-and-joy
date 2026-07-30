@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Button, Input, Select, Table, Modal, Spinner, FormRow, useToast, Toasts, Badge } from '../components/UI'
 import { Plus, Trash2, Edit2, Eye, Package, ShoppingCart, User, Mail, Phone, MapPin, CalendarDays, Search, Building2, TrendingUp, Download, Layers } from 'lucide-react'
 
-const EMPTY = { name: '', contact_name: '', email: '', phone: '', address: '', payment_terms: 'Net 30', currency: 'MVR', notes: '' }
+const EMPTY = { name: '', contact_name: '', email: '', phone: '', address: '', payment_terms: 'Net 30', currency: 'MVR', notes: '', is_overseas: false }
 const PAYMENT_TERMS = ['Net 7', 'Net 15', 'Net 30', 'Net 60', 'Due on receipt', 'Prepaid']
 
 const AVATAR_COLORS = ['#7F77DD', '#1D9E75', '#FFA500', '#378ADD', '#E24B4A', '#0F6E56']
@@ -68,6 +68,7 @@ export default function Vendors() {
       address: form.address || null,
       payment_terms: form.payment_terms || null,
       notes: form.notes || null,
+      is_overseas: !!form.is_overseas,
     }
     const run = () => modal === 'add'
       ? supabase.from('suppliers').insert(payload)
@@ -360,6 +361,13 @@ export default function Vendors() {
             <Select label="Payment terms" value={form.payment_terms} onChange={f('payment_terms')} options={PAYMENT_TERMS} />
           </FormRow>
           <Input label="Address" value={form.address} onChange={f('address')} placeholder="Street, City, Country" style={{ marginBottom: 12 }} />
+          <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, cursor: 'pointer', background: '#fafafa', border: '1px solid #f0f0f0', borderRadius: 9, padding: '10px 13px' }}>
+            <input type="checkbox" checked={!!form.is_overseas} onChange={e => setForm(p => ({ ...p, is_overseas: e.target.checked }))} style={{ width: 16, height: 16, cursor: 'pointer' }} />
+            <span>
+              <span style={{ fontSize: 13, fontWeight: 600, color: '#0d1b2a' }}>Located overseas (non-resident)</span>
+              <span style={{ display: 'block', fontSize: 11.5, color: '#999', marginTop: 1 }}>Supplier outside the Maldives — payments to them count as payments to a non-resident on MIRA tax forms (Box 27).</span>
+            </span>
+          </label>
           <div style={{ marginBottom: 16 }}>
             <label style={{ fontSize: 12, color: '#666', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.4px', display: 'block', marginBottom: 4 }}>Notes</label>
             <textarea value={form.notes} onChange={f('notes')} placeholder="Payment instructions, lead times, special terms…"

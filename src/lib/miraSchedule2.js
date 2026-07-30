@@ -9,6 +9,7 @@
 // boxes we can't know (fixed assets, withholding tax) before filing.
 
 import { PDFDocument, PDFName, PDFBool } from 'pdf-lib'
+import { supabase } from './supabase'
 import { computeSummary, num } from './business'
 import { getSettings, saveSettings } from './settings'
 import { localToday } from './dates'
@@ -66,6 +67,30 @@ export function computeFinancialPosition(data) {
   return { inventories, receivables, cash, totalAssets, payables, loansOutstanding, totalLiabilities, retainedEarnings, totalEqAndLiab }
 }
 
+// Page 2 — "Other Information". Everything here is a special tax category the
+// records can't classify on their own, so they stay nil except Box 27: money
+// actually paid, during the period, to suppliers marked as located overseas.
+// (Goods bought from abroad are payments to a non-resident, not normally subject
+// to withholding tax — so they belong in 27, not 26.)
+export async function computeOtherInfo({ from, to } = {}) {
+  const [{ data: sup }, { data: pays }] = await Promise.all([
+    supabase.from('suppliers').select('*'),
+    supabase.from('supplier_payments').select('*'),
+  ])
+  const overseas = new Set((sup || []).filter(s => s.is_overseas).map(s => s.id))
+  const inPeriod = d => {
+    const s = String(d || '').slice(0, 10)
+    if (!s) return false
+    if (from && s < from) return false
+    if (to && s > to) return false
+    return true
+  }
+  const nonResidentPaid = (pays || [])
+    .filter(p => overseas.has(p.supplier_id) && inPeriod(p.payment_date))
+    .reduce((t, p) => t + num(p.amount), 0)
+  return { nonResidentPaid }   // Box 27
+}
+
 // Fill the form and hand back the bytes. `period` is { from, to } in ISO.
 export async function buildMiraSchedule2(data, { from, to, tin } = {}) {
   const f = computeFinancialPosition(data)
@@ -73,24 +98,32 @@ export async function buildMiraSchedule2(data, { from, to, tin } = {}) {
     if (!r.ok) throw new Error('Could not load the blank form')
     return r.arrayBuffer()
   })
+  const other = await computeOtherInfo({ from, to })
   const pdf = await PDFDocument.load(bytes)
   const form = pdf.getForm()
   const P1 = 'topmostSubform[0].Page1[0].'
-  const set = (name, value) => { try { form.getTextField(P1 + name).setText(String(value)) } catch { /* field absent — skip */ } }
+  const P2 = 'topmostSubform[0].Page2[0].'
+  const set = (prefix, name, value) => { try { form.getTextField(prefix + name).setText(String(value)) } catch { /* field absent — skip */ } }
 
-  if (tin) set('NumericField1[0]', tin)
-  if (from) set('AccPeriodFrom[0]', ddmmyyyy(from))
-  if (to) set('AccPeriodTo[0]', ddmmyyyy(to))
+  if (tin) set(P1, 'NumericField1[0]', tin)
+  if (from) set(P1, 'AccPeriodFrom[0]', ddmmyyyy(from))
+  if (to) set(P1, 'AccPeriodTo[0]', ddmmyyyy(to))
 
-  set('B6[0]', money2(f.inventories))
-  set('B7[0]', money2(f.receivables))
-  set('B8[0]', money2(f.cash))
-  set('B10[0]', money2(f.totalAssets))
-  set('B12[0]', money2(f.payables))
-  set('B14[0]', money2(f.loansOutstanding))
-  set('B16[0]', money2(f.totalLiabilities))
-  set('B18[0]', money2(f.retainedEarnings))
-  set('B20[0]', money2(f.totalEqAndLiab))
+  // Page 1 — Statement of Financial Position
+  set(P1, 'B6[0]', money2(f.inventories))
+  set(P1, 'B7[0]', money2(f.receivables))
+  set(P1, 'B8[0]', money2(f.cash))
+  set(P1, 'B10[0]', money2(f.totalAssets))
+  set(P1, 'B12[0]', money2(f.payables))
+  set(P1, 'B14[0]', money2(f.loansOutstanding))
+  set(P1, 'B16[0]', money2(f.totalLiabilities))
+  set(P1, 'B18[0]', money2(f.retainedEarnings))
+  set(P1, 'B20[0]', money2(f.totalEqAndLiab))
+
+  // Page 2 — Other Information. Nil for everything the records can't classify;
+  // Box 27 carries what was paid to overseas (non-resident) suppliers.
+  for (const b of ['B21[0]', 'B22[0]', 'B23[0]', 'B24[0]', 'B25[0]', 'B26[0]']) set(P2, b, '0.00')
+  set(P2, 'B27[0]', money2(other.nonResidentPaid))
 
   // Let every viewer rebuild the field appearances from the values we set.
   form.acroForm.dict.set(PDFName.of('NeedAppearances'), PDFBool.True)

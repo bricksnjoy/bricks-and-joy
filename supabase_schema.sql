@@ -222,6 +222,7 @@ create table supplier_payments (
 -- alter table supplier_payments add column if not exists slips jsonb;
 -- alter table supplier_payments add column if not exists batch_no text;
 -- alter table purchase_orders add column if not exists batch_no text;
+-- alter table suppliers add column if not exists is_overseas boolean default false;
 
 -- USER PROFILES (extends Supabase auth)
 create table profiles (
