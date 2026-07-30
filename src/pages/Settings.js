@@ -273,6 +273,9 @@ export default function Settings({ onClose }) {
               <Field label="Tax included in price?" half>
                 <Toggle checked={form.taxIncluded} onChange={fb('taxIncluded')} label={form.taxIncluded ? 'Tax-inclusive' : 'Add on top'} />
               </Field>
+              <Field label="TIN (Taxpayer Identification Number)" hint="Fills your MIRA tax forms automatically">
+                <TInput value={form.tin} onChange={f('tin')} placeholder="e.g. 1001234GST567" maxLength={20} />
+              </Field>
               {form.taxRate > 0 && (
                 <div style={{ gridColumn: 'span 2', background: '#f0f7ff', border: '1px solid #dbeafe', borderRadius: 9, padding: '10px 14px', fontSize: 12, color: '#1e4d8c' }}>
                   Example: {form.currency} 100 → {form.taxIncluded

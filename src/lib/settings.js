@@ -15,6 +15,7 @@ export const DEFAULT_SETTINGS = {
   taxLabel: 'GST',
   taxRate: 0,
   taxIncluded: false,
+  tin: '',   // Taxpayer Identification Number — used to fill MIRA tax forms
 
   // Inventory
   lowStockThreshold: 10,

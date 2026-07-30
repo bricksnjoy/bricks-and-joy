@@ -10,12 +10,17 @@
 
 import { PDFDocument, PDFName, PDFBool } from 'pdf-lib'
 import { computeSummary, num } from './business'
+import { getSettings, saveSettings } from './settings'
 import { localToday } from './dates'
 
 const FORM_URL = '/forms/mira-schedule-2.pdf'
-const TIN_KEY = 'bnj_mira_tin'
-export const getMiraTin = () => { try { return localStorage.getItem(TIN_KEY) || '' } catch { return '' } }
-export const setMiraTin = v => { try { v ? localStorage.setItem(TIN_KEY, v) : localStorage.removeItem(TIN_KEY) } catch {} }
+// The TIN lives in Settings → Financial so it can be set in one place. An older
+// build kept it under its own key; read that as a fallback so nothing is lost.
+const LEGACY_TIN_KEY = 'bnj_mira_tin'
+export const getMiraTin = () => {
+  try { return (getSettings().tin || localStorage.getItem(LEGACY_TIN_KEY) || '').trim() } catch { return '' }
+}
+export const setMiraTin = v => { try { saveSettings({ ...getSettings(), tin: (v || '').trim() }) } catch {} }
 
 const r2 = n => Math.round(num(n) * 100) / 100
 // Plain two-decimal string, no thousands separators — matches the form's own
