@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Spinner } from '../components/UI'
 import { FinancialBusiness } from '../components/BusinessSections'
 import { exportBusinessSummary } from '../lib/business'
-import { downloadMiraSchedule2, getMiraTin, setMiraTin } from '../lib/miraSchedule2'
+import { downloadMiraSchedule2, getMiraTin } from '../lib/miraSchedule2'
 import { FileText, BookOpen, Calendar, Download, TrendingUp, TrendingDown, Receipt, CheckCircle, AlertTriangle, Info, Table2 } from 'lucide-react'
 import { toLocalISO } from '../lib/dates'
 
@@ -377,15 +377,13 @@ export default function Accounting() {
   }
 
   // MIRA Schedule 2 — Statement of Financial Position, filled from the records.
+  // The TIN comes silently from Settings → Financial; if it isn't set the form
+  // field is simply left blank to fill in. No blocking prompt — that froze the
+  // page for as long as the dialog stayed open.
   async function downloadFinancialPosition() {
-    let tin = getMiraTin()
-    if (!tin) {
-      const t = window.prompt('Your TIN (Taxpayer Identification Number)?\n\nLeave blank to type it onto the form yourself. It will be remembered for next time.', '')
-      if (t != null) { tin = t.trim(); if (tin) setMiraTin(tin) }
-    }
     const bundle = { orders, products, expenses, purchases: purchaseOrders, loans, loanPays }
     try {
-      await downloadMiraSchedule2(bundle, { ...formPeriod(), tin })
+      await downloadMiraSchedule2(bundle, { ...formPeriod(), tin: getMiraTin() })
     } catch (e) {
       window.alert('Could not build the form: ' + (e?.message || e))
     }
