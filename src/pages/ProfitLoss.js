@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Spinner } from '../components/UI'
 import { FinancialBusiness } from '../components/BusinessSections'
 import { exportBusinessSummary } from '../lib/business'
+import { downloadMiraSchedule2, getMiraTin, setMiraTin } from '../lib/miraSchedule2'
 import { FileText, BookOpen, Calendar, Download, TrendingUp, TrendingDown, Receipt, CheckCircle, AlertTriangle, Info, Table2 } from 'lucide-react'
 import { toLocalISO } from '../lib/dates'
 
@@ -362,6 +363,32 @@ export default function Accounting() {
           num(p.principal).toFixed(2), num(p.profit).toFixed(2), p.method || '', p.account || '', p.notes || '', slips]
       })
     )
+  }
+
+  // The accounting period the tax form should cover: the selected month, else the
+  // full span of the records. The owner can still change the dates on the form.
+  function formPeriod() {
+    if (periodFilter !== 'all') {
+      const [y, m] = periodFilter.split('-').map(Number)
+      return { from: `${periodFilter}-01`, to: toLocalISO(new Date(y, m, 0)) }
+    }
+    const dates = [...orders.map(o => o.order_date), ...expenses.map(e => e.expense_date)].filter(Boolean).sort()
+    return { from: dates[0] || toLocalISO(new Date()), to: toLocalISO(new Date()) }
+  }
+
+  // MIRA Schedule 2 — Statement of Financial Position, filled from the records.
+  async function downloadFinancialPosition() {
+    let tin = getMiraTin()
+    if (!tin) {
+      const t = window.prompt('Your TIN (Taxpayer Identification Number)?\n\nLeave blank to type it onto the form yourself. It will be remembered for next time.', '')
+      if (t != null) { tin = t.trim(); if (tin) setMiraTin(tin) }
+    }
+    const bundle = { orders, products, expenses, purchases: purchaseOrders, loans, loanPays }
+    try {
+      await downloadMiraSchedule2(bundle, { ...formPeriod(), tin })
+    } catch (e) {
+      window.alert('Could not build the form: ' + (e?.message || e))
+    }
   }
 
   function printIncomeStatement() {
@@ -1076,6 +1103,7 @@ export default function Accounting() {
           <div className="dl-grid">
             {[
               { title: 'Business Summary', desc: 'One-page sheet: performance, cashflow, inventory, shipment & forecast', icon: '📊', action: () => exportBusinessSummary(), label: 'Download Excel' },
+              { title: 'MIRA Schedule 2 — Financial Position', desc: 'The official MIRA balance-sheet form, auto-filled with your inventory, cash, receivables, payables, loans & equity. Review & add your TIN before filing.', icon: '🏛️', action: downloadFinancialPosition, label: 'Download PDF' },
               { title: 'Income Statement', desc: 'Revenue, costs, gross & net profit', icon: '📄', action: downloadIncomeStatementCSV, label: 'Download CSV', secondary: printIncomeStatement, secondaryLabel: 'Print / PDF' },
               { title: 'Monthly Cost Report', desc: 'Costs broken down by category per month', icon: '📅', action: downloadMonthlyCostsCSV, label: 'Download CSV' },
               { title: 'General Journal', desc: 'All double-entry accounting records', icon: '📖', action: downloadJournalCSV, label: 'Download CSV' },
