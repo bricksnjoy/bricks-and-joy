@@ -17,7 +17,7 @@ const BANK_ACCOUNT_NAME = 'BRICKS & JOY'
 const CHANNELS = ['Website','Instagram','Facebook','Retail shop','Pop-up shop','Call']
 const STATUSES = [{ value: 'created', label: 'Order created' },{ value: 'transit', label: 'Dispatched' },{ value: 'delivered', label: 'Delivered' },{ value: 'cancelled', label: 'Cancelled' }]
 const PAY_METHODS = ['Cash','BML Transfer','Bank Transfer','Card','Other']
-const EMPTY_FORM = { customer_id:'', customer_name:'', channel:'Retail shop', status:'created', order_date:'', notes:'', payment_status:'unpaid', payment_method:'', transfer_reference:'', invoice_number:'', fulfilment:'delivery', delivery_person:'', delivery_date:'', delivery_time:'', discount_value:0, discount_type:'amount', special_request:'', delivery_fee:'', delivery_fee_covered:false, delivery_fee_separate:true, delivery_fee_expense:true, special_request_cost:'', special_request_covered:false, special_request_separate:true, special_request_expense:false }
+const EMPTY_FORM = { customer_id:'', customer_name:'', channel:'Instagram', status:'created', order_date:'', notes:'', payment_status:'unpaid', payment_method:'', transfer_reference:'', invoice_number:'', fulfilment:'delivery', delivery_person:'', delivery_date:'', delivery_time:'', discount_value:0, discount_type:'amount', special_request:'', delivery_fee:'', delivery_fee_covered:false, delivery_fee_separate:true, delivery_fee_expense:true, special_request_cost:'', special_request_covered:false, special_request_separate:true, special_request_expense:false }
 const today = localToday
 // Gift/special-request charges and customer-paid delivery fees live on their OWN
 // invoice rows (no product) so each appears as a separate transaction on receipts
@@ -526,7 +526,7 @@ export default function Orders() {
     const { data: { publicUrl } } = supabase.storage.from('uploads').getPublicUrl(fileName)
     setPayForm(p => ({ ...p, transfer_slip_url: publicUrl }))
     setUploadingSlip(false); toast.success('Slip uploaded!')
-    if ((file.type || '').startsWith('image/')) scanCustomerSlip(file)
+    if ((file.type || '').startsWith('image/')) scanCustomerSlip(file, payModal)
   }
 
   // Opening the payment box always starts from this order's own state — the
@@ -548,20 +548,30 @@ export default function Orders() {
     // If a slip is attached but no reference was ever saved, read it now rather
     // than making you press a button every single time.
     if (o.transfer_slip_url && !o.transfer_reference && !/\.pdf(\?|$)/i.test(o.transfer_slip_url)) {
-      scanCustomerSlip(o.transfer_slip_url)
+      scanCustomerSlip(o.transfer_slip_url, o)
     }
   }
 
   // Read the slip the customer sent — the reference is what lets reconciliation
   // tie this order to the line on the bank statement.
-  function scanCustomerSlip(source) {
+  // `target` is the order being paid — passed in so the total is right even when
+  // the scan starts as the modal opens (before payModal state has settled).
+  function scanCustomerSlip(source, target) {
+    const total = Number((target || payModal)?.total_price || 0)
     return slip.scan(source, found => {
       let before
       setPayForm(p => {
         before = {
           transfer_reference: p.transfer_reference, transfer_payer: p.transfer_payer,
           transfer_amount: p.transfer_amount, transfer_date: p.transfer_date, transfer_time: p.transfer_time,
+          payment_status: p.payment_status,
         }
+        // Set Paid or Partial straight from the amount the slip shows: it covers
+        // the order (or more) → paid; less but positive → partial. Still editable.
+        // A cent of tolerance absorbs rounding.
+        const amt = found.amount != null ? Number(found.amount) : null
+        let payment_status = p.payment_status
+        if (amt != null && total > 0) payment_status = amt + 0.01 >= total ? 'paid' : (amt > 0 ? 'partial' : p.payment_status)
         return {
           ...p,
           transfer_reference: found.reference || p.transfer_reference,
@@ -570,8 +580,14 @@ export default function Orders() {
           transfer_amount: found.amount != null ? found.amount : p.transfer_amount,
           transfer_date: found.date || p.transfer_date,
           transfer_time: found.time || p.transfer_time,
+          payment_status,
         }
       })
+      // Say what was detected, so the auto-set status isn't a surprise
+      if (found.amount != null && total > 0) {
+        const amt = Number(found.amount)
+        toast.info(`Slip reads MVR ${amt.toFixed(2)} — marked ${amt + 0.01 >= total ? 'Paid' : (amt > 0 ? 'Partial' : 'unchanged')}`)
+      }
       return before
     })
   }
