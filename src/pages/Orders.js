@@ -41,8 +41,19 @@ function smsInfo(msg = '') {
   return { len: msg.length, segments: msg.length <= 70 ? 1 : Math.ceil(msg.length / 67), unicode: true }
 }
 
+// An order takes its product out of inventory once it is on its way to the
+// customer — dispatched or delivered — and gives it back if it never gets there.
+// A "created" order is only reserved on paper; the stock stays on the shelf until
+// it is dispatched.
+const CONSUMES_STOCK = new Set(['transit', 'delivered'])
+const consumesStock = s => CONSUMES_STOCK.has(s)
+
 export default function Orders() {
   const [orders, setOrders] = useState([])
+  // True once the orders table has the `stock_deducted` column (after running the
+  // migration). Until then we keep the old behaviour — stock leaves at creation —
+  // so nothing breaks in the window before the column exists.
+  const [stockAtDispatch, setStockAtDispatch] = useState(false)
   const [customers, setCustomers] = useState([])
   const [products, setProducts] = useState([])
   const [loading, setLoading] = useState(true)
@@ -103,8 +114,17 @@ export default function Orders() {
     setCustomers(c.data || [])
     setProducts(p.data || [])
     setContacts(ct.data || [])
+    // Does the table track when stock was taken out? Decides create-time vs
+    // dispatch-time deduction. A missing column makes the probe error.
+    const probe = await supabase.from('orders').select('stock_deducted').limit(1)
+    setStockAtDispatch(!probe.error)
     setLoading(false)
   }
+
+  // Whether an order row is currently holding stock out of inventory. With the
+  // new model that's the flag; before the migration, any live order held it (it
+  // was deducted at creation).
+  const holdsStock = row => stockAtDispatch ? !!row.stock_deducted : (row.status !== 'cancelled')
 
   function openAdd() {
     const { invoicePrefix } = getSettings()
@@ -361,6 +381,9 @@ export default function Orders() {
       product_id: item.product_id,
       product_name: item.product_name,
       qty: parseInt(item.qty) || 0,
+      // Records whether this row's stock is currently out of inventory, so the
+      // deduction is never applied or reversed twice across its life.
+      ...(stockAtDispatch ? { stock_deducted: consumesStock(form.status) } : {}),
       unit_price: parseFloat(item.unit_price) || 0,
       total_price: Math.max(0, (parseFloat(item.unit_price) || 0) * (parseInt(item.qty) || 0) - (itemDiscount || 0)) + mergedFee + mergedGift,
       discount: itemDiscount || 0,
@@ -388,7 +411,12 @@ export default function Orders() {
     setSaving(true)
 
     if (editOrder) {
-      // Reconcile each cart item against its original row (by position)
+      // Should the edited order be holding its stock out after this save?
+      const newHold = stockAtDispatch ? consumesStock(form.status) : (form.status !== 'cancelled')
+      // Reconcile each cart item against its original row (by position). The rule
+      // is the same every time: give back whatever the row was holding, then take
+      // out whatever it should hold now. That covers a qty change, a product swap,
+      // and a status moving into or out of "dispatched" — without double-counting.
       const maxLen = Math.max(validItems.length, editOrderRows.length)
       for (let idx = 0; idx < maxLen; idx++) {
         const newItem = validItems[idx]
@@ -404,29 +432,19 @@ export default function Orders() {
           let { error } = await supabase.from('orders').update(payload).eq('id', oldRow.id)
           while (error && dropMissingCol(error, payload)) { error = (await supabase.from('orders').update(payload).eq('id', oldRow.id)).error }
           if (error) { console.error(error); setSaving(false); toast.error('Failed to update: ' + error.message); return }
-          if (editOrder.status !== 'cancelled') {
-            const oldQty = parseInt(oldRow.qty) || 0
-            const newQty = parseInt(newItem.qty) || 0
-            if (oldRow.product_id === newItem.product_id) {
-              await applyStockDelta(newItem.product_id, -(newQty - oldQty))
-            } else {
-              await applyStockDelta(oldRow.product_id, oldQty)
-              await applyStockDelta(newItem.product_id, -newQty)
-            }
-          }
+          if (holdsStock(oldRow) && oldRow.product_id) await applyStockDelta(oldRow.product_id, parseInt(oldRow.qty) || 0)
+          if (newHold && newItem.product_id) await applyStockDelta(newItem.product_id, -(parseInt(newItem.qty) || 0))
         } else if (newItem && !oldRow) {
           // INSERT newly added row
           const payload = buildPayload(newItem, itemDiscount, idx === 0)
           let { error } = await supabase.from('orders').insert(payload)
           while (error && dropMissingCol(error, payload)) { error = (await supabase.from('orders').insert(payload)).error }
           if (error) { console.error(error); setSaving(false); toast.error('Failed to add item: ' + error.message); return }
-          await applyStockDelta(newItem.product_id, -parseInt(newItem.qty))
+          if (newHold && newItem.product_id) await applyStockDelta(newItem.product_id, -(parseInt(newItem.qty) || 0))
         } else if (!newItem && oldRow) {
-          // DELETE removed row and restore its stock
+          // DELETE removed row and restore whatever stock it was holding
           await supabase.from('orders').delete().eq('id', oldRow.id)
-          if (editOrder.status !== 'cancelled' && oldRow.product_id) {
-            await applyStockDelta(oldRow.product_id, parseInt(oldRow.qty) || 0)
-          }
+          if (holdsStock(oldRow) && oldRow.product_id) await applyStockDelta(oldRow.product_id, parseInt(oldRow.qty) || 0)
         }
       }
       // Gift & delivery-fee charges — keep their own invoice rows in sync.
@@ -455,13 +473,19 @@ export default function Orders() {
       let { error } = await supabase.from('orders').insert(payload)
       while (error && dropMissingCol(error, payload)) { error = (await supabase.from('orders').insert(payload)).error }
       if (error) { console.error(error); setSaving(false); toast.error('Failed to save: ' + error.message); return }
-      const { data: prod } = await supabase.from('products').select('stock_qty, name, low_stock_threshold').eq('id', item.product_id).single()
-      if (prod) {
-        const newStock = (prod.stock_qty || 0) - parseInt(item.qty)
-        const { lowStockThreshold } = getSettings()
-        await supabase.from('products').update({ stock_qty: newStock }).eq('id', item.product_id)
-        if (newStock <= 0) toast.error(`⚠️ ${prod.name} OUT OF STOCK!`)
-        else if (newStock <= (prod.low_stock_threshold ?? lowStockThreshold ?? 10)) toast.info(`⚠️ Low stock: ${prod.name} — ${newStock} left`)
+      // Only take stock out now if the order is already on its way (dispatched or
+      // delivered). A plain "created" order leaves the stock on the shelf until it
+      // is dispatched. Before the migration, keep deducting at creation as before.
+      const deductNow = stockAtDispatch ? consumesStock(form.status) : true
+      if (deductNow && item.product_id) {
+        const { data: prod } = await supabase.from('products').select('stock_qty, name, low_stock_threshold').eq('id', item.product_id).single()
+        if (prod) {
+          const newStock = (prod.stock_qty || 0) - parseInt(item.qty)
+          const { lowStockThreshold } = getSettings()
+          await supabase.from('products').update({ stock_qty: newStock }).eq('id', item.product_id)
+          if (newStock <= 0) toast.error(`⚠️ ${prod.name} OUT OF STOCK!`)
+          else if (newStock <= (prod.low_stock_threshold ?? lowStockThreshold ?? 10)) toast.info(`⚠️ Low stock: ${prod.name} — ${newStock} left`)
+        }
       }
     }
     // Gift & delivery-fee charges as their own transactions (when marked separate)
@@ -587,7 +611,8 @@ export default function Orders() {
     if (await blockedByLock(returnModal.order_date, { action: 'process this return' })) return
     setSaving(true)
     const order = returnModal
-    if (order.product_id) {
+    // Put stock back only if this order was actually holding it out.
+    if (order.product_id && holdsStock(order)) {
       const { data: prod } = await supabase.from('products').select('stock_qty, name').eq('id', order.product_id).single()
       if (prod) {
         await supabase.from('products').update({ stock_qty: (Number(prod.stock_qty) || 0) + (Number(order.qty) || 0) }).eq('id', order.product_id)
@@ -597,6 +622,7 @@ export default function Orders() {
     const refund = parseFloat(returnForm.refund_amount) || 0
     const orderPatch = {
       status: 'cancelled',
+      ...(stockAtDispatch ? { stock_deducted: false } : {}),
       notes: `RETURNED: ${returnForm.reason} | Refund: MVR ${returnForm.refund_amount}${order.notes ? ' | ' + order.notes : ''}`,
       refund_amount: refund || null,
       refunded_on: refund > 0 ? (returnForm.refunded_on || localToday()) : null,
@@ -627,10 +653,29 @@ export default function Orders() {
 
   async function updateStatus(id, newStatus) {
     const order = orders.find(o => o.id === id)
-    await supabase.from('orders').update({ status: newStatus }).eq('id', id)
-    if (newStatus === 'cancelled' && order?.status !== 'cancelled' && order?.product_id) {
-      const { data: prod } = await supabase.from('products').select('stock_qty, name').eq('id', order.product_id).single()
-      if (prod) { await supabase.from('products').update({ stock_qty: (Number(prod.stock_qty) || 0) + (Number(order.qty) || 0) }).eq('id', order.product_id); toast.info(`Stock restored: ${prod.name} +${order.qty}`) }
+    if (!order) return
+    const held = holdsStock(order)                                   // holding stock now?
+    const want = stockAtDispatch ? consumesStock(newStatus) : (newStatus !== 'cancelled')  // should it after?
+    const patch = { status: newStatus, ...(stockAtDispatch ? { stock_deducted: want } : {}) }
+    let { error } = await supabase.from('orders').update(patch).eq('id', id)
+    while (error && dropMissingCol(error, patch)) { error = (await supabase.from('orders').update(patch).eq('id', id)).error }
+    // Move stock only when the holding state actually changes — take it out when
+    // dispatched, put it back if it comes off dispatch or is cancelled.
+    if (order.product_id && want !== held) {
+      const { data: prod } = await supabase.from('products').select('stock_qty, name, low_stock_threshold').eq('id', order.product_id).single()
+      if (prod) {
+        const qty = Number(order.qty) || 0
+        const newStock = (Number(prod.stock_qty) || 0) + (want ? -qty : qty)
+        await supabase.from('products').update({ stock_qty: newStock }).eq('id', order.product_id)
+        if (want) {
+          const { lowStockThreshold } = getSettings()
+          if (newStock <= 0) toast.error(`⚠️ ${prod.name} OUT OF STOCK!`)
+          else if (newStock <= (prod.low_stock_threshold ?? lowStockThreshold ?? 10)) toast.info(`${prod.name} −${qty} · ${newStock} left`)
+          else toast.info(`${prod.name} −${qty} from stock (dispatched)`)
+        } else {
+          toast.info(`Stock restored: ${prod.name} +${qty}`)
+        }
+      }
     }
     logAudit(newStatus === 'cancelled' ? 'cancel' : 'update', 'order', `${order?.invoice_number || id} — ${order?.customer_name || ''}`, { status: newStatus })
     load()
@@ -639,7 +684,7 @@ export default function Orders() {
   async function del(id) {
     if (!window.confirm('Delete this order? Stock will be restored.')) return
     const order = orders.find(o => o.id === id)
-    if (order?.status !== 'cancelled' && order?.product_id) {
+    if (order && holdsStock(order) && order.product_id) {
       const { data: prod } = await supabase.from('products').select('stock_qty').eq('id', order.product_id).single()
       if (prod) await supabase.from('products').update({ stock_qty: (Number(prod.stock_qty) || 0) + (Number(order.qty) || 0) }).eq('id', order.product_id)
     }
