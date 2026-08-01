@@ -10,7 +10,6 @@ import {
 } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { getSettings } from '../lib/settings'
-import { buildSupplierOrderPdf } from '../lib/supplierOrderPdf'
 
 // What the supplier must do once payment lands, and who carries the loss when it
 // goes wrong — spelled out on the order sheet so there is nothing to argue about
@@ -213,7 +212,6 @@ export default function OrderAnalysis() {
   const [pickNeeds, setPickNeeds] = useState(false)
   const [picked, setPicked] = useState(() => new Set())
   const [selected, setSelected] = useState(() => new Set())   // analysis lines ticked for deletion
-  const [pdfBusy, setPdfBusy] = useState(false)               // building the supplier sheet
   const toast = useToast()
 
   const open = analyses.find(a => a.id === openId) || null
@@ -687,12 +685,17 @@ export default function OrderAnalysis() {
     toast.success('Downloaded')
   }
 
-  // ── The same sheet, printed ─────────────────────────────────────────────────
-  // The fallback for when the pictures cannot be read. A browser renders any
-  // image it can display, including ones on sites that refuse to let script read
-  // their bytes — so printing keeps every photo where building the file directly
-  // cannot. It costs a trip through the print dialog, so it is only offered when
-  // it is actually needed.
+  // ── Supplier order sheet ────────────────────────────────────────────────────
+  // The sheet to send the supplier: each product's picture, name and quantity as
+  // cards plus a matching table, then the steps and who carries the loss when
+  // they aren't followed. Laid out as real A4 pages so the header, cards and
+  // footer land where they should and every page can carry its number.
+  //
+  // Produced through the print view, saved as PDF. That is deliberate: building
+  // the file directly would mean reading each picture's bytes, and a browser only
+  // permits that for images whose host allows it — catalog photos hot-linked from
+  // another shop's site came out blank. Printing renders anything the browser can
+  // display, so every photo survives.
   function printSupplierOrder() {
     if (!rows.length) { toast.error('Nothing to send'); return }
     const shop = getSettings().businessName || "Brick's & Joy"
@@ -887,59 +890,6 @@ export default function OrderAnalysis() {
     toast.info('Opening the print view — choose "Save as PDF" as the destination')
   }
 
-  // ── Supplier order sheet (PDF) ───────────────────────────────────────────────
-  // Downloads a real .pdf: each product's picture, name and quantity as cards and
-  // a matching table, then the steps the supplier has to follow. Drawn in
-  // lib/supplierOrderPdf rather than printed, so the button produces a file
-  // instead of opening the print dialog.
-  async function downloadSupplierPdf() {
-    if (!rows.length) { toast.error('Nothing to send'); return }
-    setPdfBusy(true)
-    try {
-      const byVendor = {}
-      rows.forEach(r => { const k = r.vendorName || 'Products'; (byVendor[k] || (byVendor[k] = [])).push(r) })
-      const { bytes, missingImages } = await buildSupplierOrderPdf({
-        shop: getSettings().businessName || "Brick's & Joy",
-        orderName: open.name || 'Order',
-        dateLabel: localToday(),
-        logoUrl: window.location.origin + '/logo-full.png',
-        vendors: Object.entries(byVendor).map(([name, items]) => ({
-          name,
-          items: items.map(r => ({ name: r.product_name, qty: num(r.qty), imageUrl: r.image_url || null })),
-        })),
-        steps: ORDER_STEPS,
-        responsibility: ORDER_RESPONSIBILITY,
-      })
-      // Pictures hot-linked from another site can be shown by the browser but not
-      // read by script, so they cannot be written into a file we build ourselves.
-      // Rather than hand over a sheet of blank squares, offer the printed version,
-      // which renders them fine.
-      const withPhotos = rows.filter(r => r.image_url).length
-      if (missingImages && missingImages === withPhotos) {
-        setPdfBusy(false)
-        if (window.confirm(
-          `The product pictures are hosted on other websites, which do not allow them to be downloaded into a file.\n\n`
-          + `Open the printable version instead? It keeps every picture — then choose "Save as PDF" as the destination.\n\n`
-          + `(Cancel to download the sheet without pictures.)`
-        )) { printSupplierOrder(); return }
-        setPdfBusy(true)
-      }
-      const blob = new Blob([bytes], { type: 'application/pdf' })
-      const a = document.createElement('a')
-      a.href = URL.createObjectURL(blob)
-      a.download = `order-${(open.name || 'draft').replace(/[^\w]+/g, '_')}-${localToday()}.pdf`
-      a.click()
-      setTimeout(() => URL.revokeObjectURL(a.href), 4000)
-      toast.success(missingImages
-        ? `Downloaded · ${missingImages} picture${missingImages === 1 ? '' : 's'} could not be read from their website`
-        : 'Downloaded')
-    } catch (e) {
-      toast.error('Could not build the PDF: ' + (e?.message || e))
-    } finally {
-      setPdfBusy(false)
-    }
-  }
-
   // ── Render ──────────────────────────────────────────────────────────────────
   if (loading) return <Spinner />
 
@@ -1060,9 +1010,7 @@ export default function OrderAnalysis() {
           action={
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <Button variant="ghost" onClick={exportExcel}><FileSpreadsheet size={14} /> Excel</Button>
-              <Button variant="ghost" onClick={downloadSupplierPdf} disabled={pdfBusy}>
-                <FileText size={14} /> {pdfBusy ? 'Building…' : 'Supplier PDF'}
-              </Button>
+              <Button variant="ghost" onClick={printSupplierOrder}><FileText size={14} /> Supplier PDF</Button>
               <Button variant="ghost" onClick={() => duplicateAnalysis(open)}><Copy size={14} /> Duplicate</Button>
               <Button variant="danger" onClick={() => deleteAnalysis(open)}><Trash2 size={14} /> Delete</Button>
               {!converted && (
