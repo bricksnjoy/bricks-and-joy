@@ -694,13 +694,13 @@ export default function OrderAnalysis() {
       ] },
       { title: 'Pack everything and send proof', body: [
         'After all products are finalised, pack everything inside one box measuring 1m × 1m × 0.5m.',
-        'Send three pictures: inside the box, outside the box, and the label (Suite 576-797) written large on the outside of the box.',
+        'Send three pictures: inside the box, outside the box, and the label written large on the outside of the box.',
       ] },
     ]
 
     const cardHtml = r => `
       <div class="card">
-        <div class="thumb">${r.image_url
+        <div class="thumb${r.image_url ? '' : ' empty'}">${r.image_url
           ? `<img src="${esc(r.image_url)}" alt="" />`
           : `<span class="noimg">${esc((r.product_name || '?').slice(0, 1).toUpperCase())}</span>`}</div>
         <div class="cbody">
@@ -734,25 +734,19 @@ export default function OrderAnalysis() {
       <div class="ack">Any change to these steps must be agreed in writing before the goods are shipped.</div>`
 
     // ── Break the content into A4 pages ───────────────────────────────────────
-    const CARDS_FIRST = 12, CARDS_REST = 16, ROWS_PER_PAGE = 24
+    // Tuned to what an A4 page actually holds: 4 rows of 4 cards, and a table
+    // that stops short of the footer so it continues cleanly on the next page.
+    const CARDS_PER_PAGE = 16, ROWS_PER_PAGE = 23
     const pages = []
     vendors.forEach(v => {
       const list = byVendor[v]
       const vTotal = { name: v, qty: list.reduce((s, r) => s + num(r.qty), 0) }
-      // Fill the opening page around its tall header, then spread whatever is
-      // left evenly — so the run never ends on a page holding a lonely card.
-      const firstCap = pages.length === 0 ? CARDS_FIRST : CARDS_REST
-      const chunks = []
-      if (list.length) chunks.push(list.slice(0, firstCap))
-      const rest = list.slice(firstCap)
-      if (rest.length) {
-        const per = Math.ceil(rest.length / Math.ceil(rest.length / CARDS_REST))
-        for (let i = 0; i < rest.length; i += per) chunks.push(rest.slice(i, i + per))
-      }
-      chunks.forEach((c, ci) => {
+      // Pack each page full before starting the next one.
+      let ci = 0
+      for (let i = 0; i < list.length; i += CARDS_PER_PAGE, ci++) {
         const head = multi && ci === 0 ? vendHead(v, vTotal.qty) : ''
-        pages.push({ first: pages.length === 0, vendor: v, html: head + `<div class="grid">${c.map(cardHtml).join('')}</div>` })
-      })
+        pages.push({ first: pages.length === 0, vendor: v, html: head + `<div class="grid">${list.slice(i, i + CARDS_PER_PAGE).map(cardHtml).join('')}</div>` })
+      }
       for (let i = 0; i < list.length; i += ROWS_PER_PAGE) {
         const last = i + ROWS_PER_PAGE >= list.length
         pages.push({ vendor: v, html: tableHtml(list.slice(i, i + ROWS_PER_PAGE), i, last, vTotal) })
@@ -782,8 +776,8 @@ export default function OrderAnalysis() {
         ${p.first ? bigHead : smallHead(p.vendor)}
         <div class="content">${p.html}</div>
         <div class="foot">
-          <div class="frow"><span>${esc(shop)} · ${esc(open.name || 'Order')}</span><span>Page ${i + 1} of ${totalPages}</span></div>
-          <div class="fcopy">© ${year} ${esc(shop)}. All rights reserved. Confidential — intended solely for the named supplier.</div>
+          <span>© ${year} ${esc(shop)}. All rights reserved.</span>
+          <span>Page ${i + 1} of ${totalPages}</span>
         </div>
       </section>`).join('')
 
@@ -798,15 +792,15 @@ export default function OrderAnalysis() {
         .page:last-child { page-break-after:auto; margin-bottom:0; }
 
         .head { display:flex; align-items:center; border-bottom:3px solid #FFA500; }
-        .head.big { padding-bottom:7mm; margin-bottom:10mm; }
-        .logo { width:62mm; height:auto; }
+        .head.big { padding-bottom:6mm; margin-bottom:7mm; }
+        .logo { width:34mm; height:auto; }
         .fallback { display:none; font-size:20pt; font-weight:800; }
         .htext { margin-left:auto; text-align:right; }
         .doc { font-size:8pt; letter-spacing:2px; text-transform:uppercase; color:#FFA500; font-weight:700; }
         .oname { font-size:16pt; font-weight:800; margin-top:1.5mm; }
         .osub { font-size:9pt; color:#888; margin-top:1.5mm; }
         .head.sm { padding-bottom:3mm; margin-bottom:6mm; border-bottom-width:2px; }
-        .logo.sm { width:32mm; }
+        .logo.sm { width:24mm; }
         .hsm { margin-left:auto; font-size:9pt; color:#888; font-weight:600; }
 
         .vend { font-size:11pt; font-weight:800; margin-bottom:5mm; display:flex; align-items:center; gap:3mm; }
@@ -814,7 +808,10 @@ export default function OrderAnalysis() {
 
         .grid { display:grid; grid-template-columns:repeat(4,1fr); gap:5mm; }
         .card { border:1px solid #e8e8e8; border-radius:3mm; overflow:hidden; page-break-inside:avoid; }
-        .thumb { height:32mm; background:#f7f5f2; display:flex; align-items:center; justify-content:center; }
+        /* White behind the photo: most product shots are cut out on white, and a
+           tinted panel makes those ones look like they have a different background. */
+        .thumb { height:30mm; background:#fff; display:flex; align-items:center; justify-content:center; }
+        .thumb.empty { background:#f7f5f2; }
         .thumb img { max-width:100%; max-height:100%; object-fit:contain; }
         .noimg { font-size:22pt; font-weight:800; color:#d8d2c8; }
         .cbody { padding:3mm; }
@@ -842,9 +839,8 @@ export default function OrderAnalysis() {
         .ack { margin-top:5mm; background:#fffaf0; border:1px solid #f3e2c3; border-radius:2mm; padding:4mm;
                font-size:9pt; color:#8a6a2a; }
 
-        .foot { position:absolute; left:14mm; right:14mm; bottom:9mm; border-top:1px solid #eee; padding-top:2.5mm; }
-        .frow { display:flex; justify-content:space-between; font-size:8pt; color:#999; }
-        .fcopy { text-align:center; font-size:7pt; color:#bbb; margin-top:1.2mm; }
+        .foot { position:absolute; left:14mm; right:14mm; bottom:9mm; border-top:1px solid #eee;
+                padding-top:2.5mm; display:flex; justify-content:space-between; font-size:8pt; color:#999; }
 
         @media print { body { background:#fff; } .page { margin:0; box-shadow:none; } }
       </style></head><body>
