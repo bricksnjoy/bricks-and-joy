@@ -662,74 +662,193 @@ export default function OrderAnalysis() {
   }
 
   // ── Supplier order sheet (PDF) ───────────────────────────────────────────────
-  // A clean sheet to send the supplier: just the picture, the name and how many
-  // of each — as a grid of cards and a matching table. Opens a print view; choose
-  // "Save as PDF" to get the file.
+  // The sheet to send the supplier: each product's picture, name and quantity as
+  // cards plus a matching table, then the steps they have to follow. Laid out as
+  // real A4 pages so the header, cards and footer land where they should and every
+  // page can carry its number. Opens a print view; choose "Save as PDF".
   function printSupplierOrder() {
     if (!rows.length) { toast.error('Nothing to send'); return }
     const shop = getSettings().businessName || "Brick's & Joy"
+    const logo = window.location.origin + '/logo-full.png'
     const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
     const totalUnits = rows.reduce((s, r) => s + num(r.qty), 0)
-    // Group by supplier so a multi-vendor analysis still reads as one order per vendor
+    const year = new Date().getFullYear()
+
+    // Group by supplier so a multi-vendor analysis still reads as one order each
     const byVendor = {}
     rows.forEach(r => { const k = r.vendorName || 'Products'; (byVendor[k] || (byVendor[k] = [])).push(r) })
     const vendors = Object.keys(byVendor)
+    const multi = vendors.length > 1
+
+    // What the supplier must do once payment lands — spelled out so there is no
+    // confusion later about packing, approval or proof.
+    const STEPS = [
+      { title: 'Arrange the order and add an extra outer box', body: [
+        'Arrange the order with the factory, then tell the factory to add an extra cardboard box around the goods for damage control.',
+        'You do not need to send a picture of the extra box — as long as it is there, that is fine.',
+      ] },
+      { title: 'Send pictures of ALL products and wait for approval', body: [
+        'Once you are at the factory, photograph every product and send the pictures to me.',
+        'Wait for my approval before going any further.',
+        'If I do not approve a product, try to find the correct version. If that is not possible, refund the amount or buy other products for the amount I sent.',
+      ] },
+      { title: 'Pack everything and send proof', body: [
+        'After all products are finalised, pack everything inside one box measuring 1m × 1m × 0.5m.',
+        'Send three pictures: inside the box, outside the box, and the label (Suite 576-797) written large on the outside of the box.',
+      ] },
+    ]
 
     const cardHtml = r => `
       <div class="card">
         <div class="thumb">${r.image_url
           ? `<img src="${esc(r.image_url)}" alt="" />`
           : `<span class="noimg">${esc((r.product_name || '?').slice(0, 1).toUpperCase())}</span>`}</div>
-        <div class="pname">${esc(r.product_name)}</div>
-        <div class="qty">×${num(r.qty)}</div>
+        <div class="cbody">
+          <div class="pname">${esc(r.product_name)}</div>
+          <div class="qty">×${num(r.qty)}</div>
+        </div>
       </div>`
 
-    const section = v => `
-      ${vendors.length > 1 ? `<h2 class="vendor">${esc(v)} <span>${byVendor[v].reduce((s, r) => s + num(r.qty), 0)} pcs</span></h2>` : ''}
-      <div class="grid">${byVendor[v].map(cardHtml).join('')}</div>
+    const vendHead = (v, qty) => `<div class="vend">${esc(v)} <span>${qty} pcs</span></div>`
+
+    const tableHtml = (list, startIdx, showTotal, vTotal) => `
       <table class="tbl">
-        <thead><tr><th>#</th><th>Product</th><th class="num">Qty</th></tr></thead>
+        <thead><tr><th class="idx">#</th><th>Product</th><th class="num">Qty</th></tr></thead>
         <tbody>
-          ${byVendor[v].map((r, i) => `<tr><td class="idx">${i + 1}</td><td>${esc(r.product_name)}</td><td class="num">${num(r.qty)}</td></tr>`).join('')}
-          <tr class="total"><td></td><td>Total</td><td class="num">${byVendor[v].reduce((s, r) => s + num(r.qty), 0)}</td></tr>
+          ${list.map((r, i) => `<tr><td class="idx">${startIdx + i + 1}</td><td>${esc(r.product_name)}</td><td class="num">${num(r.qty)}</td></tr>`).join('')}
+          ${showTotal ? `<tr class="total"><td></td><td>Total${multi ? ' — ' + esc(vTotal.name) : ''}</td><td class="num">${vTotal.qty} pcs</td></tr>` : ''}
         </tbody>
       </table>`
 
+    const stepsHtml = () => `
+      <div class="sect">Steps to follow during the order</div>
+      <p class="lead">Please follow these steps to avoid any mistakes or confusion later. Begin as soon as my payment reaches you.</p>
+      ${STEPS.map((s, i) => `
+        <div class="step">
+          <div class="sno">${i + 1}</div>
+          <div class="sbody">
+            <div class="stitle">${esc(s.title)}</div>
+            ${s.body.map(b => `<p>${esc(b)}</p>`).join('')}
+          </div>
+        </div>`).join('')}
+      <div class="ack">Any change to these steps must be agreed in writing before the goods are shipped.</div>`
+
+    // ── Break the content into A4 pages ───────────────────────────────────────
+    const CARDS_FIRST = 12, CARDS_REST = 16, ROWS_PER_PAGE = 24
+    const pages = []
+    vendors.forEach(v => {
+      const list = byVendor[v]
+      const vTotal = { name: v, qty: list.reduce((s, r) => s + num(r.qty), 0) }
+      // Fill the opening page around its tall header, then spread whatever is
+      // left evenly — so the run never ends on a page holding a lonely card.
+      const firstCap = pages.length === 0 ? CARDS_FIRST : CARDS_REST
+      const chunks = []
+      if (list.length) chunks.push(list.slice(0, firstCap))
+      const rest = list.slice(firstCap)
+      if (rest.length) {
+        const per = Math.ceil(rest.length / Math.ceil(rest.length / CARDS_REST))
+        for (let i = 0; i < rest.length; i += per) chunks.push(rest.slice(i, i + per))
+      }
+      chunks.forEach((c, ci) => {
+        const head = multi && ci === 0 ? vendHead(v, vTotal.qty) : ''
+        pages.push({ first: pages.length === 0, vendor: v, html: head + `<div class="grid">${c.map(cardHtml).join('')}</div>` })
+      })
+      for (let i = 0; i < list.length; i += ROWS_PER_PAGE) {
+        const last = i + ROWS_PER_PAGE >= list.length
+        pages.push({ vendor: v, html: tableHtml(list.slice(i, i + ROWS_PER_PAGE), i, last, vTotal) })
+      }
+    })
+    pages.push({ vendor: null, html: stepsHtml() })
+
+    const totalPages = pages.length
+    const bigHead = `
+      <div class="head big">
+        <img class="logo" src="${logo}" alt="${esc(shop)}" onerror="this.style.display='none';var f=document.getElementById('bnjName');if(f)f.style.display='block'" />
+        <div id="bnjName" class="fallback">${esc(shop)}</div>
+        <div class="htext">
+          <div class="doc">Order request</div>
+          <div class="oname">${esc(open.name || 'Order')}</div>
+          <div class="osub">${localToday()} · ${rows.length} product${rows.length === 1 ? '' : 's'} · ${totalUnits} pcs</div>
+        </div>
+      </div>`
+    const smallHead = v => `
+      <div class="head sm">
+        <img class="logo sm" src="${logo}" alt="" onerror="this.style.display='none'" />
+        <div class="hsm">${esc(open.name || 'Order')}${v && multi ? ' · ' + esc(v) : ''}</div>
+      </div>`
+
+    const body = pages.map((p, i) => `
+      <section class="page">
+        ${p.first ? bigHead : smallHead(p.vendor)}
+        <div class="content">${p.html}</div>
+        <div class="foot">
+          <div class="frow"><span>${esc(shop)} · ${esc(open.name || 'Order')}</span><span>Page ${i + 1} of ${totalPages}</span></div>
+          <div class="fcopy">© ${year} ${esc(shop)}. All rights reserved. Confidential — intended solely for the named supplier.</div>
+        </div>
+      </section>`).join('')
+
     const html = `<!doctype html><html><head><meta charset="utf-8"><title>Order — ${esc(open.name || shop)}</title>
       <style>
+        @page { size: A4; margin: 0; }
         * { margin:0; padding:0; box-sizing:border-box; }
-        body { font-family: -apple-system, 'Segoe UI', Arial, sans-serif; color:#0d1b2a; padding:32px; }
-        .head { display:flex; justify-content:space-between; align-items:flex-start; border-bottom:3px solid #FFA500; padding-bottom:16px; margin-bottom:22px; }
-        .brand { font-size:20px; font-weight:800; }
-        .tag { font-size:11px; color:#999; text-transform:uppercase; letter-spacing:1.2px; margin-top:2px; }
-        .meta { text-align:right; font-size:12px; color:#666; }
-        .meta .big { font-size:15px; font-weight:700; color:#0d1b2a; }
-        h2.vendor { font-size:14px; margin:22px 0 12px; display:flex; align-items:center; gap:8px; }
-        h2.vendor span { font-size:11px; font-weight:600; color:#fff; background:#FFA500; border-radius:99px; padding:2px 10px; }
-        .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:12px; margin-bottom:20px; }
-        .card { border:1px solid #eee; border-radius:12px; overflow:hidden; page-break-inside:avoid; }
-        .thumb { width:100%; aspect-ratio:1/1; background:#f7f5f2; display:flex; align-items:center; justify-content:center; }
-        .thumb img { width:100%; height:100%; object-fit:contain; }
-        .noimg { font-size:36px; font-weight:800; color:#d8d2c8; }
-        .pname { font-size:12.5px; font-weight:600; padding:9px 11px 2px; line-height:1.35; }
-        .qty { font-size:16px; font-weight:800; color:#FFA500; padding:0 11px 11px; }
-        table.tbl { width:100%; border-collapse:collapse; margin-bottom:26px; font-size:13px; }
-        .tbl th { text-align:left; font-size:10.5px; text-transform:uppercase; letter-spacing:.4px; color:#999; border-bottom:2px solid #eee; padding:8px 10px; }
-        .tbl td { padding:9px 10px; border-bottom:1px solid #f2f2f2; }
+        body { font-family:-apple-system,'Segoe UI',Arial,sans-serif; color:#0d1b2a; background:#eceff3;
+               -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+        .page { width:210mm; min-height:297mm; background:#fff; margin:0 auto 8mm; padding:13mm 14mm 22mm;
+                position:relative; page-break-after:always; box-shadow:0 2px 12px rgba(0,0,0,.12); }
+        .page:last-child { page-break-after:auto; margin-bottom:0; }
+
+        .head { display:flex; align-items:center; border-bottom:3px solid #FFA500; }
+        .head.big { padding-bottom:7mm; margin-bottom:10mm; }
+        .logo { width:62mm; height:auto; }
+        .fallback { display:none; font-size:20pt; font-weight:800; }
+        .htext { margin-left:auto; text-align:right; }
+        .doc { font-size:8pt; letter-spacing:2px; text-transform:uppercase; color:#FFA500; font-weight:700; }
+        .oname { font-size:16pt; font-weight:800; margin-top:1.5mm; }
+        .osub { font-size:9pt; color:#888; margin-top:1.5mm; }
+        .head.sm { padding-bottom:3mm; margin-bottom:6mm; border-bottom-width:2px; }
+        .logo.sm { width:32mm; }
+        .hsm { margin-left:auto; font-size:9pt; color:#888; font-weight:600; }
+
+        .vend { font-size:11pt; font-weight:800; margin-bottom:5mm; display:flex; align-items:center; gap:3mm; }
+        .vend span { font-size:8pt; font-weight:700; color:#fff; background:#FFA500; border-radius:99px; padding:1mm 3.5mm; }
+
+        .grid { display:grid; grid-template-columns:repeat(4,1fr); gap:5mm; }
+        .card { border:1px solid #e8e8e8; border-radius:3mm; overflow:hidden; page-break-inside:avoid; }
+        .thumb { height:32mm; background:#f7f5f2; display:flex; align-items:center; justify-content:center; }
+        .thumb img { max-width:100%; max-height:100%; object-fit:contain; }
+        .noimg { font-size:22pt; font-weight:800; color:#d8d2c8; }
+        .cbody { padding:3mm; }
+        /* Exactly two lines tall, in mm, so a long name is clipped cleanly at the
+           second line instead of leaving a sliver of a third showing. */
+        .pname { font-size:8.5pt; font-weight:600; line-height:4mm; height:8mm; overflow:hidden;
+                 display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+        .qty { font-size:13pt; font-weight:800; color:#FFA500; margin-top:1mm; }
+
+        .tbl { width:100%; border-collapse:collapse; font-size:10pt; }
+        .tbl th { text-align:left; font-size:7.5pt; text-transform:uppercase; letter-spacing:.5px; color:#999;
+                  border-bottom:2px solid #eee; padding:2.5mm 3mm; }
+        .tbl td { padding:2.6mm 3mm; border-bottom:1px solid #f2f2f2; }
         .tbl .num { text-align:right; font-weight:700; }
-        .tbl .idx { color:#bbb; width:36px; }
-        .tbl tr.total td { border-top:2px solid #ddd; border-bottom:none; font-weight:800; }
-        @media print { body { padding:16px; } .card { box-shadow:none; } }
+        .tbl .idx { color:#bbb; width:12mm; }
+        .tbl tr.total td { border-top:2px solid #ddd; border-bottom:none; font-weight:800; background:#fffaf0; }
+
+        .sect { font-size:15pt; font-weight:800; margin-bottom:3mm; }
+        .lead { font-size:10pt; color:#555; margin-bottom:8mm; line-height:1.6; }
+        .step { display:flex; gap:5mm; margin-bottom:7mm; page-break-inside:avoid; }
+        .sno { flex:0 0 9mm; height:9mm; border-radius:50%; background:#FFA500; color:#fff; font-weight:800;
+               font-size:11pt; display:flex; align-items:center; justify-content:center; }
+        .stitle { font-size:11pt; font-weight:800; margin-bottom:2mm; }
+        .step p { font-size:9.5pt; color:#444; line-height:1.65; margin-bottom:1.5mm; }
+        .ack { margin-top:5mm; background:#fffaf0; border:1px solid #f3e2c3; border-radius:2mm; padding:4mm;
+               font-size:9pt; color:#8a6a2a; }
+
+        .foot { position:absolute; left:14mm; right:14mm; bottom:9mm; border-top:1px solid #eee; padding-top:2.5mm; }
+        .frow { display:flex; justify-content:space-between; font-size:8pt; color:#999; }
+        .fcopy { text-align:center; font-size:7pt; color:#bbb; margin-top:1.2mm; }
+
+        @media print { body { background:#fff; } .page { margin:0; box-shadow:none; } }
       </style></head><body>
-      <div class="head">
-        <div><div class="brand">${esc(shop)}</div><div class="tag">Order request</div></div>
-        <div class="meta">
-          <div class="big">${esc(open.name || 'Order')}</div>
-          <div>${localToday()}</div>
-          <div>${rows.length} product${rows.length === 1 ? '' : 's'} · ${totalUnits} pcs</div>
-        </div>
-      </div>
-      ${vendors.map(section).join('')}
+      ${body}
       <script>
         window.onload = function () {
           var imgs = Array.prototype.slice.call(document.images)
@@ -737,7 +856,7 @@ export default function OrderAnalysis() {
           function go(){ window.focus(); window.print() }
           if (!pending) return go()
           imgs.forEach(function (i) { if (!i.complete) i.onload = i.onerror = function () { if (--pending === 0) go() } })
-          setTimeout(go, 5000)
+          setTimeout(go, 6000)
         }
       </script>
       </body></html>`
