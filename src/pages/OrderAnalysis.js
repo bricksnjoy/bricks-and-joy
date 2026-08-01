@@ -6,9 +6,10 @@ import { groupAdjacent, familyRuns, familyOf, sizeOf } from '../lib/variants'
 import { PageHeader, Card, Button, Input, Select, Modal, Spinner, useToast, Toasts, Badge, ImageTile } from '../components/UI'
 import {
   Plus, Trash2, Calculator, Search, Package, BookOpen, TrendingUp, TrendingDown,
-  ArrowLeft, Truck, FileSpreadsheet, AlertTriangle, CheckCircle, Copy, Percent, X, Building2, Layers
+  ArrowLeft, Truck, FileSpreadsheet, FileText, AlertTriangle, CheckCircle, Copy, Percent, X, Building2, Layers
 } from 'lucide-react'
 import * as XLSX from 'xlsx'
+import { getSettings } from '../lib/settings'
 
 // Extra (landed) costs that apply to the whole order and get shared across the
 // products in proportion to what each product costs.
@@ -660,6 +661,91 @@ export default function OrderAnalysis() {
     toast.success('Downloaded')
   }
 
+  // ── Supplier order sheet (PDF) ───────────────────────────────────────────────
+  // A clean sheet to send the supplier: just the picture, the name and how many
+  // of each — as a grid of cards and a matching table. Opens a print view; choose
+  // "Save as PDF" to get the file.
+  function printSupplierOrder() {
+    if (!rows.length) { toast.error('Nothing to send'); return }
+    const shop = getSettings().businessName || "Brick's & Joy"
+    const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+    const totalUnits = rows.reduce((s, r) => s + num(r.qty), 0)
+    // Group by supplier so a multi-vendor analysis still reads as one order per vendor
+    const byVendor = {}
+    rows.forEach(r => { const k = r.vendorName || 'Products'; (byVendor[k] || (byVendor[k] = [])).push(r) })
+    const vendors = Object.keys(byVendor)
+
+    const cardHtml = r => `
+      <div class="card">
+        <div class="thumb">${r.image_url
+          ? `<img src="${esc(r.image_url)}" alt="" />`
+          : `<span class="noimg">${esc((r.product_name || '?').slice(0, 1).toUpperCase())}</span>`}</div>
+        <div class="pname">${esc(r.product_name)}</div>
+        <div class="qty">×${num(r.qty)}</div>
+      </div>`
+
+    const section = v => `
+      ${vendors.length > 1 ? `<h2 class="vendor">${esc(v)} <span>${byVendor[v].reduce((s, r) => s + num(r.qty), 0)} pcs</span></h2>` : ''}
+      <div class="grid">${byVendor[v].map(cardHtml).join('')}</div>
+      <table class="tbl">
+        <thead><tr><th>#</th><th>Product</th><th class="num">Qty</th></tr></thead>
+        <tbody>
+          ${byVendor[v].map((r, i) => `<tr><td class="idx">${i + 1}</td><td>${esc(r.product_name)}</td><td class="num">${num(r.qty)}</td></tr>`).join('')}
+          <tr class="total"><td></td><td>Total</td><td class="num">${byVendor[v].reduce((s, r) => s + num(r.qty), 0)}</td></tr>
+        </tbody>
+      </table>`
+
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Order — ${esc(open.name || shop)}</title>
+      <style>
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family: -apple-system, 'Segoe UI', Arial, sans-serif; color:#0d1b2a; padding:32px; }
+        .head { display:flex; justify-content:space-between; align-items:flex-start; border-bottom:3px solid #FFA500; padding-bottom:16px; margin-bottom:22px; }
+        .brand { font-size:20px; font-weight:800; }
+        .tag { font-size:11px; color:#999; text-transform:uppercase; letter-spacing:1.2px; margin-top:2px; }
+        .meta { text-align:right; font-size:12px; color:#666; }
+        .meta .big { font-size:15px; font-weight:700; color:#0d1b2a; }
+        h2.vendor { font-size:14px; margin:22px 0 12px; display:flex; align-items:center; gap:8px; }
+        h2.vendor span { font-size:11px; font-weight:600; color:#fff; background:#FFA500; border-radius:99px; padding:2px 10px; }
+        .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:12px; margin-bottom:20px; }
+        .card { border:1px solid #eee; border-radius:12px; overflow:hidden; page-break-inside:avoid; }
+        .thumb { width:100%; aspect-ratio:1/1; background:#f7f5f2; display:flex; align-items:center; justify-content:center; }
+        .thumb img { width:100%; height:100%; object-fit:contain; }
+        .noimg { font-size:36px; font-weight:800; color:#d8d2c8; }
+        .pname { font-size:12.5px; font-weight:600; padding:9px 11px 2px; line-height:1.35; }
+        .qty { font-size:16px; font-weight:800; color:#FFA500; padding:0 11px 11px; }
+        table.tbl { width:100%; border-collapse:collapse; margin-bottom:26px; font-size:13px; }
+        .tbl th { text-align:left; font-size:10.5px; text-transform:uppercase; letter-spacing:.4px; color:#999; border-bottom:2px solid #eee; padding:8px 10px; }
+        .tbl td { padding:9px 10px; border-bottom:1px solid #f2f2f2; }
+        .tbl .num { text-align:right; font-weight:700; }
+        .tbl .idx { color:#bbb; width:36px; }
+        .tbl tr.total td { border-top:2px solid #ddd; border-bottom:none; font-weight:800; }
+        @media print { body { padding:16px; } .card { box-shadow:none; } }
+      </style></head><body>
+      <div class="head">
+        <div><div class="brand">${esc(shop)}</div><div class="tag">Order request</div></div>
+        <div class="meta">
+          <div class="big">${esc(open.name || 'Order')}</div>
+          <div>${localToday()}</div>
+          <div>${rows.length} product${rows.length === 1 ? '' : 's'} · ${totalUnits} pcs</div>
+        </div>
+      </div>
+      ${vendors.map(section).join('')}
+      <script>
+        window.onload = function () {
+          var imgs = Array.prototype.slice.call(document.images)
+          var pending = imgs.filter(function (i) { return !i.complete }).length
+          function go(){ window.focus(); window.print() }
+          if (!pending) return go()
+          imgs.forEach(function (i) { if (!i.complete) i.onload = i.onerror = function () { if (--pending === 0) go() } })
+          setTimeout(go, 5000)
+        }
+      </script>
+      </body></html>`
+    const w = window.open('', '_blank')
+    if (!w) { toast.error('Allow pop-ups to download the PDF'); return }
+    w.document.write(html); w.document.close()
+  }
+
   // ── Render ──────────────────────────────────────────────────────────────────
   if (loading) return <Spinner />
 
@@ -780,6 +866,7 @@ export default function OrderAnalysis() {
           action={
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <Button variant="ghost" onClick={exportExcel}><FileSpreadsheet size={14} /> Excel</Button>
+              <Button variant="ghost" onClick={printSupplierOrder}><FileText size={14} /> Supplier PDF</Button>
               <Button variant="ghost" onClick={() => duplicateAnalysis(open)}><Copy size={14} /> Duplicate</Button>
               <Button variant="danger" onClick={() => deleteAnalysis(open)}><Trash2 size={14} /> Delete</Button>
               {!converted && (
