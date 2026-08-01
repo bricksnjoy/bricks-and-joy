@@ -870,9 +870,21 @@ export default function OrderAnalysis() {
         }
       </script>
       </body></html>`
-    const w = window.open('', '_blank')
-    if (!w) { toast.error('Allow pop-ups to open the printable version'); return }
-    w.document.write(html); w.document.close()
+    // Printed from a hidden frame rather than a new tab. A pop-up is only allowed
+    // while the click that asked for it is still fresh, and by this point we have
+    // spent seconds trying to read the pictures — so the browser blocks it. A
+    // frame in this page has no such restriction. Kept full page size and merely
+    // parked off-screen, so it lays out exactly as it will print.
+    const frame = document.createElement('iframe')
+    frame.setAttribute('aria-hidden', 'true')
+    frame.style.cssText = 'position:fixed; left:-10000px; top:0; width:210mm; height:297mm; border:0;'
+    document.body.appendChild(frame)
+    const drop = () => { if (frame.parentNode) frame.remove() }
+    frame.contentWindow.onafterprint = () => setTimeout(drop, 500)
+    setTimeout(drop, 120000)   // never leave it behind if printing is dismissed
+    const doc = frame.contentWindow.document
+    doc.open(); doc.write(html); doc.close()
+    toast.info('Opening the print view — choose "Save as PDF" as the destination')
   }
 
   // ── Supplier order sheet (PDF) ───────────────────────────────────────────────
