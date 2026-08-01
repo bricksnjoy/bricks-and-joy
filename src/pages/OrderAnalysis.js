@@ -32,8 +32,8 @@ const ORDER_STEPS = [
 ]
 
 const ORDER_RESPONSIBILITY = [
-  'If these steps are not followed, the supplier is responsible. That includes a short or wrong product count, and any lookalike, replica or substitute sent in place of the product that was approved. In those cases the supplier must refund or replace the goods at their own cost.',
-  'Once these steps have been followed and the products have been approved, responsibility for anything that arises after that point is mine.',
+  'If these steps are not followed, the supplier is responsible. That includes a short or wrong product count, and any substitute sent in place of the product that was approved. In those cases the supplier must refund or replace the goods at their own cost.',
+  'Once these steps have been followed and the products have been approved, responsibility for anything that arises after that point is mine. Thank you for understanding!',
 ]
 
 // Extra (landed) costs that apply to the whole order and get shared across the
