@@ -9,7 +9,8 @@
 // reflows, the page breaks are exact: what is calculated to fit is what fits.
 
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
-import { compressImage } from './imageCompress'
+import { supabase } from './supabase'
+import { compressImage, storagePathFromUrl } from './imageCompress'
 
 const A4 = { w: 595.28, h: 841.89 }
 const M = 40          // side margin
@@ -93,19 +94,72 @@ function drawTracked(page, text, { x, y, size, font, color, tracking = 1.6 }) {
 const trackedWidth = (text, font, size, tracking = 1.6) =>
   safeText(text).split('').reduce((w, c) => w + font.widthOfTextAtSize(c, size) + tracking, 0) - tracking
 
-// Fetch a picture and hand back bytes pdf-lib can embed. Re-encoding through a
-// canvas normalises webp and other formats it cannot read, sizes the picture to
-// what the card actually shows, and lays it on white so a transparent PNG does
-// not come out black. Returns null when the image can't be reached — an external
-// link that refuses cross-origin requests — so the caller can draw a placeholder.
+// Get at a picture's actual bytes, which is the one hard part of this: a browser
+// will happily *show* any image, but only lets script *read* one the host allows
+// cross-origin. So try the routes in order of how likely they are to be allowed.
+//
+//   1. Our own storage, through the Supabase client — always readable.
+//   2. A plain fetch — works for anything serving CORS headers.
+//   3. An <img> drawn to a canvas — a last try for hosts that permit it there.
+//
+// Returns null when every route is refused (a product photo hot-linked from
+// another shop's site), so the caller can draw a placeholder and say so.
+async function bytesFromBlob(blob) {
+  // Re-encoding normalises webp and friends that pdf-lib cannot embed, sizes the
+  // picture to what a card shows, and lays it on white so transparency doesn't
+  // come out black.
+  const { blob: jpg } = await compressImage(blob, { maxDim: 420, quality: 0.82 })
+  return new Uint8Array(await jpg.arrayBuffer())
+}
+
+async function viaStorage(url) {
+  const path = storagePathFromUrl(url)
+  if (!path) return null
+  const { data, error } = await supabase.storage.from('uploads').download(path)
+  if (error || !data) return null
+  return bytesFromBlob(data)
+}
+
+async function viaFetch(url) {
+  const res = await fetch(url, { mode: 'cors' })
+  if (!res.ok) return null
+  return bytesFromBlob(await res.blob())
+}
+
+function viaImage(url) {
+  return new Promise(resolve => {
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.referrerPolicy = 'no-referrer'
+    const done = v => { img.onload = img.onerror = null; resolve(v) }
+    img.onerror = () => done(null)
+    img.onload = () => {
+      try {
+        const scale = Math.min(1, 420 / Math.max(img.naturalWidth, img.naturalHeight))
+        const c = document.createElement('canvas')
+        c.width = Math.max(1, Math.round(img.naturalWidth * scale))
+        c.height = Math.max(1, Math.round(img.naturalHeight * scale))
+        const ctx = c.getContext('2d')
+        ctx.fillStyle = '#ffffff'
+        ctx.fillRect(0, 0, c.width, c.height)
+        ctx.drawImage(img, 0, 0, c.width, c.height)
+        // Throws if the canvas is tainted, i.e. the host refused cross-origin use
+        c.toBlob(b => b ? b.arrayBuffer().then(a => done(new Uint8Array(a))).catch(() => done(null)) : done(null), 'image/jpeg', 0.82)
+      } catch { done(null) }
+    }
+    setTimeout(() => done(null), 15000)
+    img.src = url
+  })
+}
+
 async function loadPicture(url) {
-  try {
-    const res = await fetch(url, { mode: 'cors' })
-    if (!res.ok) return null
-    const blob = await res.blob()
-    const { blob: jpg } = await compressImage(blob, { maxDim: 420, quality: 0.82 })
-    return new Uint8Array(await jpg.arrayBuffer())
-  } catch { return null }
+  for (const route of [viaStorage, viaFetch, viaImage]) {
+    try {
+      const bytes = await route(url)
+      if (bytes && bytes.length) return bytes
+    } catch { /* try the next route */ }
+  }
+  return null
 }
 
 /**
