@@ -224,6 +224,7 @@ create table supplier_payments (
 -- alter table purchase_orders add column if not exists batch_no text;
 -- alter table suppliers add column if not exists is_overseas boolean default false;
 -- alter table orders add column if not exists stock_deducted boolean default false;
+-- alter table order_analysis_items add column if not exists sizes text;
 
 -- USER PROFILES (extends Supabase auth)
 create table profiles (

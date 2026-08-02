@@ -294,9 +294,23 @@ export default function OrderAnalysis() {
     }
   }, [catalog, products, suppliers, open])
 
+  // The product's own size — S/M/L, 1:18, 60cm — as opposed to its packed
+  // dimensions. Lines added before the column existed have none stored, so it is
+  // filled back in from the catalog or inventory record they came from; that way
+  // it shows on old analyses without having to re-add anything.
+  const sizedItems = useMemo(() => {
+    const catById = new Map(catalog.map(c => [c.id, c]))
+    const prodById = new Map(products.map(p => [p.id, p]))
+    return items.map(i => i.sizes ? i : ({
+      ...i,
+      sizes: (i.supplier_product_id && catById.get(i.supplier_product_id)?.sizes)
+        || (i.product_id && prodById.get(i.product_id)?.sizes) || null,
+    }))
+  }, [items, catalog, products])
+
   const { rows, groups, totals } = useMemo(
-    () => analyse(items, open?.extra_costs || [], open?.target_margin ?? 40, velocity, vendorOf),
-    [items, open, velocity, vendorOf]
+    () => analyse(sizedItems, open?.extra_costs || [], open?.target_margin ?? 40, velocity, vendorOf),
+    [sizedItems, open, velocity, vendorOf]
   )
 
   // ── What actually needs reordering ──────────────────────────────────────────
@@ -336,7 +350,7 @@ export default function OrderAnalysis() {
     const records = list.map((p, n) => ({
       analysis_id: open.id, source: 'inventory', product_id: p.id, supplier_product_id: null,
       product_name: p.name, sku: p.sku || null, category: p.category || null, brand: p.brand || null,
-      image_url: p.photo_url || null,
+      image_url: p.photo_url || null, sizes: p.sizes || null,
       qty: reorderInfo.get(p.id)?.qty || 1,
       unit_cost: num(p.cost_price), sell_price: num(p.sell_price),
       current_stock: num(p.stock_qty), sort_order: items.length + n,
@@ -503,6 +517,7 @@ export default function OrderAnalysis() {
           analysis_id: open.id, source: 'catalog', supplier_product_id: c.id,
           product_id: inv?.id || null, product_name: c.product_name, sku: c.sku || null,
           category: c.category || null, brand: c.brand || null, image_url: c.image_url || null,
+          sizes: c.sizes || inv?.sizes || null,
           qty: 1, unit_cost: num(c.cost_price),
           // Start from what we already sell it for, else the catalog's suggestion
           sell_price: num(inv?.sell_price) || num(c.sell_price),
@@ -514,7 +529,7 @@ export default function OrderAnalysis() {
       records = products.filter(p => picked.has(p.id) && !already.has(p.id)).map((p, n) => ({
         analysis_id: open.id, source: 'inventory', product_id: p.id, supplier_product_id: null,
         product_name: p.name, sku: p.sku || null, category: p.category || null, brand: p.brand || null,
-        image_url: p.photo_url || null,
+        image_url: p.photo_url || null, sizes: p.sizes || null,
         // Start at the suggested reorder quantity when we know it needs restocking
         qty: reorderInfo.get(p.id)?.qty || 1,
         unit_cost: num(p.cost_price), sell_price: num(p.sell_price),
@@ -709,6 +724,8 @@ export default function OrderAnalysis() {
     rows.forEach(r => { const k = r.vendorName || 'Products'; (byVendor[k] || (byVendor[k] = [])).push(r) })
     const vendors = Object.keys(byVendor)
     const multi = vendors.length > 1
+    // Only give the table a Size column when something actually has one
+    const anySize = rows.some(r => r.sizes)
 
     const cardHtml = r => `
       <div class="card">
@@ -725,10 +742,10 @@ export default function OrderAnalysis() {
 
     const tableHtml = (list, startIdx, showTotal, vTotal) => `
       <table class="tbl">
-        <thead><tr><th class="idx">#</th><th>Product</th><th class="num">Qty</th></tr></thead>
+        <thead><tr><th class="idx">#</th><th>Product</th>${anySize ? '<th class="sz">Size</th>' : ''}<th class="num">Qty</th></tr></thead>
         <tbody>
-          ${list.map((r, i) => `<tr><td class="idx">${startIdx + i + 1}</td><td>${esc(r.product_name)}</td><td class="num">${num(r.qty)}</td></tr>`).join('')}
-          ${showTotal ? `<tr class="total"><td></td><td>Total${multi ? ' — ' + esc(vTotal.name) : ''}</td><td class="num">${vTotal.qty} pcs</td></tr>` : ''}
+          ${list.map((r, i) => `<tr><td class="idx">${startIdx + i + 1}</td><td>${esc(r.product_name)}</td>${anySize ? `<td class="sz">${esc(r.sizes || '')}</td>` : ''}<td class="num">${num(r.qty)}</td></tr>`).join('')}
+          ${showTotal ? `<tr class="total"><td></td><td>Total${multi ? ' — ' + esc(vTotal.name) : ''}</td>${anySize ? '<td></td>' : ''}<td class="num">${vTotal.qty} pcs</td></tr>` : ''}
         </tbody>
       </table>`
 
@@ -796,7 +813,12 @@ export default function OrderAnalysis() {
         </div>
       </section>`).join('')
 
-    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Order — ${esc(open.name || shop)}</title>
+    // The viewport tag is what makes the phone layout below take effect —
+    // without it a mobile browser pretends to be ~980px wide and just shrinks
+    // the whole A4 page until it is unreadable.
+    const html = `<!doctype html><html><head><meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <title>Order — ${esc(open.name || shop)}</title>
       <style>
         @page { size: A4; margin: 0; }
         * { margin:0; padding:0; box-sizing:border-box; }
@@ -841,6 +863,7 @@ export default function OrderAnalysis() {
                   border-bottom:2px solid #eee; padding:2.5mm 3mm; }
         .tbl td { padding:2.6mm 3mm; border-bottom:1px solid #f2f2f2; }
         .tbl .num { text-align:right; font-weight:700; }
+        .tbl .sz { width:26mm; color:#8a6a2a; font-weight:600; }
         .tbl .idx { color:#bbb; width:12mm; }
         .tbl tr.total td { border-top:2px solid #ddd; border-bottom:none; font-weight:800; background:#fffaf0; }
 
@@ -859,8 +882,28 @@ export default function OrderAnalysis() {
         .foot { position:absolute; left:14mm; right:14mm; bottom:9mm; border-top:1px solid #eee;
                 padding-top:2.5mm; display:flex; justify-content:space-between; font-size:8pt; color:#999; }
 
-        @media print { body { background:#fff; } .page { margin:0; box-shadow:none; } }
+        /* Tapping this is the reliable way to print from a phone. Declared before
+           the media query that reveals it, so that rule is the one that wins. */
+        .printbar { display:none; position:sticky; top:0; z-index:9; background:#0d1b2a; color:#fff;
+                    align-items:center; justify-content:space-between; gap:10px; padding:10px 14px; font-size:13px; }
+        .printbar button { background:#FFA500; color:#fff; border:0; border-radius:8px; padding:8px 14px;
+                           font-size:13px; font-weight:700; font-family:inherit; }
+
+        /* On a phone the sheet is read before it is printed, so let it use the
+           screen's width instead of forcing an A4 page sideways. Screen only —
+           printing still lays out as real A4. */
+        @media screen and (max-width: 820px) {
+          body { background:#fff; }
+          .page { width:100%; min-height:0; padding:14px 12px 20px; margin:0 0 10px; box-shadow:none;
+                  border-bottom:1px solid #eee; }
+          .grid { grid-template-columns:repeat(2,1fr); gap:10px; }
+          .logo { width:34mm; } .logo.sm { width:26mm; }
+          .foot { position:static; margin-top:14px; }
+          .printbar { display:flex; }
+        }
+        @media print { body { background:#fff; } .page { margin:0; box-shadow:none; } .printbar { display:none !important; } }
       </style></head><body>
+      <div class="printbar"><span>Order sheet ready</span><button onclick="window.print()">Print / Save as PDF</button></div>
       ${body}
       <script>
         window.onload = function () {
@@ -873,11 +916,24 @@ export default function OrderAnalysis() {
         }
       </script>
       </body></html>`
-    // Printed from a hidden frame rather than a new tab. A pop-up is only allowed
-    // while the click that asked for it is still fresh, and by this point we have
-    // spent seconds trying to read the pictures — so the browser blocks it. A
-    // frame in this page has no such restriction. Kept full page size and merely
-    // parked off-screen, so it lays out exactly as it will print.
+    // Phones can't print from a hidden frame — iOS and Android only offer print
+    // (or Share → Print) for a page you are actually looking at. So open the
+    // sheet in its own tab there, with a Print button at the top. This runs
+    // straight off the tap, so the pop-up blocker allows it.
+    const onPhone = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || window.innerWidth < 820
+    if (onPhone) {
+      const tab = window.open('', '_blank')
+      if (tab) {
+        tab.document.write(html); tab.document.close()
+        toast.info('Tap "Print / Save as PDF" at the top')
+        return
+      }
+      // Pop-up refused — fall through to the frame and hope the browser obliges
+    }
+
+    // On a desktop the frame is smoother: the print dialog opens straight away
+    // with no extra tab to close. Kept full page size and merely parked
+    // off-screen, so it lays out exactly as it will print.
     const frame = document.createElement('iframe')
     frame.setAttribute('aria-hidden', 'true')
     frame.style.cssText = 'position:fixed; left:-10000px; top:0; width:210mm; height:297mm; border:0;'
@@ -1284,6 +1340,8 @@ export default function OrderAnalysis() {
                                 <div className="oa-name" style={{ fontWeight: 600, color: '#0d1b2a', whiteSpace: 'normal' }}>{r.product_name}</div>
                               )}
                               <div className="oa-sub" style={{ color: '#bbb', display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                                {/* The product's own size, not its packed dimensions */}
+                                {r.sizes && <span className="oa-size">{r.sizes}</span>}
                                 {r.sku && <span>{r.sku}</span>}
                                 <Badge color={v.color}>{v.label}</Badge>
                                 {!r.known && <Badge color="blue">New product</Badge>}
