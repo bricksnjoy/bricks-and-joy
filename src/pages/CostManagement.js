@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { SlipNote, RescanButton, useSlipScan } from '../components/SlipScan'
 import { supabase } from '../lib/supabase'
+import { uploadImages, SLIP } from '../lib/uploadImage'
 import { localToday } from '../lib/dates'
 import { logAudit } from '../lib/audit'
 import { blockedByLock } from '../lib/periodLock'
@@ -96,18 +97,8 @@ export default function CostManagement() {
     const files = Array.from(fileList || [])
     if (!files.length) return
     setUploading(true)
-    const out = []
-    for (const file of files) {
-      const name = `cost-${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${file.name.split('.').pop()}`
-      const { error } = await supabase.storage.from('uploads').upload(name, file, { upsert: true })
-      if (!error) {
-        const { data: { publicUrl } } = supabase.storage.from('uploads').getPublicUrl(name)
-        out.push({ name: file.name, type: file.type, url: publicUrl })
-      } else {
-        const url = await new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => res(null); r.readAsDataURL(file) })
-        if (url) out.push({ name: file.name, type: file.type, url })
-      }
-    }
+    const out = await uploadImages(files, { prefix: 'cost', preset: SLIP })
+      .then(rs => rs.filter(r => r.url).map(r => ({ name: r.name, type: r.type, url: r.url })))
     setUploading(false)
     if (!out.length) { toast.error('Could not read the file'); return }
     setForm(p => ({ ...p, slips: [...(p.slips || []), ...out] }))

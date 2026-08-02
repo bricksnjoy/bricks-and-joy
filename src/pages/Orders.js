@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
+import { uploadImage, SLIP, savingLabel } from '../lib/uploadImage'
 import { PageHeader, Card, Button, Input, Select, SearchSelect, Table, Modal, Spinner, FormRow, useToast, Toasts, Badge } from '../components/UI'
 import { Plus, Trash2, AlertTriangle, Package, Upload, Eye, CreditCard, X, Camera, Edit2, RotateCcw, MessageSquare, MoreVertical, LayoutGrid, List, Instagram, Printer } from 'lucide-react'
 import BarcodeScanner from '../components/BarcodeScanner'
@@ -516,16 +517,13 @@ export default function Orders() {
     const file = e.target.files[0]
     if (!file) return
     setUploadingSlip(true)
-    const fileName = `slip-${Date.now()}.${file.name.split('.').pop()}`
-    const { error } = await supabase.storage.from('uploads').upload(fileName, file, { upsert: true })
-    if (error) {
-      const reader = new FileReader()
-      reader.onload = ev => { setPayForm(p => ({ ...p, transfer_slip_url: ev.target.result })); setUploadingSlip(false) }
-      reader.readAsDataURL(file); return
-    }
-    const { data: { publicUrl } } = supabase.storage.from('uploads').getPublicUrl(fileName)
-    setPayForm(p => ({ ...p, transfer_slip_url: publicUrl }))
-    setUploadingSlip(false); toast.success('Slip uploaded!')
+    const { url, before, after } = await uploadImage(file, { prefix: 'slip', preset: SLIP })
+    setPayForm(p => ({ ...p, transfer_slip_url: url }))
+    setUploadingSlip(false)
+    const saved = savingLabel(before, after)
+    toast.success(saved ? `Slip uploaded · ${saved}` : 'Slip uploaded!')
+    // Read the original, not the shrunk copy — the scan wants every pixel it can
+    // get, and the stored size has nothing to do with it.
     if ((file.type || '').startsWith('image/')) scanCustomerSlip(file, payModal)
   }
 

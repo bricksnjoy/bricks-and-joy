@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { uploadImage, PHOTO } from '../lib/uploadImage'
 import { localToday } from '../lib/dates'
 import { logAudit } from '../lib/audit'
 import { PageHeader, Card, Button, Input, Select, Modal, Spinner, FormRow, useToast, Toasts, MetricCard, SearchSelect } from '../components/UI'
@@ -140,16 +141,8 @@ export default function Events() {
     if (!files.length) return
     setUploading(true)
     for (const file of files) {
-      const ext = (file.name.split('.').pop() || 'jpg').toLowerCase()
-      const fileName = `event-${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${ext}`
-      const { error } = await supabase.storage.from('uploads').upload(fileName, file, { upsert: true })
-      if (error) {
-        // Storage failed — fall back to an inline data URL so it still works
-        await new Promise(res => { const r = new FileReader(); r.onload = ev => { setImages(im => [...im, ev.target.result]); res() }; r.readAsDataURL(file) })
-      } else {
-        const { data: { publicUrl } } = supabase.storage.from('uploads').getPublicUrl(fileName)
-        setImages(im => [...im, publicUrl])
-      }
+      const { url } = await uploadImage(file, { prefix: 'event', preset: PHOTO })
+      if (url) setImages(im => [...im, url])
     }
     setUploading(false)
     if (fileRef.current) fileRef.current.value = ''

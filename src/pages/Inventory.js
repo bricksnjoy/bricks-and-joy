@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
+import { uploadImage, PHOTO } from '../lib/uploadImage'
 import { localToday } from '../lib/dates'
 import { logAudit } from '../lib/audit'
 import { PageHeader, Card, Button, Input, Select, Table, Modal, Badge, StockBadge, Spinner, FormRow, useToast, Toasts, ImageTile } from '../components/UI'
@@ -165,15 +166,8 @@ export default function Inventory() {
     if (!files.length) return
     setUploading(true)
     for (const file of files) {
-      const ext = (file.name.split('.').pop() || 'jpg')
-      const fileName = `product-${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${ext}`
-      const { error } = await supabase.storage.from('uploads').upload(fileName, file, { upsert: true })
-      if (error) {
-        await new Promise(res => { const r = new FileReader(); r.onload = ev => { addImage(ev.target.result); res() }; r.readAsDataURL(file) })
-      } else {
-        const { data: { publicUrl } } = supabase.storage.from('uploads').getPublicUrl(fileName)
-        addImage(publicUrl)
-      }
+      const { url } = await uploadImage(file, { prefix: 'product', preset: PHOTO })
+      if (url) addImage(url)
     }
     setUploading(false)
     e.target.value = ''

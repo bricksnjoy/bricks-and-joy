@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
+import { uploadImage, uploadImages, SLIP, savingLabel } from '../lib/uploadImage'
 import { localToday, toLocalISO } from '../lib/dates'
 import { logAudit } from '../lib/audit'
 import { blockedByLock } from '../lib/periodLock'
@@ -454,13 +455,10 @@ export default function PurchaseOrders() {
   async function addSlipFiles(fileList) {
     const files = Array.from(fileList || [])
     if (!files.length) return
-    const read = f => new Promise(resolve => {
-      const reader = new FileReader()
-      reader.onload = () => resolve({ name: f.name, type: f.type, url: reader.result })
-      reader.onerror = () => resolve(null)
-      reader.readAsDataURL(f)
-    })
-    const slips = (await Promise.all(files.map(read))).filter(Boolean)
+    // Shrunk and put in storage rather than pasted into the row as base64,
+    // which is what used to happen — a slip is a picture, not a database value.
+    const slips = (await uploadImages(files, { prefix: 'po-slip', preset: SLIP }))
+      .filter(r => r.url).map(r => ({ name: r.name, type: r.type, url: r.url }))
     setPayForm(p => ({ ...p, slips: [...(p.slips || []), ...slips] }))
     // Read the receipt so the amount, date and reference don't have to be typed
     const image = files.find(f => (f.type || '').startsWith('image/'))
@@ -543,13 +541,10 @@ export default function PurchaseOrders() {
   async function addEditSlipFiles(fileList) {
     const files = Array.from(fileList || [])
     if (!files.length) return
-    const read = f => new Promise(resolve => {
-      const reader = new FileReader()
-      reader.onload = () => resolve({ name: f.name, type: f.type, url: reader.result })
-      reader.onerror = () => resolve(null)
-      reader.readAsDataURL(f)
-    })
-    const slips = (await Promise.all(files.map(read))).filter(Boolean)
+    // Shrunk and put in storage rather than pasted into the row as base64,
+    // which is what used to happen — a slip is a picture, not a database value.
+    const slips = (await uploadImages(files, { prefix: 'po-slip', preset: SLIP }))
+      .filter(r => r.url).map(r => ({ name: r.name, type: r.type, url: r.url }))
     setEditPayForm(p => ({ ...p, slips: [...(p.slips || []), ...slips] }))
     const image = files.find(f => (f.type || '').startsWith('image/'))
     if (image) scanEditSlip(image)
@@ -811,18 +806,16 @@ export default function PurchaseOrders() {
   async function uploadSlip(file) {
     if (!file || !slipModal) return
     setSlipUploading(true)
-    const reader = new FileReader()
-    reader.onload = async () => {
-      const dataUrl = reader.result
-      // Store slip on the anchor row ID
-      const { error } = await supabase.from('purchase_orders').update({ slip_url: dataUrl }).eq('id', slipModal._anchorId || slipModal.id)
-      setSlipUploading(false)
-      if (error) { toast.error('Failed to save slip'); return }
-      toast.success('Payment slip saved')
-      setSlipModal(prev => ({ ...prev, slip_url: dataUrl }))
-      load()
-    }
-    reader.readAsDataURL(file)
+    const { url, before, after } = await uploadImage(file, { prefix: 'po-slip', preset: SLIP })
+    if (!url) { setSlipUploading(false); toast.error('Could not read the file'); return }
+    // Store slip on the anchor row ID
+    const { error } = await supabase.from('purchase_orders').update({ slip_url: url }).eq('id', slipModal._anchorId || slipModal.id)
+    setSlipUploading(false)
+    if (error) { toast.error('Failed to save slip'); return }
+    const saved = savingLabel(before, after)
+    toast.success(saved ? `Payment slip saved · ${saved}` : 'Payment slip saved')
+    setSlipModal(prev => ({ ...prev, slip_url: url }))
+    load()
   }
 
   function payStatusBadgeForGroup(group) {

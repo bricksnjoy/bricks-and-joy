@@ -1,5 +1,6 @@
 import React, { useDeferredValue, useEffect, useMemo, useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
+import { uploadImage, PHOTO, savingLabel } from '../lib/uploadImage'
 import { localToday } from '../lib/dates'
 import { logAudit } from '../lib/audit'
 import { prepare, similarityPrepared } from '../lib/nameMatch'
@@ -353,16 +354,11 @@ export default function SupplierCatalog() {
     const file = e.target.files[0]
     if (!file) return
     setUploading(true)
-    const fileName = `catalog-${Date.now()}.${file.name.split('.').pop()}`
-    const { error } = await supabase.storage.from('uploads').upload(fileName, file, { upsert: true })
-    if (error) {
-      const reader = new FileReader()
-      reader.onload = ev => { setForm(p => ({ ...p, image_url: ev.target.result })); setUploading(false) }
-      reader.readAsDataURL(file); return
-    }
-    const { data: { publicUrl } } = supabase.storage.from('uploads').getPublicUrl(fileName)
-    setForm(p => ({ ...p, image_url: publicUrl }))
-    setUploading(false); toast.success('Photo uploaded!')
+    const { url, before, after } = await uploadImage(file, { prefix: 'catalog', preset: PHOTO })
+    setForm(p => ({ ...p, image_url: url }))
+    setUploading(false)
+    const saved = savingLabel(before, after)
+    toast.success(saved ? `Photo uploaded · ${saved}` : 'Photo uploaded!')
   }
 
   // ── Bulk photo matching ─────────────────────────────────────────────────────

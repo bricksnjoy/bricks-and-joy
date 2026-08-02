@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { uploadImages, SLIP } from '../lib/uploadImage'
 import { localToday } from '../lib/dates'
 import { readSlip } from '../lib/slipOcr'
 import { logAudit } from '../lib/audit'
@@ -143,20 +144,8 @@ const STATUS = {
 // Upload to storage, falling back to an inline data URL when the bucket isn't
 // reachable — either way the slip is viewable from the loan.
 async function readFiles(fileList) {
-  const files = Array.from(fileList || [])
-  const out = []
-  for (const f of files) {
-    const name = `loan-${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${f.name.split('.').pop()}`
-    const { error } = await supabase.storage.from('uploads').upload(name, f, { upsert: true })
-    if (!error) {
-      const { data: { publicUrl } } = supabase.storage.from('uploads').getPublicUrl(name)
-      out.push({ name: f.name, type: f.type, url: publicUrl })
-    } else {
-      const url = await new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => res(null); r.readAsDataURL(f) })
-      if (url) out.push({ name: f.name, type: f.type, url })
-    }
-  }
-  return out
+  const rs = await uploadImages(fileList, { prefix: 'loan', preset: SLIP })
+  return rs.filter(r => r.url).map(r => ({ name: r.name, type: r.type, url: r.url }))
 }
 
 // Save, quietly dropping any column the database doesn't have yet.
