@@ -212,6 +212,7 @@ export default function OrderAnalysis() {
   const [pickNeeds, setPickNeeds] = useState(false)
   const [picked, setPicked] = useState(() => new Set())
   const [selected, setSelected] = useState(() => new Set())   // analysis lines ticked for deletion
+  const [allItems, setAllItems] = useState([])                // every line, across all analyses
   const toast = useToast()
 
   const open = analyses.find(a => a.id === openId) || null
@@ -224,12 +225,15 @@ export default function OrderAnalysis() {
 
   async function load() {
     setLoading(true)
-    const [a, s, c, p, o] = await Promise.all([
+    const [a, s, c, p, o, ai] = await Promise.all([
       supabase.from('order_analyses').select('*').order('created_at', { ascending: false }),
       supabase.from('suppliers').select('*').order('name'),
       supabase.from('supplier_products').select('*').order('product_name'),
       supabase.from('products').select('*').order('name'),
       supabase.from('orders').select('product_id, product_name, qty, status, order_date'),
+      // Every line already sitting in some analysis, so a product being thought
+      // about isn't also being nagged about — see plannedIds
+      supabase.from('order_analysis_items').select('analysis_id, product_id, product_name'),
     ])
     if (a.error) {
       toast.error('Analysis tables not found — run the SQL in supabase_schema.sql')
@@ -242,6 +246,7 @@ export default function OrderAnalysis() {
     setCatalog(c.data || [])
     setProducts(p.data || [])
     setOrders(o.data || [])
+    setAllItems(ai.data || [])
     setLoading(false)
   }
 
@@ -336,13 +341,34 @@ export default function OrderAnalysis() {
     return m
   }, [products, velocity])
 
+  // Products already being considered in a draft analysis. Once a restock is
+  // being worked out there is nothing left to prompt about, so it drops off the
+  // "needs reordering" list until that draft is ordered or deleted. Matched by
+  // name as well as id, since a line added from a supplier catalog carries no
+  // product_id even when we clearly stock the same thing.
+  const plannedIds = useMemo(() => {
+    const draftIds = new Set(analyses.filter(a => a.status !== 'converted').map(a => a.id))
+    // Lines of the analysis being edited come from `items`, which is always
+    // current; the others were read once when the page loaded.
+    const planned = [
+      ...allItems.filter(i => draftIds.has(i.analysis_id) && i.analysis_id !== openId),
+      ...(openId && draftIds.has(openId) ? items : []),
+    ]
+    const ids = new Set(planned.map(i => i.product_id).filter(Boolean))
+    const names = new Set(planned.map(i => normName(i.product_name)).filter(Boolean))
+    products.forEach(p => { if (names.has(normName(p.name))) ids.add(p.id) })
+    return ids
+  }, [allItems, analyses, products, items, openId])
+
   const recommendations = useMemo(() => {
+    // The open analysis's own lines may not be in `allItems` yet if they were
+    // just added, so exclude those too.
     const inAnalysis = new Set(items.map(i => i.product_id).filter(Boolean))
     return products
-      .filter(p => reorderInfo.has(p.id) && !inAnalysis.has(p.id))
+      .filter(p => reorderInfo.has(p.id) && !inAnalysis.has(p.id) && !plannedIds.has(p.id))
       .map(p => ({ product: p, ...reorderInfo.get(p.id) }))
       .sort((a, b) => (URGENCY_RANK[a.urgency] - URGENCY_RANK[b.urgency]) || (b.perMonth - a.perMonth))
-  }, [products, reorderInfo, items])
+  }, [products, reorderInfo, items, plannedIds])
 
   // Pull inventory products straight in at their suggested reorder quantity
   async function addProducts(list) {
