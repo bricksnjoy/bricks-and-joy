@@ -10,6 +10,7 @@ import QRCode from 'qrcode'
 import BarcodeScanner from '../components/BarcodeScanner'
 import { restockPredictions, costHistoryByProduct } from '../lib/insights'
 import { groupAdjacent, familyRuns, sizeOf, splitName } from '../lib/variants'
+import { loadCategories, ensureCategory, BUILT_IN } from '../lib/categories'
 
 // Custom line-art icons matching the toy/store brand
 const BrickIcon = ({ size = 14, color = '#FFA500' }) => (
@@ -27,7 +28,6 @@ const CakeIcon = ({ size = 14, color = '#378ADD' }) => (
   </svg>
 )
 
-const CATEGORIES = ['Building & Blocks','Action Figures','Dolls & Plush','Board Games','Outdoor & Sports','Educational','Vehicles & RC','Arts & Crafts','Puzzles','Other']
 const AGE_RANGES = ['0–2','3–5','6–8','9–12','12+','All ages']
 const EMPTY = { name:'', category:'Building & Blocks', age_range:'3–5', brand:'', sku:'', barcode:'', pieces:'', stock_qty:0, low_stock_threshold:10, cost_price:0, sell_price:0, description:'', sizes:'', weight:'', dimensions:'', tags:'', photo_url:'', discontinued:false, variant_group:'', variant_label:'', featured:false, badge:'', sale_price:'', video_url:'', battery:'', materials:'', safety_warnings:'', images:[] }
 
@@ -41,6 +41,7 @@ function genBarcode(name, id) {
 
 export default function Inventory() {
   const [products, setProducts] = useState([])
+  const [categories, setCategories] = useState(BUILT_IN)   // every category worth offering
   const [suppliers, setSuppliers] = useState([])
   const [customers, setCustomers] = useState([])
   const [orders, setOrders] = useState([])
@@ -105,6 +106,9 @@ export default function Inventory() {
       supabase.from('purchase_orders').select('product_id, unit_cost, total_cost, qty, order_date, created_at'),
     ])
     setProducts(p.data || [])
+    // Managed categories, the built-in starters and whatever products already
+    // use — one list, so anything created on the Categories page is offered here
+    loadCategories(p.data || []).then(setCategories)
     setSuppliers(s.data || [])
     setCustomers(c.data || [])
     setOrders(o.data || [])
@@ -202,6 +206,9 @@ export default function Inventory() {
     }
     setSaving(false)
     if (error) { toast.error('Failed to save: ' + error.message); return }
+    // Keep the Categories page in step: a category chosen here that it doesn't
+    // know about yet gets a row, so the two lists cannot drift apart again.
+    ensureCategory(payload.category)
     logAudit(modal === 'add' ? 'create' : 'update', 'product', form.name, { stock: payload.stock_qty, cost: payload.cost_price, sell: payload.sell_price })
     toast.success(modal === 'add' ? 'Product added!' : 'Updated!')
     setModal(null); load()
@@ -732,7 +739,7 @@ export default function Inventory() {
           <select value={filterCat} onChange={e => setFilterCat(e.target.value)}
             style={{ padding: '9px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', background: '#fff', cursor: 'pointer' }}>
             <option value="all">All categories</option>
-            {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+            {categories.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
           <div style={{ display: 'flex', gap: 0, border: '1px solid #ddd', borderRadius: 8, overflow: 'hidden', marginLeft: 'auto' }}>
             <button onClick={() => changeView('grid')} title="Grid view"
@@ -1089,7 +1096,7 @@ export default function Inventory() {
             <Input label="Product name *" value={form.name} onChange={f('name')} placeholder="e.g. LEGO Classic Set" style={{ gridColumn: 'span 2' }} />
           </FormRow>
           <FormRow>
-            <Select label="Category" value={form.category} onChange={f('category')} options={CATEGORIES} />
+            <Select label="Category" value={form.category} onChange={f('category')} options={categories} />
             <Select label="Age range" value={form.age_range} onChange={f('age_range')} options={AGE_RANGES} />
           </FormRow>
           <FormRow>
