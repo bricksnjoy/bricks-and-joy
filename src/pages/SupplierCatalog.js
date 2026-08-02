@@ -2,7 +2,7 @@ import React, { useDeferredValue, useEffect, useMemo, useState, useRef } from 'r
 import { supabase } from '../lib/supabase'
 import { localToday } from '../lib/dates'
 import { logAudit } from '../lib/audit'
-import { matchAll, cleanFileName } from '../lib/photoMatch'
+import { similarity } from '../lib/nameMatch'
 import { compressImage, worthCompressing, storagePathFromUrl, isStorageUrl, isDataUrl, isHttpUrl, humanBytes } from '../lib/imageCompress'
 import { PageHeader, Card, Button, Input, Select, Modal, Spinner, FormRow, useToast, Toasts, Badge, ImageTile } from '../components/UI'
 import {
@@ -165,13 +165,11 @@ export default function SupplierCatalog() {
   const [sortMode, setSortMode] = useState(() => localStorage.getItem('bnj_cat_sort') || 'name') // 'name' | 'tag'
   const changeSort = v => { setSortMode(v); localStorage.setItem('bnj_cat_sort', v) }
   const fileRef = useRef()
-  const photoRef = useRef()
   // Bulk photo matching: the picked files matched to catalog rows, awaiting review
   const [photoModal, setPhotoModal] = useState(null)   // { rows } | null
   const [photoBusy, setPhotoBusy] = useState(false)
   const [photoProgress, setPhotoProgress] = useState(null)  // { done, total } | null
   // Release the preview object URLs if the page unmounts before the modal closes
-  useEffect(() => () => { photoModal?.rows.forEach(r => { try { URL.revokeObjectURL(r.preview) } catch { /* noop */ } }) }, [photoModal])
   // Compressing photos already uploaded
   const [compressModal, setCompressModal] = useState(null)  // { storage, data, external, none } | null
   const [compressBusy, setCompressBusy] = useState(false)
@@ -371,57 +369,74 @@ export default function SupplierCatalog() {
   // Pick a folder of photos and let filenames find their products. Matching runs
   // against the supplier in view when one is chosen, else the whole catalog, so
   // "Bouquet of Roses.jpg" never lands on another supplier's namesake by mistake.
-  function onPhotosPicked(e) {
-    const files = Array.from(e.target.files || [])
-    e.target.value = ''
-    if (!files.length) return
-    const pool = activeSupplier ? catalog.filter(c => c.supplier_id === activeSupplier.id) : catalog
-    if (!pool.length) { toast.error('No catalog products to match against'); return }
-    const products = pool.map(c => ({ id: c.id, name: c.product_name, sku: c.sku, image_url: c.image_url }))
-    const rows = matchAll(files, products).map(r => ({
-      ...r,
-      preview: URL.createObjectURL(r.file),
-      // Only fill empty ones: a product that already has a photo starts off, but
-      // the target is still there to be turned back on deliberately.
-      chosenId: r.productId,
-      enabled: r.productId != null && !r.duplicate && !pool.find(c => c.id === r.productId)?.image_url,
-    }))
+  // ── Borrowing a photo from another vendor ───────────────────────────────────
+  // The same toy is often listed by several suppliers, and usually only one of
+  // them bothered with a picture. Rather than hunting for image files, this
+  // looks for a product of the same name that another vendor has photographed
+  // and offers to point this one at the same picture. Nothing is changed until
+  // each match is confirmed.
+  const MATCH_SURE = 0.999   // identical once punctuation and case are ignored
+  const MATCH_LIKELY = 0.6
+
+  function findVendorPhotoMatches() {
+    const supName = id => suppliers.find(s => s.id === id)?.name || 'No vendor'
+    // Only fill the gaps, and only from a *different* vendor — a photo already
+    // on this vendor's own product is not news.
+    const targets = (activeSupplier ? catalog.filter(c => c.supplier_id === activeSupplier.id) : catalog)
+      .filter(c => !c.image_url)
+    const sources = catalog.filter(c => c.image_url)
+    if (!targets.length) { toast.info('Every product here already has a photo'); return }
+    if (!sources.length) { toast.error('No product anywhere in the catalog has a photo to copy'); return }
+
+    const rows = []
+    targets.forEach(t => {
+      let best = null
+      for (const s of sources) {
+        if (s.supplier_id === t.supplier_id) continue      // same vendor — not a cross-match
+        const score = similarity(t.product_name, s.product_name)
+        if (score >= MATCH_LIKELY && (!best || score > best.score)) best = { source: s, score }
+      }
+      if (!best) return
+      rows.push({
+        id: t.id,
+        name: t.product_name,
+        vendor: supName(t.supplier_id),
+        sourceId: best.source.id,
+        sourceName: best.source.product_name,
+        sourceVendor: supName(best.source.supplier_id),
+        url: best.source.image_url,
+        score: best.score,
+        exact: best.score >= MATCH_SURE,
+        // An identical name is safe to tick; anything looser is offered but left
+        // for a person to agree with.
+        enabled: best.score >= MATCH_SURE,
+      })
+    })
+    if (!rows.length) { toast.info('No product without a photo matches one that another vendor has photographed'); return }
+    rows.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name))
     setPhotoModal({ rows })
   }
 
-  function setPhotoRow(index, patch) {
-    setPhotoModal(m => ({ ...m, rows: m.rows.map(r => r.index === index ? { ...r, ...patch } : r) }))
+  function setPhotoRow(id, patch) {
+    setPhotoModal(m => ({ ...m, rows: m.rows.map(r => r.id === id ? { ...r, ...patch } : r) }))
   }
 
-  function closePhotoModal() {
-    photoModal?.rows.forEach(r => { try { URL.revokeObjectURL(r.preview) } catch { /* noop */ } })
-    setPhotoModal(null); setPhotoProgress(null)
-  }
+  function closePhotoModal() { setPhotoModal(null); setPhotoProgress(null) }
 
   async function applyPhotoMatches() {
-    const todo = photoModal.rows.filter(r => r.enabled && r.chosenId != null)
-    if (!todo.length) { toast.error('Nothing ticked to apply'); return }
+    const todo = photoModal.rows.filter(r => r.enabled)
+    if (!todo.length) { toast.error('Nothing confirmed to apply'); return }
     setPhotoBusy(true); setPhotoProgress({ done: 0, total: todo.length })
     let ok = 0, failed = 0
     for (const r of todo) {
-      let url = null
-      const ext = (r.file.name.split('.').pop() || 'jpg').toLowerCase()
-      const fileName = `catalog-${r.chosenId}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}.${ext}`
-      const { error } = await supabase.storage.from('uploads').upload(fileName, r.file, { upsert: true })
-      if (error) {
-        // Storage unavailable — fall back to an inline data URL, as the rest of the app does
-        url = await new Promise(res => { const rd = new FileReader(); rd.onload = ev => res(ev.target.result); rd.onerror = () => res(null); rd.readAsDataURL(r.file) })
-      } else {
-        url = supabase.storage.from('uploads').getPublicUrl(fileName).data.publicUrl
-      }
-      if (url) {
-        const { error: upErr } = await supabase.from('supplier_products').update({ image_url: url }).eq('id', r.chosenId)
-        if (upErr) failed++; else ok++
-      } else failed++
+      // Both products point at the same stored picture. Nothing is copied or
+      // re-uploaded, so this costs no extra storage.
+      const { error } = await supabase.from('supplier_products').update({ image_url: r.url }).eq('id', r.id)
+      if (error) failed++; else ok++
       setPhotoProgress(p => ({ ...p, done: p.done + 1 }))
     }
     setPhotoBusy(false)
-    if (ok) logAudit('update', 'supplier_products', `Bulk photos — ${ok} matched`, { applied: ok, failed })
+    if (ok) logAudit('update', 'supplier_products', `Photos borrowed from other vendors — ${ok}`, { applied: ok, failed })
     toast[failed ? 'info' : 'success'](`${ok} photo${ok === 1 ? '' : 's'} set${failed ? `, ${failed} failed` : ''}`)
     closePhotoModal()
     load()
@@ -1189,8 +1204,7 @@ export default function SupplierCatalog() {
             <Button variant="ghost" onClick={() => fileRef.current.click()}>
               <Upload size={14} /> Import Excel
             </Button>
-            <input ref={photoRef} type="file" accept="image/*" multiple style={{ display:'none' }} onChange={onPhotosPicked} />
-            <Button variant="ghost" onClick={() => photoRef.current.click()}>
+            <Button variant="ghost" onClick={findVendorPhotoMatches} title="Fill empty photos from another vendor's product of the same name">
               <Images size={14} /> Match photos
             </Button>
             <Button variant="ghost" onClick={openCompress}>
@@ -1685,59 +1699,53 @@ export default function SupplierCatalog() {
 
       {/* Create Purchase Order modal */}
       {photoModal && (() => {
-        const pool = activeSupplier ? catalog.filter(c => c.supplier_id === activeSupplier.id) : catalog
-        const opts = [...pool].sort((a, b) => (a.product_name || '').localeCompare(b.product_name || ''))
-        const hasPhoto = id => !!pool.find(c => c.id === id)?.image_url
         const rows = photoModal.rows
-        const willApply = rows.filter(r => r.enabled && r.chosenId != null).length
-        const CONF = {
-          exact:  { label: 'Matched',    bg: '#EAF7EF', fg: '#1D8A5B', bd: '#c9ebd6' },
-          strong: { label: 'Likely',     bg: '#EAF2FD', fg: '#2f6fc0', bd: '#d0e4ff' },
-          weak:   { label: 'Not sure',   bg: '#FFF6E5', fg: '#b8740a', bd: '#f3e0bb' },
-          none:   { label: 'No match',   bg: '#FBECEC', fg: '#c0392b', bd: '#f3d4d4' },
-        }
+        const willApply = rows.filter(r => r.enabled).length
+        const exactCount = rows.filter(r => r.exact).length
         return (
-        <Modal title="Match photos to products"
-          subtitle={`${rows.length} photo${rows.length === 1 ? '' : 's'} · matched against ${activeSupplier ? activeSupplier.name : 'the whole catalog'} · only products without a photo are set`}
-          onClose={photoBusy ? () => {} : closePhotoModal} width={860}>
+        <Modal title="Use a photo from another vendor"
+          subtitle={`${rows.length} product${rows.length === 1 ? '' : 's'} without a photo match one another vendor has photographed · ${exactCount} name${exactCount === 1 ? '' : 's'} identical`}
+          onClose={photoBusy ? () => {} : closePhotoModal} width={820}>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 14, fontSize: 12, color: '#888' }}>
-            <span><b style={{ color: '#0d1b2a' }}>{willApply}</b> will be set</span>
+            <span><b style={{ color: '#0d1b2a' }}>{willApply}</b> confirmed</span>
             <span style={{ color: '#ddd' }}>·</span>
-            <button onClick={() => setPhotoModal(m => ({ ...m, rows: m.rows.map(r => ({ ...r, enabled: r.chosenId != null && !hasPhoto(r.chosenId) })) }))}
-              style={{ background: 'none', border: 'none', color: '#FFA500', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12 }}>Reset to matches</button>
+            <button onClick={() => setPhotoModal(m => ({ ...m, rows: m.rows.map(r => ({ ...r, enabled: true })) }))}
+              style={{ background: 'none', border: 'none', color: '#FFA500', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12 }}>Confirm all</button>
+            <span style={{ color: '#ddd' }}>·</span>
+            <button onClick={() => setPhotoModal(m => ({ ...m, rows: m.rows.map(r => ({ ...r, enabled: r.exact })) }))}
+              style={{ background: 'none', border: 'none', color: '#888', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12 }}>Only identical names</button>
             <span style={{ color: '#ddd' }}>·</span>
             <button onClick={() => setPhotoModal(m => ({ ...m, rows: m.rows.map(r => ({ ...r, enabled: false })) }))}
-              style={{ background: 'none', border: 'none', color: '#aaa', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12 }}>Untick all</button>
+              style={{ background: 'none', border: 'none', color: '#aaa', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12 }}>Clear</button>
           </div>
 
           <div style={{ maxHeight: '54vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {rows.map(r => {
-              const c = CONF[r.confidence] || CONF.none
-              const already = r.chosenId != null && hasPhoto(r.chosenId)
-              return (
-                <div key={r.index} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 11px', border: '1px solid #f0ece4', borderRadius: 11, background: r.enabled ? '#fffdfa' : '#fafafa', opacity: r.enabled ? 1 : 0.72 }}>
-                  <input type="checkbox" checked={r.enabled} disabled={r.chosenId == null}
-                    onChange={e => setPhotoRow(r.index, { enabled: e.target.checked })} style={{ width: 16, height: 16, flexShrink: 0 }} />
-                  <img src={r.preview} alt="" style={{ width: 46, height: 46, borderRadius: 8, objectFit: 'cover', background: '#f0f0f0', flexShrink: 0 }} />
-                  <div style={{ minWidth: 0, flex: '0 0 190px' }}>
-                    <div style={{ fontSize: 12.5, fontWeight: 600, color: '#0d1b2a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={r.name}>{r.name}</div>
-                    <div style={{ fontSize: 10.5, color: '#bbb', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>reads as "{cleanFileName(r.name)}"</div>
-                  </div>
-                  <span style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.4px', color: c.fg, background: c.bg, border: `1px solid ${c.bd}`, borderRadius: 6, padding: '2px 7px', flexShrink: 0 }}>{c.label}</span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <select value={r.chosenId ?? ''} onChange={e => { const v = e.target.value ? (isNaN(Number(e.target.value)) ? e.target.value : Number(e.target.value)) : null; setPhotoRow(r.index, { chosenId: v || null, enabled: !!v && !hasPhoto(v) }) }}
-                      style={{ width: '100%', border: '1px solid #e6e2da', borderRadius: 8, padding: '7px 9px', fontSize: 12.5, fontFamily: 'inherit', background: '#fff', color: r.chosenId ? '#0d1b2a' : '#aaa' }}>
-                      <option value="">— no product —</option>
-                      {opts.map(o => <option key={o.id} value={o.id}>{o.product_name}{o.image_url ? '  (has photo)' : ''}</option>)}
-                    </select>
-                    <div style={{ fontSize: 10.5, color: r.duplicate ? '#c0392b' : already ? '#b8740a' : '#c4bcb0', marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {r.duplicate ? 'Another photo already matched this product' : already ? 'This product already has a photo — tick to replace it' : r.why}
-                    </div>
-                  </div>
+            {rows.map(r => (
+              <label key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 11px', border: `1px solid ${r.enabled ? '#f0dfc2' : '#f0ece4'}`, borderRadius: 11, background: r.enabled ? '#fffdfa' : '#fafafa', cursor: 'pointer' }}>
+                <input type="checkbox" checked={r.enabled} onChange={e => setPhotoRow(r.id, { enabled: e.target.checked })}
+                  style={{ width: 16, height: 16, flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 600, color: '#0d1b2a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={r.name}>{r.name}</div>
+                  <div style={{ fontSize: 10.5, color: '#bbb', marginTop: 2 }}>{r.vendor} · no photo</div>
                 </div>
-              )
-            })}
+                <span style={{ fontSize: 15, color: '#d8d2c8', flexShrink: 0 }}>←</span>
+                <img src={r.url} alt="" style={{ width: 46, height: 46, borderRadius: 8, objectFit: 'contain', background: '#f7f5f2', flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 600, color: '#0d1b2a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={r.sourceName}>{r.sourceName}</div>
+                  <div style={{ fontSize: 10.5, color: '#bbb', marginTop: 2 }}>{r.sourceVendor}</div>
+                </div>
+                <span style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.4px', flexShrink: 0, borderRadius: 6, padding: '2px 7px',
+                  color: r.exact ? '#1D8A5B' : '#b8740a', background: r.exact ? '#EAF7EF' : '#FFF6E5', border: `1px solid ${r.exact ? '#c9ebd6' : '#f3e0bb'}` }}>
+                  {r.exact ? 'Same name' : `${Math.round(r.score * 100)}% alike`}
+                </span>
+              </label>
+            ))}
+          </div>
+
+          <div style={{ fontSize: 11.5, color: '#bbb', marginTop: 12, lineHeight: 1.6 }}>
+            Both products end up pointing at the same stored picture, so nothing is uploaded and no extra space is used.
+            Check the looser matches — two vendors can name different toys almost the same.
           </div>
 
           {photoProgress && (
@@ -1745,14 +1753,14 @@ export default function SupplierCatalog() {
               <div style={{ height: 7, background: '#f2f0ec', borderRadius: 99, overflow: 'hidden' }}>
                 <div style={{ width: `${Math.round(photoProgress.done / photoProgress.total * 100)}%`, height: '100%', background: 'linear-gradient(90deg,#FFA500,#ff8c00)', transition: 'width .2s' }} />
               </div>
-              <div style={{ fontSize: 11.5, color: '#bbb', marginTop: 5, textAlign: 'center' }}>Uploading {photoProgress.done} of {photoProgress.total}…</div>
+              <div style={{ fontSize: 11.5, color: '#bbb', marginTop: 5, textAlign: 'center' }}>Setting {photoProgress.done} of {photoProgress.total}…</div>
             </div>
           )}
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 18 }}>
             <Button variant="ghost" onClick={closePhotoModal} disabled={photoBusy}>Cancel</Button>
             <Button onClick={applyPhotoMatches} disabled={photoBusy || willApply === 0}>
-              <CheckCircle size={14} /> {photoBusy ? 'Setting…' : `Set ${willApply} photo${willApply === 1 ? '' : 's'}`}
+              <CheckCircle size={14} /> {photoBusy ? 'Setting…' : `Use ${willApply} photo${willApply === 1 ? '' : 's'}`}
             </Button>
           </div>
         </Modal>
