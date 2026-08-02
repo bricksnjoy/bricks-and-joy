@@ -1559,11 +1559,20 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
 
           {/* Special request + any number of extra costs */}
           <div style={{ marginBottom: 14, border: '1px solid #FAEEDA', background: '#FFFDF6', borderRadius: 10, padding: '12px 14px' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#b8740a', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: 10 }}>
-              🎁 Special request &amp; extra costs
+            {/* Two different things, so they are labelled apart: what the customer
+                asked for costs nothing and is an instruction to us; the costs
+                below are money going on the invoice. */}
+            <label style={{ display: 'block', fontSize: 12, color: '#b8740a', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: 2 }}>
+              🎁 Special request
             </label>
-            <input value={form.special_request} onChange={f('special_request')} placeholder="e.g. Gift wrapping, birthday card, hide the price tag…"
-              style={{ width: '100%', padding: '8px 10px', border: '1px solid #eee0c8', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', background: '#fff', outline: 'none', boxSizing: 'border-box', marginBottom: 12 }} />
+            <div style={{ fontSize: 11, color: '#b3a894', marginBottom: 6 }}>What the customer asked for. No charge — just an instruction for us.</div>
+            <input value={form.special_request} onChange={f('special_request')} placeholder="e.g. Hide the price tag, write 'Happy Birthday Aan'…"
+              style={{ width: '100%', padding: '8px 10px', border: '1px solid #eee0c8', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', background: '#fff', outline: 'none', boxSizing: 'border-box', marginBottom: 14 }} />
+
+            <label style={{ display: 'block', fontSize: 12, color: '#b8740a', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: 2, borderTop: '1px dashed #f0e2c8', paddingTop: 12 }}>
+              💰 Extra costs
+            </label>
+            <div style={{ fontSize: 11, color: '#b3a894', marginBottom: 8 }}>Money on top of the products — delivery, wrapping, anything else. Each one gets its own line on the invoice.</div>
 
             {(form.charges || []).map((c, i) => {
               const amt = parseFloat(c.amount) || 0
