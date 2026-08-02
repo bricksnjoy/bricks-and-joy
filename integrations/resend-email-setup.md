@@ -39,15 +39,15 @@ In **Supabase → Edge Functions → Secrets** (or with the CLI):
 
 ```bash
 supabase secrets set RESEND_API_KEY=re_xxxxxxxx
-supabase secrets set EMAIL_FROM="Brick's & Joy <orders@bricksandjoy.com>"
 supabase secrets set EMAIL_REPLY_TO="bricknjoy@gmail.com"
+# optional — only to send from a different address than the monthly report
+supabase secrets set EMAIL_FROM="Brick's & Joy <orders@bricksandjoy.com>"
 ```
 
-Leave `EMAIL_FROM` unset until the domain is verified — the function falls back
-to Resend's sandbox sender, which only reaches your own address.
-
-`monthly-report` reads `REPORT_FROM` for its own sender; set that the same way
-if you want the report to come from the verified domain too.
+Only `RESEND_API_KEY` is required. The sender falls back to `REPORT_FROM` (which
+`monthly-report` already uses), then to Resend's sandbox address, which reaches
+your own inbox only. So if the monthly report already sends correctly, there is
+nothing more to configure here.
 
 ## 4. Deploy the function
 

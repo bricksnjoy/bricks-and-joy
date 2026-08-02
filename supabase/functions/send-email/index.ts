@@ -10,8 +10,9 @@
 // nobody has the back office open.
 //
 // Configure (Edge Functions → Secrets):
-//   RESEND_API_KEY = your Resend API key
-//   EMAIL_FROM     = "Brick's & Joy <orders@bricksandjoy.com>"   (optional)
+//   RESEND_API_KEY = your Resend API key                          (required)
+//   EMAIL_FROM     = "Brick's & Joy <orders@bricksandjoy.com>"    (optional —
+//                    defaults to REPORT_FROM, already set for the monthly report)
 //   EMAIL_REPLY_TO = where replies should land                    (optional)
 //
 // Deploy:  supabase functions deploy send-email
@@ -32,9 +33,11 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const RESEND_KEY = Deno.env.get('RESEND_API_KEY')
-// Resend's shared sandbox sender works before a domain is verified, but only to
-// your own address — set EMAIL_FROM once bricksandjoy.com is verified.
-const FROM = Deno.env.get('EMAIL_FROM') || "Brick's & Joy <onboarding@resend.dev>"
+// Falls back to REPORT_FROM, which the monthly report already sends from, so a
+// working sender doesn't have to be configured twice. Set EMAIL_FROM only to
+// send ordinary mail from a different address than the reports. Resend's shared
+// sandbox sender is the last resort — it only reaches your own address.
+const FROM = Deno.env.get('EMAIL_FROM') || Deno.env.get('REPORT_FROM') || "Brick's & Joy <onboarding@resend.dev>"
 const REPLY_TO = Deno.env.get('EMAIL_REPLY_TO') || ''
 
 // Keep well inside both the function's request limit and Resend's own ceiling
