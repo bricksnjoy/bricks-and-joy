@@ -58,6 +58,7 @@ export default function CostManagement() {
   const [form, setForm] = useState(EMPTY)
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [invoicesShown, setInvoicesShown] = useState(6)
   const [viewSlip, setViewSlip] = useState(null)
   const [filterCat, setFilterCat] = useState('all')
   const [filterMonth, setFilterMonth] = useState('all')
@@ -216,6 +217,20 @@ export default function CostManagement() {
   })
 
   const total = filtered.reduce((s, c) => s + Number(c.amount || 0), 0)
+
+  // Costs that came from an order, gathered under their invoice. An order's
+  // delivery, wrapping and anything else are written here as they are added, so
+  // this is what each one actually cost to fulfil.
+  const byInvoice = (() => {
+    const m = new Map()
+    filtered.forEach(c => {
+      const inv = (c.reference || '').trim()
+      if (!inv || !/^INV|^[A-Z]{2,5}-\d/.test(inv)) return
+      if (!m.has(inv)) m.set(inv, { inv, rows: [], total: 0 })
+      const g = m.get(inv); g.rows.push(c); g.total += Number(c.amount || 0)
+    })
+    return [...m.values()].sort((a, b) => (b.rows[0]?.expense_date || '').localeCompare(a.rows[0]?.expense_date || ''))
+  })()
   const thisMonth = new Date().toISOString().slice(0, 7)
   const thisMonthTotal = costs.filter(c => c.expense_date?.startsWith(thisMonth)).reduce((s, c) => s + Number(c.amount || 0), 0)
 
@@ -228,7 +243,14 @@ export default function CostManagement() {
 
   const columns = [
     { key: 'expense_date', label: 'Date', render: r => <span style={{ color: '#888', fontSize: 12 }}>{r.expense_date}</span> },
-    { key: 'description', label: 'Description', render: r => <span style={{ fontWeight: 500 }}>{r.description}</span> },
+    { key: 'description', label: 'Description', render: r => (
+      <span style={{ fontWeight: 500 }}>
+        {r.description}
+        {r.reference && /^INV|^[A-Z]{2,5}-\d/.test(r.reference) && (
+          <span title="Came from this order" style={{ marginLeft: 7, fontSize: 10.5, fontWeight: 700, color: '#8a6a2a', background: '#fff5e2', border: '1px solid #f0e2c8', borderRadius: 6, padding: '1px 6px', whiteSpace: 'nowrap' }}>{r.reference}</span>
+        )}
+      </span>
+    ) },
     { key: 'category', label: 'Category', render: r => <Badge color={CAT_COLORS[r.category] || 'gray'}><CatLabel value={r.category} size={11} /></Badge> },
     { key: 'amount', label: 'Amount (MVR)', render: r => <span style={{ fontWeight: 600, color: '#E24B4A' }}>MVR {Number(r.amount).toFixed(2)}</span> },
     { key: 'amount_usd', label: 'Approx USD', render: r => <span style={{ color: '#aaa', fontSize: 12 }}>≈ ${(Number(r.amount) / MVR_RATE).toFixed(2)}</span> },
@@ -296,6 +318,33 @@ export default function CostManagement() {
               <Button variant="ghost" size="sm" onClick={() => { setFilterCat('all'); setFilterMonth('all') }}>Clear</Button>
             )}
           </div>
+          {/* What each order cost to fulfil — its delivery, wrapping and the rest,
+              gathered under the invoice they were added to */}
+          {byInvoice.length > 0 && (
+            <div style={{ marginBottom: 16, border: '1px solid #f0ece4', borderRadius: 11, overflow: 'hidden' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '10px 13px', background: '#fffdf6', borderBottom: '1px solid #f4ead8' }}>
+                <span style={{ fontSize: 12.5, fontWeight: 700, color: '#0d1b2a' }}>Costs that came from orders</span>
+                <span style={{ fontSize: 11.5, color: '#a9a094' }}>{byInvoice.length} order{byInvoice.length === 1 ? '' : 's'} · MVR {byInvoice.reduce((t, g) => t + g.total, 0).toFixed(2)}</span>
+              </div>
+              {byInvoice.slice(0, invoicesShown).map(g => (
+                <div key={g.inv} style={{ padding: '9px 13px', borderTop: '1px solid #f7f4ee' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                    <span style={{ fontSize: 12.5, fontWeight: 700, color: '#8a6a2a' }}>{g.inv}</span>
+                    <span style={{ fontSize: 13, fontWeight: 800, color: '#E24B4A' }}>MVR {g.total.toFixed(2)}</span>
+                  </div>
+                  <div style={{ fontSize: 11.5, color: '#aaa', marginTop: 3 }}>
+                    {g.rows.map(r => `${r.description.split(' — ')[0]} ${Number(r.amount).toFixed(2)}`).join(' · ')}
+                  </div>
+                </div>
+              ))}
+              {byInvoice.length > invoicesShown && (
+                <button onClick={() => setInvoicesShown(n => n + 10)}
+                  style={{ width: '100%', padding: '9px 0', background: '#fff', border: 'none', borderTop: '1px solid #f7f4ee', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 700, color: '#b8740a' }}>
+                  Show {Math.min(10, byInvoice.length - invoicesShown)} more
+                </button>
+              )}
+            </div>
+          )}
           {loading ? <Spinner /> : <Table columns={columns} data={filtered} emptyMessage="No costs yet. Add your first cost above." />}
         </Card>
 

@@ -18,15 +18,33 @@ const BANK_ACCOUNT_NAME = 'BRICKS & JOY'
 const CHANNELS = ['Website','Instagram','Facebook','Retail shop','Pop-up shop','Call']
 const STATUSES = [{ value: 'created', label: 'Order created' },{ value: 'transit', label: 'Dispatched' },{ value: 'delivered', label: 'Delivered' },{ value: 'cancelled', label: 'Cancelled' }]
 const PAY_METHODS = ['Cash','BML Transfer','Bank Transfer','Card','Other']
-const EMPTY_FORM = { customer_id:'', customer_name:'', channel:'Instagram', status:'created', order_date:'', notes:'', payment_status:'unpaid', payment_method:'', transfer_reference:'', invoice_number:'', fulfilment:'delivery', delivery_person:'', delivery_date:'', delivery_time:'', discount_value:0, discount_type:'amount', special_request:'', delivery_fee:'', delivery_fee_covered:false, delivery_fee_separate:true, delivery_fee_expense:true, special_request_cost:'', special_request_covered:false, special_request_separate:true, special_request_expense:false }
+const EMPTY_FORM = { customer_id:'', customer_name:'', channel:'Instagram', status:'created', order_date:'', notes:'', payment_status:'unpaid', payment_method:'', transfer_reference:'', invoice_number:'', fulfilment:'delivery', delivery_person:'', delivery_date:'', delivery_time:'', discount_value:0, discount_type:'amount', special_request:'', charges: [] }
 const today = localToday
 // Gift/special-request charges and customer-paid delivery fees live on their OWN
 // invoice rows (no product) so each appears as a separate transaction on receipts
 // and in reconciliation — e.g. a 550 sale + 30 delivery = two lines, not 580.
-const GIFT_NAME = '🎁 Gift / special request'
-const FEE_NAME = '🚚 Island delivery fee'
-const isGiftRow = r => !r.product_id && String(r.product_name || '').startsWith('🎁')
-const isFeeRow = r => !r.product_id && String(r.product_name || '').startsWith('🚚')
+// An extra cost on the invoice — delivery, gift wrapping, anything else. Real
+// items are always chosen from inventory and so always carry a product_id;
+// anything on an invoice without one is a cost line. The old emoji-prefixed
+// gift and delivery rows are the same shape, so they read correctly too.
+const isChargeLine = r => !r.product_id
+// The label as it should read, with the old emoji prefixes tidied away
+const chargeLabel = r => String(r.product_name || 'Extra cost')
+  .replace(/^🎁\s*Gift \/ special request\s*(—\s*)?/, m => 'Gift / special request' + (m.includes('—') ? ' — ' : ''))
+  .replace(/^🚚\s*/, '').replace(/^🎁\s*/, '').trim() || 'Extra cost'
+
+// A new blank cost line in the order form
+const newCharge = () => ({ key: Math.random().toString(36).slice(2, 9), label: '', amount: '', covered: false })
+
+// Which Cost Management category an extra cost belongs to, taken from what it is
+// called — so the expense lands somewhere sensible without asking on every line.
+function chargeCategory(label) {
+  const s = String(label || '').toLowerCase()
+  if (/deliver|courier|transport|boat|ferry|launch/.test(s)) return 'Delivery'
+  if (/ship|freight|cargo|import|customs|duty/.test(s)) return 'Shipping'
+  if (/gift|wrap|pack|box|card|ribbon|bag/.test(s)) return 'Packaging'
+  return 'Other'
+}
 const EMPTY_ITEM = { product_id:'', product_name:'', qty:1, unit_price:0 }
 
 // SMS segment math. Messages of only GSM-7 characters fit 160 per SMS (153 each
@@ -61,8 +79,7 @@ export default function Orders() {
   const [modal, setModal] = useState(false)
   const [editOrder, setEditOrder] = useState(null)
   const [editOrderRows, setEditOrderRows] = useState([])
-  const [editGiftRow, setEditGiftRow] = useState(null)          // existing gift line item when editing
-  const [editFeeRow, setEditFeeRow] = useState(null)            // existing delivery-fee line item when editing
+  const [editChargeRows, setEditChargeRows] = useState([])      // existing cost lines when editing
   const [viewModal, setViewModal] = useState(null)
   const [payModal, setPayModal] = useState(null)
   const [returnModal, setReturnModal] = useState(null)
@@ -133,8 +150,7 @@ export default function Orders() {
     setForm({ ...EMPTY_FORM, order_date: today(), delivery_date: today(), invoice_number: num })
     setCartItems([{ ...EMPTY_ITEM }])
     setEditOrder(null)
-    setEditGiftRow(null)
-    setEditFeeRow(null)
+    setEditChargeRows([])
     setModal(true)
   }
 
@@ -145,9 +161,8 @@ export default function Orders() {
       : [order]
     const allRows = siblings.length ? siblings : [order]
     // Gift and delivery-fee charges are their own rows — keep them out of the product cart
-    const giftRow = allRows.find(isGiftRow) || null
-    const feeRow = allRows.find(isFeeRow) || null
-    const rows = allRows.filter(r => !isGiftRow(r) && !isFeeRow(r))
+    const chargeRows = allRows.filter(isChargeLine)
+    const rows = allRows.filter(r => !isChargeLine(r))
     const totalDiscount = rows.reduce((s, r) => s + Number(r.discount || 0), 0)
     setForm({
       customer_id: order.customer_id || '',
@@ -167,23 +182,27 @@ export default function Orders() {
       discount_value: totalDiscount,
       discount_type: 'amount',
       special_request: allRows.map(r => r.special_request).find(Boolean) || '',
-      delivery_fee: feeRow ? Number(feeRow.total_price) || '' : (() => { const r = rows.find(x => Number(x.delivery_fee) > 0); return r ? Number(r.delivery_fee) : '' })(),
-      delivery_fee_covered: !feeRow && rows.some(r => Number(r.delivery_fee) > 0 && r.delivery_fee_covered),
-      // A fee/gift stored as its own row = separate; stored only in the columns = merged into the total
-      delivery_fee_separate: feeRow ? true : !rows.some(r => Number(r.delivery_fee) > 0 && !r.delivery_fee_covered),
-      special_request_cost: giftRow ? Number(giftRow.total_price) || '' : (() => { const r = rows.find(x => Number(x.special_request_cost) > 0); return r ? Number(r.special_request_cost) : '' })(),
-      special_request_covered: !giftRow && rows.some(r => Number(r.special_request_cost) > 0 && r.special_request_covered),
-      special_request_separate: giftRow ? true : !rows.some(r => Number(r.special_request_cost) > 0 && !r.special_request_covered),
-      // On edit, don't auto-log payout expenses unless the user ticks the box
-      // (duplicates are prevented by invoice-number dedupe anyway)
-      delivery_fee_expense: false,
+      // Existing cost lines on this invoice, back into the editable list.
+      // Amounts that were merged into a product row rather than given their own
+      // line are picked up too, so nothing is lost by editing an older order.
+      charges: [
+        ...chargeRows.map(r => ({ key: 'row-' + r.id, id: r.id, label: chargeLabel(r), amount: Number(r.total_price) || '', covered: false })),
+        ...(() => {
+          const legacy = []
+          const fee = rows.find(r => Number(r.delivery_fee) > 0)
+          if (fee) legacy.push({ key: 'legacy-fee', label: 'Island delivery fee', amount: Number(fee.delivery_fee), covered: !!fee.delivery_fee_covered })
+          const gift = rows.find(r => Number(r.special_request_cost) > 0)
+          if (gift) legacy.push({ key: 'legacy-gift', label: 'Gift / special request', amount: Number(gift.special_request_cost), covered: !!gift.special_request_covered })
+          return legacy
+        })(),
+      ],
       special_request_expense: false,
     })
     setCartItems(rows.map(r => ({ product_id: r.product_id || '', product_name: r.product_name || '', qty: r.qty || 1, unit_price: r.unit_price || 0 })))
     setEditOrder(order)
     setEditOrderRows(rows)
-    setEditGiftRow(giftRow)
-    setEditFeeRow(feeRow)
+    setEditChargeRows(chargeRows)
+    
     setModal(true)
   }
 
@@ -268,16 +287,25 @@ export default function Orders() {
   // invoice's rows never double-counts it. When the customer pays the fee back
   // it's added to that row's total; when the shop covers it it stays out of
   // revenue and is logged as a Delivery expense instead.
-  function feeInfo() {
-    const fee = parseFloat(form.delivery_fee) || 0
-    return { fee, covered: !!form.delivery_fee_covered, separate: !!form.delivery_fee_separate }
-  }
-  function giftInfo() {
-    const cost = parseFloat(form.special_request_cost) || 0
-    return { cost, covered: !!form.special_request_covered, separate: !!form.special_request_separate }
-  }
-  // A charge (gift or delivery fee) as its own invoice line — a separate
-  // transaction on the receipt and in reconciliation.
+  // ── Extra costs on the order ───────────────────────────────────────────────
+  const setCharge = (i, patch) => setForm(p => ({ ...p, charges: (p.charges || []).map((c, n) => n === i ? { ...c, ...patch } : c) }))
+  const addCharge = () => setForm(p => ({ ...p, charges: [...(p.charges || []), newCharge()] }))
+  const removeCharge = i => setForm(p => ({ ...p, charges: (p.charges || []).filter((_, n) => n !== i) }))
+
+  // The cost lines worth acting on — named and priced
+  const liveCharges = () => (form.charges || [])
+    .map(c => ({ ...c, amount: parseFloat(c.amount) || 0, label: (c.label || '').trim() }))
+    .filter(c => c.amount > 0 && c.label)
+
+  const chargeTotals = (form.charges || []).reduce((t, c) => {
+    const a = parseFloat(c.amount) || 0
+    if (!a || !(c.label || '').trim()) return t
+    return c.covered ? { ...t, covered: t.covered + a } : { ...t, charged: t.charged + a }
+  }, { charged: 0, covered: 0 })
+
+  // A cost as its own line on the invoice, sharing the invoice number with the
+  // products, so the customer sees what they are paying for and reconciliation
+  // has a transaction to match.
   function buildChargeRow(productName, amount) {
     return {
       customer_id: form.customer_id || null,
@@ -296,74 +324,64 @@ export default function Orders() {
       created_by_email: editOrder ? (editOrder.created_by_email || userEmail) : userEmail,
     }
   }
-  const buildGiftRow = () => buildChargeRow(`${GIFT_NAME}${form.special_request ? ` — ${form.special_request.slice(0, 80)}` : ''}`, giftInfo().cost)
-  const buildFeeRow = () => buildChargeRow(FEE_NAME, feeInfo().fee)
 
-  // Log the payout side of a charge (shop pays courier / buys wrapping) as an
-  // expense so the −MVR line on the bank statement has something to reconcile
-  // against. Deduped by invoice number so edits never double-log it.
-  async function ensureChargeExpense(category, amount, description) {
-    const inv = form.invoice_number || ''
-    if (inv) {
-      const { data } = await supabase.from('expenses').select('id').eq('category', category).ilike('description', `%${inv}%`).limit(1)
-      if (data && data.length) return false
-    }
-    let payload = { description, category, amount, currency: 'MVR', expense_date: today() }
-    let { error } = await supabase.from('expenses').insert(payload)
-    while (error && dropMissingCol(error, payload)) { error = (await supabase.from('expenses').insert(payload)).error }
-    if (error) toast.error(`Could not log ${category} expense: ` + error.message)
-    return !error
-  }
-
-  // The payout side of both charges. Covered charges always log an expense;
-  // customer-pays-back charges log one only when "paid from bank" is ticked
-  // (shop fronted the money and the customer reimburses it).
+  // Every cost on an order is money the shop actually pays out — the courier,
+  // the wrapping — whether or not the customer pays it back. So each one is
+  // recorded in Cost Management against its invoice, where the invoice number
+  // both groups them and stops the same cost being logged twice on an edit.
   async function logChargeExpenses() {
-    const inv = form.invoice_number || form.customer_name
-    const fi = feeInfo()
-    if (fi.fee > 0 && (fi.covered || form.delivery_fee_expense)) {
-      const added = await ensureChargeExpense('Delivery', fi.fee,
-        `Island delivery ${fi.covered ? '(covered)' : '(paid out — customer pays back)'} — ${inv}`)
-      if (added) toast.info(`Delivery payout MVR ${fi.fee.toFixed(2)} logged as expense`)
-    }
-    const g = giftInfo()
-    if (g.cost > 0 && (g.covered || form.special_request_expense)) {
-      const added = await ensureChargeExpense('Packaging', g.cost,
-        `Gift / special request ${g.covered ? '(covered)' : '(paid out — customer pays back)'} — ${inv}${form.special_request ? ': ' + form.special_request.slice(0, 80) : ''}`)
-      if (added) toast.info(`Gift payout MVR ${g.cost.toFixed(2)} logged as expense`)
+    const inv = form.invoice_number || form.customer_name || ''
+    for (const c of liveCharges()) {
+      const desc = `${c.label} — ${inv}`
+      const { data } = await supabase.from('expenses').select('id').eq('description', desc).limit(1)
+      if (data && data.length) continue
+      let payload = {
+        description: desc,
+        category: chargeCategory(c.label),
+        amount: c.amount,
+        currency: 'MVR',
+        expense_date: form.order_date || today(),
+        reference: inv || null,
+      }
+      let { error } = await supabase.from('expenses').insert(payload)
+      while (error && dropMissingCol(error, payload)) { error = (await supabase.from('expenses').insert(payload)).error }
     }
   }
 
-  // Upsert or remove a charge's own invoice row when editing an order
-  async function syncChargeRow(existingRow, shouldExist, build) {
-    if (shouldExist) {
-      const payload = build()
-      if (existingRow) {
-        let { error } = await supabase.from('orders').update(payload).eq('id', existingRow.id)
-        while (error && dropMissingCol(error, payload)) { error = (await supabase.from('orders').update(payload).eq('id', existingRow.id)).error }
-      } else {
+  // Bring the invoice's cost lines in line with the form: update what is still
+  // there, remove what was taken away, add what is new. Only costs the customer
+  // pays get a line — one the shop covers is a cost to us, not a charge to them.
+  async function syncChargeRows(existingRows) {
+    const wanted = liveCharges().filter(c => !c.covered)
+    const existing = [...(existingRows || [])]
+    for (let i = 0; i < Math.max(wanted.length, existing.length); i++) {
+      const w = wanted[i], e = existing[i]
+      if (w && e) {
+        const payload = buildChargeRow(w.label, w.amount)
+        let { error } = await supabase.from('orders').update(payload).eq('id', e.id)
+        while (error && dropMissingCol(error, payload)) { error = (await supabase.from('orders').update(payload).eq('id', e.id)).error }
+      } else if (w && !e) {
+        const payload = buildChargeRow(w.label, w.amount)
         let { error } = await supabase.from('orders').insert(payload)
         while (error && dropMissingCol(error, payload)) { error = (await supabase.from('orders').insert(payload)).error }
+      } else if (!w && e) {
+        await supabase.from('orders').delete().eq('id', e.id)
       }
-    } else if (existingRow) {
-      // charge removed, covered by the shop, or merged into the total — drop the row
-      await supabase.from('orders').delete().eq('id', existingRow.id)
     }
   }
 
+
+
   function buildPayload(item, itemDiscount, isFirst = false) {
-    const { fee, covered } = feeInfo()
-    const g = giftInfo()
-    const feeOnRow = isFirst ? fee : 0
-    // Charges the user chose to keep in the SAME transaction get added to the
-    // first row's total; "separate" ones become their own invoice rows instead.
-    const mergedFee = isFirst && fee > 0 && !covered && !form.delivery_fee_separate ? fee : 0
-    const mergedGift = isFirst && g.cost > 0 && !g.covered && !form.special_request_separate ? g.cost : 0
+    // Every extra cost is now its own invoice line, so a product row carries the
+    // product and nothing else. The legacy per-row amounts are cleared on save
+    // so an older order isn't counted twice once its costs become lines.
+    const mergedFee = 0, mergedGift = 0
     return {
       special_request: form.special_request || '',
-      delivery_fee: feeOnRow,
-      delivery_fee_covered: isFirst ? covered : false,
-      special_request_cost: isFirst ? (parseFloat(form.special_request_cost) || 0) : 0,
+      delivery_fee: 0,
+      delivery_fee_covered: false,
+      special_request_cost: 0,
       special_request_covered: isFirst ? !!form.special_request_covered : false,
       customer_id: form.customer_id || null,
       customer_name: form.customer_name || '',
@@ -448,15 +466,10 @@ export default function Orders() {
           if (holdsStock(oldRow) && oldRow.product_id) await applyStockDelta(oldRow.product_id, parseInt(oldRow.qty) || 0)
         }
       }
-      // Gift & delivery-fee charges — keep their own invoice rows in sync.
-      // (Only when marked "separate"; merged charges live inside the first row's total.)
-      {
-        const g = giftInfo()
-        await syncChargeRow(editGiftRow, g.cost > 0 && !g.covered && g.separate, buildGiftRow)
-        const fi = feeInfo()
-        await syncChargeRow(editFeeRow, fi.fee > 0 && !fi.covered && fi.separate, buildFeeRow)
-        await logChargeExpenses()
-      }
+      // Extra costs — bring the invoice's cost lines in line with the form and
+      // record each one in Cost Management.
+      await syncChargeRows(editChargeRows)
+      await logChargeExpenses()
       logAudit('update', 'order', `${form.invoice_number || ''} — ${form.customer_name}`, { items: validItems.length, total: cartTotal })
       setSaving(false)
       toast.success(`Order updated!${validItems.length > 1 ? ` (${validItems.length} items)` : ''}`)
@@ -489,24 +502,9 @@ export default function Orders() {
         }
       }
     }
-    // Gift & delivery-fee charges as their own transactions (when marked separate)
-    {
-      const g = giftInfo()
-      if (g.cost > 0 && !g.covered && g.separate) {
-        const giftPayload = buildGiftRow()
-        let { error: ge } = await supabase.from('orders').insert(giftPayload)
-        while (ge && dropMissingCol(ge, giftPayload)) { ge = (await supabase.from('orders').insert(giftPayload)).error }
-        if (!ge) toast.info(`Gift charge MVR ${g.cost.toFixed(2)} added as its own line`)
-      }
-      const fi = feeInfo()
-      if (fi.fee > 0 && !fi.covered && fi.separate) {
-        const feePayload = buildFeeRow()
-        let { error: fe } = await supabase.from('orders').insert(feePayload)
-        while (fe && dropMissingCol(fe, feePayload)) { fe = (await supabase.from('orders').insert(feePayload)).error }
-        if (!fe) toast.info(`Delivery fee MVR ${fi.fee.toFixed(2)} added as its own line`)
-      }
-      await logChargeExpenses()
-    }
+    // Extra costs as their own invoice lines, and in Cost Management
+    await syncChargeRows([])
+    await logChargeExpenses()
     logAudit('create', 'order', `${form.invoice_number || ''} — ${form.customer_name}`, { items: validItems.length, total: cartTotal })
     setSaving(false)
     toast.success(`Order added!${validItems.length > 1 ? ` (${validItems.length} items)` : ''}`)
@@ -715,7 +713,7 @@ export default function Orders() {
   function invoiceSummary(o) {
     const siblings = o.invoice_number ? orders.filter(x => x.invoice_number === o.invoice_number) : [o]
     const items = siblings.length ? siblings : [o]
-    const nameOf = r => isGiftRow(r) ? 'Gift' : isFeeRow(r) ? 'Delivery fee' : `${r.product_name} x${r.qty}`
+    const nameOf = r => isChargeLine(r) ? chargeLabel(r) : `${r.product_name} x${r.qty}`
     return { items, list: items.map(nameOf).join(', '), total: items.reduce((s, r) => s + Number(r.total_price || 0), 0) }
   }
   // Status update to the customer. Plain "x" and "-" keep every template GSM-7
@@ -738,7 +736,7 @@ export default function Orders() {
   }
   function paymentMsg(o) {
     const { items, total } = invoiceSummary(o)
-    const nameOf = r => isGiftRow(r) ? 'Gift' : isFeeRow(r) ? 'Delivery fee' : `${r.product_name} x${r.qty}`
+    const nameOf = r => isChargeLine(r) ? chargeLabel(r) : `${r.product_name} x${r.qty}`
     const greet = `Hi ${o.customer_name || 'there'},`
     const tail = `Please transfer to:\n${BANK_ACCOUNT_NO}\n${BANK_ACCOUNT_NAME}\nThank you - Brick's & Joy`
     if (items.length > 1) {
@@ -910,7 +908,7 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
   // Charge lines (delivery fee / gift) don't get their own card — they display
   // as a small line under their invoice's product order. Only orphaned charges
   // (no product sibling at all) fall back to their own card.
-  const isChargeRow = o => isFeeRow(o) || isGiftRow(o)
+  const isChargeRow = isChargeLine
   const invKey = o => `${o.customer_id || ''}|${o.invoice_number || ''}`
   const chargesFor = o => o.invoice_number
     ? orders.filter(c => isChargeRow(c) && invKey(c) === invKey(o))
@@ -962,7 +960,7 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
         <div style={{ fontSize: 11, color: '#bbb' }}>× {r.qty}</div>
         {isFirstOfInvoice(r) && chargesFor(r).map(c => (
           <div key={c.id} style={{ fontSize: 11, color: '#8a6d1b', marginTop: 2 }}>
-            {isFeeRow(c) ? '🚚' : '🎁'} {isFeeRow(c) ? 'Delivery fee' : 'Gift'} · MVR {Number(c.total_price || 0).toFixed(2)}
+            {chargeLabel(c)} · MVR {Number(c.total_price || 0).toFixed(2)}
           </div>
         ))}
       </div>
@@ -1139,10 +1137,9 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
                   {/* Left: product photo — click to view details. Charge lines
                       (delivery fee / gift) have no product, so show their emoji big. */}
                   <div className="ord-photo" onClick={() => setViewModal(o)} title="Click to view order details"
-                    style={isFeeRow(o) || isGiftRow(o) ? { background: 'linear-gradient(135deg,#fff3df,#ffe9c7)' } : undefined}>
+                    style={isChargeLine(o) ? { background: 'linear-gradient(135deg,#fff3df,#ffe9c7)' } : undefined}>
                     {photo ? <img src={photo} alt={o.product_name} />
-                      : isFeeRow(o) ? <span style={{ fontSize: 64, lineHeight: 1 }}>🚚</span>
-                      : isGiftRow(o) ? <span style={{ fontSize: 64, lineHeight: 1 }}>🎁</span>
+                      : isChargeLine(o) ? <span style={{ fontSize: 64, lineHeight: 1 }}>🧾</span>
                       : <Package size={56} color="#d8d4c8" />}
                   </div>
 
@@ -1193,8 +1190,8 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
                         style={{ display: 'inline-flex', alignItems: 'center', gap: 6, alignSelf: 'flex-start', cursor: 'pointer',
                           fontSize: 12, fontWeight: 600, color: '#8a6d1b', background: '#FFF8E1', border: '1px solid #FAEEDA',
                           borderRadius: 99, padding: '4px 11px' }}>
-                        <span style={{ fontSize: 13 }}>{isFeeRow(c) ? '🚚' : '🎁'}</span>
-                        {isFeeRow(c) ? 'Delivery fee' : 'Gift'} · MVR {Number(c.total_price || 0).toFixed(2)}
+                        <span style={{ fontSize: 13 }}>🧾</span>
+                        {chargeLabel(c)} · MVR {Number(c.total_price || 0).toFixed(2)}
                         <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'capitalize', color: payColors[c.payment_status || 'unpaid'] || '#888' }}>
                           {c.payment_status || 'unpaid'}
                         </span>
@@ -1283,19 +1280,33 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
             <div style={{ background: '#FFF3F7', border: '1px solid #f7d6e3', borderRadius: 8, padding: '10px 14px', marginBottom: 12, fontSize: 13, color: '#8a2b52' }}>
               <div style={{ fontSize: 11, color: '#c77b9c', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: 4 }}>🎁 Special request</div>
               {viewModal.special_request}
-              {Number(viewModal.special_request_cost) > 0 && (
-                <div style={{ marginTop: 5, fontWeight: 700 }}>
-                  Cost: MVR {Number(viewModal.special_request_cost).toFixed(2)} — {viewModal.special_request_covered ? 'covered by the shop (own Packaging expense)' : 'charged to customer (own line on the invoice)'}
+            </div>
+          )}
+          {/* Everything this order cost on top of the products, together */}
+          {(() => {
+            const rows = chargesFor(viewModal)
+            const legacy = []
+            if (Number(viewModal.delivery_fee) > 0) legacy.push({ id: 'l-fee', product_name: 'Island delivery fee', total_price: Number(viewModal.delivery_fee), covered: viewModal.delivery_fee_covered })
+            if (Number(viewModal.special_request_cost) > 0) legacy.push({ id: 'l-gift', product_name: 'Gift / special request', total_price: Number(viewModal.special_request_cost), covered: viewModal.special_request_covered })
+            const all = [...rows, ...legacy]
+            if (!all.length) return null
+            const sum = all.reduce((t, c) => t + (c.covered ? 0 : Number(c.total_price) || 0), 0)
+            return (
+              <div style={{ background: '#FFFDF6', border: '1px solid #FAEEDA', borderRadius: 8, padding: '10px 14px', marginBottom: 12 }}>
+                <div style={{ fontSize: 11, color: '#b8740a', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: 6, fontWeight: 700 }}>Extra costs on this invoice</div>
+                {all.map(c => (
+                  <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 13, color: '#555', padding: '3px 0' }}>
+                    <span>{chargeLabel(c)}{c.covered ? <span style={{ color: '#c62828', fontSize: 11.5 }}> · shop covers it</span> : null}</span>
+                    <strong style={{ color: c.covered ? '#c62828' : '#0d1b2a', whiteSpace: 'nowrap' }}>MVR {(Number(c.total_price) || 0).toFixed(2)}</strong>
+                  </div>
+                ))}
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 13, borderTop: '1px dashed #f0e2c8', marginTop: 6, paddingTop: 6, fontWeight: 800, color: '#0d1b2a' }}>
+                  <span>Charged to the customer</span><span>MVR {sum.toFixed(2)}</span>
                 </div>
-              )}
-            </div>
-          )}
-          {Number(viewModal.delivery_fee) > 0 && (
-            <div style={{ background: viewModal.delivery_fee_covered ? '#fef2f2' : '#EEF4FF', border: `1px solid ${viewModal.delivery_fee_covered ? '#f5c6c6' : '#d0e4ff'}`, borderRadius: 8, padding: '10px 14px', marginBottom: 12, fontSize: 13, color: viewModal.delivery_fee_covered ? '#c62828' : '#2f6fc0' }}>
-              <div style={{ fontSize: 11, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: 4 }}>Island delivery fee</div>
-              MVR {Number(viewModal.delivery_fee).toFixed(2)} — {viewModal.delivery_fee_covered ? 'covered by the shop (logged as expense)' : 'paid by the customer (included in total)'}
-            </div>
-          )}
+                <div style={{ fontSize: 11, color: '#bbb', marginTop: 5 }}>Each of these is also recorded in Cost Management under {viewModal.invoice_number || 'this invoice'}.</div>
+              </div>
+            )
+          })()}
           {viewModal.notes && (
             <div style={{ background: '#FFF8E1', border: '1px solid #FAEEDA', borderRadius: 8, padding: '10px 14px', marginBottom: 12, fontSize: 13, color: '#555' }}>
               <div style={{ fontSize: 11, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: 4 }}>Notes</div>
@@ -1546,89 +1557,55 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
             {form.fulfilment !== 'pickup' && <div style={{ fontSize: 11, color: '#9aa7b8', marginTop: 8 }}>Also editable from the Deliveries tab.</div>}
           </div>
 
-          {/* Special request + island delivery fee */}
+          {/* Special request + any number of extra costs */}
           <div style={{ marginBottom: 14, border: '1px solid #FAEEDA', background: '#FFFDF6', borderRadius: 10, padding: '12px 14px' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#b8740a', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: 10 }}>
-              🎁 Special request & delivery fee
+              🎁 Special request &amp; extra costs
             </label>
             <input value={form.special_request} onChange={f('special_request')} placeholder="e.g. Gift wrapping, birthday card, hide the price tag…"
-              style={{ width: '100%', padding: '8px 10px', border: '1px solid #eee0c8', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', background: '#fff', outline: 'none', boxSizing: 'border-box', marginBottom: 10 }} />
-            {/* Gift cost — recorded as its OWN transaction so it shows separately in reconciliation */}
-            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 10 }}>
-              <div style={{ flex: '0 1 160px', minWidth: 0 }}>
-                <label style={{ fontSize: 10, color: '#999', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: 4, fontWeight: 600 }}>Gift / request cost (MVR)</label>
-                <input type="number" min="0" step="0.01" value={form.special_request_cost} onChange={f('special_request_cost')} placeholder="0"
-                  style={{ width: '100%', padding: '8px 10px', border: '1px solid #eee0c8', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', background: '#fff', outline: 'none', boxSizing: 'border-box' }} />
-              </div>
-              {parseFloat(form.special_request_cost) > 0 && (
-                <div style={{ display: 'flex', border: '1px solid #eee0c8', borderRadius: 8, overflow: 'hidden' }}>
-                  <button type="button" onClick={() => setForm(p => ({ ...p, special_request_covered: false }))}
-                    style={{ padding: '8px 13px', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, fontFamily: 'inherit', background: !form.special_request_covered ? '#1D9E75' : '#fff', color: !form.special_request_covered ? '#fff' : '#888' }}>Customer pays</button>
-                  <button type="button" onClick={() => setForm(p => ({ ...p, special_request_covered: true }))}
-                    style={{ padding: '8px 13px', border: 'none', borderLeft: '1px solid #eee0c8', cursor: 'pointer', fontSize: 12, fontWeight: 700, fontFamily: 'inherit', background: form.special_request_covered ? '#c62828' : '#fff', color: form.special_request_covered ? '#fff' : '#888' }}>We cover it</button>
+              style={{ width: '100%', padding: '8px 10px', border: '1px solid #eee0c8', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', background: '#fff', outline: 'none', boxSizing: 'border-box', marginBottom: 12 }} />
+
+            {(form.charges || []).map((c, i) => {
+              const amt = parseFloat(c.amount) || 0
+              return (
+                <div key={c.key} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
+                  <input value={c.label} placeholder="What is it for? e.g. Island delivery fee"
+                    onChange={e => setCharge(i, { label: e.target.value })}
+                    style={{ flex: '1 1 190px', minWidth: 0, padding: '8px 10px', border: '1px solid #eee0c8', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', background: '#fff', outline: 'none', boxSizing: 'border-box' }} />
+                  <input type="number" min="0" step="0.01" value={c.amount} placeholder="0"
+                    onChange={e => setCharge(i, { amount: e.target.value })}
+                    style={{ flex: '0 0 110px', padding: '8px 10px', border: '1px solid #eee0c8', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', background: '#fff', outline: 'none', boxSizing: 'border-box' }} />
+                  <div style={{ display: 'flex', border: '1px solid #eee0c8', borderRadius: 8, overflow: 'hidden', flexShrink: 0 }}>
+                    <button type="button" onClick={() => setCharge(i, { covered: false })}
+                      style={{ padding: '8px 11px', border: 'none', cursor: 'pointer', fontSize: 11.5, fontWeight: 700, fontFamily: 'inherit', background: !c.covered ? '#1D9E75' : '#fff', color: !c.covered ? '#fff' : '#888' }}>Customer pays</button>
+                    <button type="button" onClick={() => setCharge(i, { covered: true })}
+                      style={{ padding: '8px 11px', border: 'none', borderLeft: '1px solid #eee0c8', cursor: 'pointer', fontSize: 11.5, fontWeight: 700, fontFamily: 'inherit', background: c.covered ? '#c62828' : '#fff', color: c.covered ? '#fff' : '#888' }}>We cover it</button>
+                  </div>
+                  <button type="button" onClick={() => removeCharge(i)} title="Remove this cost"
+                    style={{ flexShrink: 0, background: 'none', border: '1px solid #eee0c8', borderRadius: 8, padding: '7px 9px', cursor: 'pointer', color: '#c0392b', lineHeight: 0 }}>
+                    <Trash2 size={14} />
+                  </button>
+                  {amt > 0 && (
+                    <div style={{ flexBasis: '100%', fontSize: 11.5, color: c.covered ? '#c62828' : '#1D9E75', fontWeight: 600 }}>
+                      {c.covered
+                        ? `Shop pays MVR ${amt.toFixed(2)} — not charged to the customer, recorded in Cost Management as ${chargeCategory(c.label)}.`
+                        : `MVR ${amt.toFixed(2)} on the invoice as its own line, and recorded in Cost Management as ${chargeCategory(c.label)}.`}
+                    </div>
+                  )}
                 </div>
-              )}
-              {parseFloat(form.special_request_cost) > 0 && !form.special_request_covered && (
-                <div style={{ display: 'flex', border: '1px solid #eee0c8', borderRadius: 8, overflow: 'hidden' }}>
-                  <button type="button" onClick={() => setForm(p => ({ ...p, special_request_separate: true }))}
-                    style={{ padding: '8px 13px', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, fontFamily: 'inherit', background: form.special_request_separate ? '#0d1b2a' : '#fff', color: form.special_request_separate ? '#fff' : '#888' }}>Separate transaction</button>
-                  <button type="button" onClick={() => setForm(p => ({ ...p, special_request_separate: false }))}
-                    style={{ padding: '8px 13px', border: 'none', borderLeft: '1px solid #eee0c8', cursor: 'pointer', fontSize: 12, fontWeight: 700, fontFamily: 'inherit', background: !form.special_request_separate ? '#0d1b2a' : '#fff', color: !form.special_request_separate ? '#fff' : '#888' }}>Same transaction</button>
-                </div>
-              )}
-            </div>
-            {parseFloat(form.special_request_cost) > 0 && (
-              <div style={{ fontSize: 11.5, color: form.special_request_covered ? '#c62828' : '#1D9E75', marginBottom: 10, fontWeight: 600 }}>
-                {form.special_request_covered
-                  ? `Shop covers MVR ${(parseFloat(form.special_request_cost) || 0).toFixed(2)} — logged as its own Packaging expense (separate transaction in reconciliation).`
-                  : form.special_request_separate
-                    ? `MVR ${(parseFloat(form.special_request_cost) || 0).toFixed(2)} added as its own line on the invoice — shows separately in reconciliation.`
-                    : `MVR ${(parseFloat(form.special_request_cost) || 0).toFixed(2)} merged into the order total — one combined transaction.`}
+              )
+            })}
+
+            <button type="button" onClick={addCharge}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#fff', border: '1px dashed #e6c98f', borderRadius: 8, padding: '8px 13px', cursor: 'pointer', fontSize: 12.5, fontWeight: 700, color: '#b8740a', fontFamily: 'inherit' }}>
+              <Plus size={14} /> Add a cost
+            </button>
+
+            {chargeTotals.charged > 0 && (
+              <div style={{ fontSize: 12, color: '#666', marginTop: 10, borderTop: '1px dashed #f0e2c8', paddingTop: 8 }}>
+                Extra costs on the invoice: <b style={{ color: '#0d1b2a' }}>MVR {chargeTotals.charged.toFixed(2)}</b>
+                {chargeTotals.covered > 0 && <> · shop covers <b style={{ color: '#c62828' }}>MVR {chargeTotals.covered.toFixed(2)}</b></>}
               </div>
-            )}
-            {parseFloat(form.special_request_cost) > 0 && !form.special_request_covered && (
-              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 7, fontSize: 11.5, color: '#666', marginBottom: 10, cursor: 'pointer' }}>
-                <input type="checkbox" checked={!!form.special_request_expense} onChange={e => setForm(p => ({ ...p, special_request_expense: e.target.checked }))} style={{ marginTop: 1 }} />
-                <span>We paid for this from the bank (wrapping, gift item…) — also log a <strong>Packaging expense</strong> so the −MVR line in the statement reconciles.</span>
-              </label>
-            )}
-            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-              <div style={{ flex: '0 1 160px', minWidth: 0 }}>
-                <label style={{ fontSize: 10, color: '#999', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: 4, fontWeight: 600 }}>Island delivery fee (MVR)</label>
-                <input type="number" min="0" step="0.01" value={form.delivery_fee} onChange={f('delivery_fee')} placeholder="0"
-                  style={{ width: '100%', padding: '8px 10px', border: '1px solid #eee0c8', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', background: '#fff', outline: 'none', boxSizing: 'border-box' }} />
-              </div>
-              {parseFloat(form.delivery_fee) > 0 && (
-                <div style={{ display: 'flex', border: '1px solid #eee0c8', borderRadius: 8, overflow: 'hidden' }}>
-                  <button type="button" onClick={() => setForm(p => ({ ...p, delivery_fee_covered: false }))}
-                    style={{ padding: '8px 13px', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, fontFamily: 'inherit', background: !form.delivery_fee_covered ? '#1D9E75' : '#fff', color: !form.delivery_fee_covered ? '#fff' : '#888' }}>Customer pays back</button>
-                  <button type="button" onClick={() => setForm(p => ({ ...p, delivery_fee_covered: true }))}
-                    style={{ padding: '8px 13px', border: 'none', borderLeft: '1px solid #eee0c8', cursor: 'pointer', fontSize: 12, fontWeight: 700, fontFamily: 'inherit', background: form.delivery_fee_covered ? '#c62828' : '#fff', color: form.delivery_fee_covered ? '#fff' : '#888' }}>We cover it</button>
-                </div>
-              )}
-              {parseFloat(form.delivery_fee) > 0 && !form.delivery_fee_covered && (
-                <div style={{ display: 'flex', border: '1px solid #eee0c8', borderRadius: 8, overflow: 'hidden' }}>
-                  <button type="button" onClick={() => setForm(p => ({ ...p, delivery_fee_separate: true }))}
-                    style={{ padding: '8px 13px', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, fontFamily: 'inherit', background: form.delivery_fee_separate ? '#0d1b2a' : '#fff', color: form.delivery_fee_separate ? '#fff' : '#888' }}>Separate transaction</button>
-                  <button type="button" onClick={() => setForm(p => ({ ...p, delivery_fee_separate: false }))}
-                    style={{ padding: '8px 13px', border: 'none', borderLeft: '1px solid #eee0c8', cursor: 'pointer', fontSize: 12, fontWeight: 700, fontFamily: 'inherit', background: !form.delivery_fee_separate ? '#0d1b2a' : '#fff', color: !form.delivery_fee_separate ? '#fff' : '#888' }}>Same transaction</button>
-                </div>
-              )}
-            </div>
-            {parseFloat(form.delivery_fee) > 0 && (
-              <div style={{ fontSize: 11.5, color: form.delivery_fee_covered ? '#c62828' : '#1D9E75', marginTop: 8, fontWeight: 600 }}>
-                {form.delivery_fee_covered
-                  ? `Shop covers MVR ${(parseFloat(form.delivery_fee) || 0).toFixed(2)} — logged as a Delivery expense, not added to the bill.`
-                  : form.delivery_fee_separate
-                    ? `MVR ${(parseFloat(form.delivery_fee) || 0).toFixed(2)} added as its own line on the invoice — shows separately in reconciliation (e.g. 550 + 30, not 580).`
-                    : `MVR ${(parseFloat(form.delivery_fee) || 0).toFixed(2)} merged into the order total — one combined transaction.`}
-              </div>
-            )}
-            {parseFloat(form.delivery_fee) > 0 && !form.delivery_fee_covered && (
-              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 7, fontSize: 11.5, color: '#666', marginTop: 8, cursor: 'pointer' }}>
-                <input type="checkbox" checked={!!form.delivery_fee_expense} onChange={e => setForm(p => ({ ...p, delivery_fee_expense: e.target.checked }))} style={{ marginTop: 1 }} />
-                <span>We paid the courier/boat from the bank — also log a <strong>Delivery expense</strong> so the −MVR {(parseFloat(form.delivery_fee) || 0).toFixed(0)} line in the statement reconciles.</span>
-              </label>
             )}
           </div>
 
@@ -1636,9 +1613,8 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
           <div style={{ background: '#f8f7f4', borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 13, display: 'flex', gap: 20, flexWrap: 'wrap' }}>
             <span>Subtotal: <strong>MVR {cartSubtotal.toFixed(2)}</strong></span>
             {discountAmount > 0 && <span style={{ color: '#1D9E75' }}>Discount: <strong>-MVR {discountAmount.toFixed(2)}{form.discount_type === 'percent' ? ` (${form.discount_value}%)` : ''}</strong></span>}
-            {parseFloat(form.delivery_fee) > 0 && !form.delivery_fee_covered && <span style={{ color: '#378ADD' }}>Delivery: <strong>+MVR {(parseFloat(form.delivery_fee) || 0).toFixed(2)}</strong></span>}
-            {parseFloat(form.special_request_cost) > 0 && !form.special_request_covered && <span style={{ color: '#b8740a' }}>Gift: <strong>+MVR {(parseFloat(form.special_request_cost) || 0).toFixed(2)}</strong></span>}
-            <span style={{ fontWeight: 800, color: '#0d1b2a' }}>Total: <strong>MVR {(cartTotal + (form.delivery_fee_covered ? 0 : parseFloat(form.delivery_fee) || 0) + (form.special_request_covered ? 0 : parseFloat(form.special_request_cost) || 0)).toFixed(2)}</strong></span>
+            {chargeTotals.charged > 0 && <span style={{ color: '#378ADD' }}>Extra costs: <strong>+MVR {chargeTotals.charged.toFixed(2)}</strong></span>}
+            <span style={{ fontWeight: 800, color: '#0d1b2a' }}>Total: <strong>MVR {(cartTotal + chargeTotals.charged).toFixed(2)}</strong></span>
             <span style={{ fontSize: 11, color: '#aaa' }}>Invoice: {form.invoice_number}</span>
           </div>
 
