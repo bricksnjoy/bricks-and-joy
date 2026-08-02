@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { Building2, DollarSign, Package, Save, RotateCcw, X, Monitor, ShoppingCart, MessageSquare, ChevronDown, Mail, Send } from 'lucide-react'
-import { ORDER_EMAILS } from '../lib/orderEmails'
 import { getSettings, saveSettings, DEFAULT_SETTINGS } from '../lib/settings'
 import { supabase } from '../lib/supabase'
 import { useToast, Toasts } from '../components/UI'
@@ -350,23 +349,6 @@ export default function Settings({ onClose }) {
               </Field>
             </div>
 
-            {/* Automatic emails to the customer — each tied to something already
-                done in Orders. Off until deliberately switched on. */}
-            <div style={{ borderTop: '1px solid #ececec', marginTop: 16, paddingTop: 14 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: '#0d1b2a', marginBottom: 3 }}>Email the customer automatically</div>
-              <div style={{ fontSize: 11.5, color: '#aaa', marginBottom: 12, lineHeight: 1.6 }}>
-                Sent only when the customer has an email address on file — orders taken over Instagram usually don't, and are skipped.
-              </div>
-              {ORDER_EMAILS.map(({ key, label, hint }) => (
-                <div key={key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '9px 0', borderBottom: '1px solid #f4f4f4' }}>
-                  <div>
-                    <div style={{ fontSize: 13, color: '#333', fontWeight: 600 }}>{label}</div>
-                    <div style={{ fontSize: 11.5, color: '#aaa', marginTop: 1 }}>{hint}</div>
-                  </div>
-                  <Toggle checked={!!form[key]} onChange={fb(key)} label={form[key] ? 'On' : 'Off'} />
-                </div>
-              ))}
-            </div>
           </div>
 
           {/* ── Monthly Email Report ── */}

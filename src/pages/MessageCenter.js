@@ -7,7 +7,7 @@ import { sendSMS } from '../lib/sms'
 import {
   Mail, MessageSquare, Send, Plus, Trash2, Edit2, Phone, AtSign, User, Bike,
   Truck, Users, Megaphone, Search, AlertTriangle, Lightbulb, Calendar,
-  CheckCircle, XCircle, ClipboardList
+  CheckCircle, XCircle, ClipboardList, History, RefreshCw
 } from 'lucide-react'
 
 const BNJ_NAME = "Brick's & Joy"
@@ -70,6 +70,11 @@ export default function MessageCenter() {
   const [contacts, setContacts] = useState([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('broadcast')
+  // The record of what has actually been sent — see lib/messageLog
+  const [log, setLog] = useState([])
+  const [logMissing, setLogMissing] = useState(false)
+  const [logLoading, setLogLoading] = useState(false)
+  const [logFilter, setLogFilter] = useState('all')   // all | email | sms | failed
   const [sending, setSending] = useState(false)
   const toast = useToast()
 
@@ -117,12 +122,43 @@ export default function MessageCenter() {
   // Send one message on a channel to a recipient record. Email goes through the
   // send-email function (Resend) when it is deployed, and falls back to the old
   // client-side route on its own if it isn't — see lib/emailer.
-  async function deliverOne(channel, r, subject, body) {
+  async function deliverOne(channel, r, subject, body, context) {
+    const meta = { name: r.name, context }
     if (channel === 'email') {
-      return sendEmail({ to: r.email, subject: subject || 'Message from ' + BNJ_NAME, text: body, replyTo: BNJ_EMAIL })
+      return sendEmail({ to: r.email, subject: subject || 'Message from ' + BNJ_NAME, text: body, replyTo: BNJ_EMAIL, meta })
     }
-    return sendSMS(r.phone, body)
+    return sendSMS(r.phone, body, undefined, meta)
   }
+
+  // ── What has actually been sent ────────────────────────────────────────────
+  async function loadLog() {
+    setLogLoading(true)
+    const { data, error } = await supabase.from('message_log')
+      .select('*').order('created_at', { ascending: false }).limit(300)
+    setLogMissing(!!error)
+    setLog(data || [])
+    setLogLoading(false)
+  }
+  useEffect(() => { if (activeTab === 'sent' && !log.length && !logMissing) loadLog() }, [activeTab]) // eslint-disable-line
+
+  // Totals for the month, since that is the window an SMS bill covers
+  const logStats = React.useMemo(() => {
+    const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0)
+    const thisMonth = log.filter(r => new Date(r.created_at) >= monthStart)
+    const sum = (rows, f) => rows.reduce((s, r) => s + (Number(f(r)) || 0), 0)
+    const smsRows = thisMonth.filter(r => r.channel === 'sms')
+    const emailRows = thisMonth.filter(r => r.channel === 'email')
+    return {
+      smsSent: smsRows.filter(r => r.ok).length,
+      smsParts: sum(smsRows.filter(r => r.ok), r => r.segments),
+      emailSent: emailRows.filter(r => r.ok).length,
+      failed: thisMonth.filter(r => !r.ok).length,
+      unicode: smsRows.filter(r => r.ok && r.unicode).length,
+    }
+  }, [log])
+
+  const logRows = log.filter(r =>
+    logFilter === 'all' ? true : logFilter === 'failed' ? !r.ok : r.channel === logFilter)
 
   // ── Broadcast ────────────────────────────────────────────────────────────
   const bcEligible = customers.filter(c => hasChannel(c, bcChannel))
@@ -344,6 +380,7 @@ Please confirm once delivered.
           ['stock', 'Stock', AlertTriangle],
           ['tasks', 'Tasks', ClipboardList],
           ['contacts', 'Contacts', Users],
+          ['sent', 'Sent', History],
         ].map(([id, label, Icon]) => {
           const active = activeTab === id
           return (
@@ -538,6 +575,99 @@ Please confirm once delivered.
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* ── Sent: what actually went out ─────────────────────────────────── */}
+        {activeTab === 'sent' && (
+          <div>
+            {logMissing ? (
+              <Card>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                  <AlertTriangle size={17} color="#b8860b" style={{ flexShrink: 0, marginTop: 1 }} />
+                  <div style={{ fontSize: 13, color: '#8a6a2a', lineHeight: 1.7 }}>
+                    <b>Setup needed.</b> Run <code>integrations/message-log-setup.sql</code> in Supabase → SQL Editor to create the
+                    <code> message_log</code> table. From then on every email and SMS is recorded here as it is sent.
+                  </div>
+                </div>
+              </Card>
+            ) : (
+              <>
+                {/* This month, since that is the window an SMS bill covers */}
+                <div className="grid-collapse" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 18 }}>
+                  {[
+                    { label: 'SMS sent', value: logStats.smsSent, sub: 'this month', color: '#1D9E75' },
+                    { label: 'SMS parts used', value: logStats.smsParts, sub: 'what the gateway bills', color: '#FFA500' },
+                    { label: 'Emails sent', value: logStats.emailSent, sub: 'this month', color: '#378ADD' },
+                    { label: 'Failed', value: logStats.failed, sub: 'did not go out', color: logStats.failed ? '#E24B4A' : '#bbb' },
+                  ].map(s => (
+                    <Card key={s.label} style={{ padding: '14px 16px' }}>
+                      <div style={{ fontSize: 10, color: '#bbb', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 700 }}>{s.label}</div>
+                      <div style={{ fontSize: 22, fontWeight: 800, color: s.color, letterSpacing: '-0.5px', margin: '3px 0 1px' }}>{s.value}</div>
+                      <div style={{ fontSize: 11, color: '#bbb' }}>{s.sub}</div>
+                    </Card>
+                  ))}
+                </div>
+
+                {logStats.unicode > 0 && (
+                  <div style={{ background: '#FFF8E1', border: '1px solid #FAEEDA', borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 12.5, color: '#a16d0a', lineHeight: 1.6 }}>
+                    <Lightbulb size={14} style={{ verticalAlign: -2, marginRight: 6 }} />
+                    {logStats.unicode} message{logStats.unicode === 1 ? '' : 's'} used special characters (× — ' " or emoji). Those hold only
+                    70 characters per part instead of 160, so they cost more to send. Plain text keeps them cheap.
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
+                  {[['all', 'All'], ['email', 'Email'], ['sms', 'SMS'], ['failed', 'Failed']].map(([id, label]) => (
+                    <button key={id} onClick={() => setLogFilter(id)} style={{
+                      padding: '6px 14px', borderRadius: 99, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 600,
+                      border: 'none', background: logFilter === id ? '#0d1b2a' : '#f0f0f0', color: logFilter === id ? '#fff' : '#666',
+                    }}>{label}</button>
+                  ))}
+                  <Button variant="ghost" size="sm" onClick={loadLog} style={{ marginLeft: 'auto' }}>
+                    <RefreshCw size={13} /> {logLoading ? 'Loading…' : 'Refresh'}
+                  </Button>
+                </div>
+
+                <Card style={{ padding: 0, overflow: 'hidden' }}>
+                  {logRows.length === 0 ? (
+                    <div style={{ padding: 28, textAlign: 'center', color: '#bbb', fontSize: 13 }}>
+                      {logLoading ? 'Loading…' : 'Nothing sent yet.'}
+                    </div>
+                  ) : logRows.map((r, i) => (
+                    <div key={r.id} style={{ display: 'flex', gap: 12, alignItems: 'flex-start', padding: '12px 16px', borderTop: i ? '1px solid #f4f4f4' : 'none' }}>
+                      <div style={{ flexShrink: 0, marginTop: 2 }}>
+                        {r.ok ? <CheckCircle size={16} color="#1D9E75" /> : <XCircle size={16} color="#E24B4A" />}
+                      </div>
+                      <div style={{ flexShrink: 0, marginTop: 2 }}>
+                        {r.channel === 'sms' ? <MessageSquare size={14} color="#aaa" /> : <Mail size={14} color="#aaa" />}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: '#0d1b2a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {r.recipient_name ? `${r.recipient_name} · ` : ''}{r.recipient || '—'}
+                        </div>
+                        <div style={{ fontSize: 12, color: '#888', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {r.subject || r.preview || ''}
+                        </div>
+                        {!r.ok && r.error && (
+                          <div style={{ fontSize: 11.5, color: '#E24B4A', marginTop: 3, lineHeight: 1.5 }}>{r.error}</div>
+                        )}
+                        <div style={{ fontSize: 11, color: '#c4bcb0', marginTop: 3, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                          <span>{new Date(r.created_at).toLocaleString('en', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+                          {r.channel === 'sms' && <span>· {r.chars} chars · {r.segments} part{r.segments === 1 ? '' : 's'}{r.unicode ? ' · unicode' : ''}</span>}
+                          {r.context && <span>· {r.context}</span>}
+                          {r.route && <span>· {r.route}</span>}
+                          {r.sent_by && <span>· by {r.sent_by}</span>}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </Card>
+                {log.length >= 300 && (
+                  <div style={{ fontSize: 11.5, color: '#bbb', textAlign: 'center', marginTop: 10 }}>Showing the most recent 300 messages.</div>
+                )}
+              </>
+            )}
           </div>
         )}
       </div>}

@@ -32,12 +32,6 @@ export const DEFAULT_SETTINGS = {
 
   // Communication
   smsFooter: "— Brick's & Joy",
-
-  // Automatic emails to the customer. Off until switched on, so nobody is
-  // emailed before the wording has been read.
-  emailOrderConfirmation: false,
-  emailPaymentReceived: false,
-  emailDispatched: false,
 }
 
 export function getSettings() {

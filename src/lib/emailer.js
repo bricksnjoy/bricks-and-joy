@@ -11,6 +11,7 @@
 
 import { supabase } from './supabase'
 import { sendEmailJS, BNJ_EMAIL } from './email'
+import { logMessage } from './messageLog'
 
 export const ROUTE_RESEND = 'resend'
 export const ROUTE_EMAILJS = 'emailjs'
@@ -56,8 +57,12 @@ export const textToHtml = body =>
  * @param {string} [o.replyTo]
  * @returns {Promise<{route: string, id?: string}>}
  */
-export async function sendEmail({ to, subject, text = '', html, attachments = [], replyTo = BNJ_EMAIL }) {
+export async function sendEmail({ to, subject, text = '', html, attachments = [], replyTo = BNJ_EMAIL, meta = {} }) {
   const body = html || textToHtml(text)
+  const record = (ok, route, error) => logMessage({
+    channel: 'email', recipient: Array.isArray(to) ? to.join(', ') : to,
+    recipientName: meta.name, subject, body: text || subject, ok, error, route, context: meta.context,
+  })
 
   if (edgeAvailable !== false) {
     try {
@@ -65,23 +70,38 @@ export async function sendEmail({ to, subject, text = '', html, attachments = []
         body: { to, subject, html: body, text: text || undefined, attachments, replyTo },
       })
       if (error) throw error
-      if (data?.ok) { edgeAvailable = true; lastRoute = ROUTE_RESEND; return { route: ROUTE_RESEND, id: data.id } }
+      if (data?.ok) {
+        edgeAvailable = true; lastRoute = ROUTE_RESEND
+        await record(true, ROUTE_RESEND)
+        return { route: ROUTE_RESEND, id: data.id }
+      }
       // The function answered but refused. A missing key or an unverified sender
       // is worth falling back on; a rejected address is not — that would fail the
       // same way twice.
       if (data?.error === 'not_configured') edgeAvailable = false
       else if (data?.error === 'bad_request' || data?.error === 'too_large' || data?.error === 'unauthorized') {
+        await record(false, ROUTE_RESEND, data.detail || data.error)
         throw new Error(data.detail || data.error)
       }
     } catch (e) {
       if (looksMissing(e)) edgeAvailable = false
       else if (!attachments.length) { /* fall through and try the old route */ }
-      else throw e   // an attachment can only go by the Resend route
+      else { await record(false, ROUTE_RESEND, e?.message || String(e)); throw e }  // attachments need Resend
     }
   }
 
-  if (attachments.length) throw new Error('Attachments need the send-email function deployed')
-  await sendEmailJS(Array.isArray(to) ? to[0] : to, subject, text || body, replyTo)
+  if (attachments.length) {
+    const why = 'Attachments need the send-email function deployed'
+    await record(false, ROUTE_RESEND, why)
+    throw new Error(why)
+  }
+  try {
+    await sendEmailJS(Array.isArray(to) ? to[0] : to, subject, text || body, replyTo)
+  } catch (e) {
+    await record(false, ROUTE_EMAILJS, e?.message || String(e))
+    throw e
+  }
   lastRoute = ROUTE_EMAILJS
+  await record(true, ROUTE_EMAILJS)
   return { route: ROUTE_EMAILJS }
 }
