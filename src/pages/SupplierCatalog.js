@@ -2,13 +2,13 @@ import React, { useDeferredValue, useEffect, useMemo, useState, useRef } from 'r
 import { supabase } from '../lib/supabase'
 import { localToday } from '../lib/dates'
 import { logAudit } from '../lib/audit'
-import { similarity } from '../lib/nameMatch'
+import { prepare, similarityPrepared } from '../lib/nameMatch'
 import { compressImage, worthCompressing, storagePathFromUrl, isStorageUrl, isDataUrl, isHttpUrl, humanBytes } from '../lib/imageCompress'
 import { PageHeader, Card, Button, Input, Select, Modal, Spinner, FormRow, useToast, Toasts, Badge, ImageTile } from '../components/UI'
 import {
-  Plus, Trash2, Edit2, Eye, Search, Building2, Package, Truck,
-  Barcode, QrCode, Upload, Download, FileSpreadsheet, Camera,
-  ArrowUpDown, ChevronDown, CheckCircle, AlertTriangle, RefreshCw, X,
+  Plus, Trash2, Edit2, Search, Building2, Package, Truck,
+  Barcode, Upload, Download, FileSpreadsheet,
+  ArrowUpDown, CheckCircle, AlertTriangle, X,
   LayoutGrid, List, Percent, MoreVertical, Star, Calculator, Images, Minimize2
 } from 'lucide-react'
 import JsBarcode from 'jsbarcode'
@@ -388,12 +388,16 @@ export default function SupplierCatalog() {
     if (!targets.length) { toast.info('Every product here already has a photo'); return }
     if (!sources.length) { toast.error('No product anywhere in the catalog has a photo to copy'); return }
 
+    // Names are tidied once each rather than inside the loop below, which
+    // compares every gap against every photographed product.
+    const prepped = sources.map(s => ({ s, p: prepare(s.product_name) }))
     const rows = []
     targets.forEach(t => {
+      const tp = prepare(t.product_name)
       let best = null
-      for (const s of sources) {
+      for (const { s, p } of prepped) {
         if (s.supplier_id === t.supplier_id) continue      // same vendor — not a cross-match
-        const score = similarity(t.product_name, s.product_name)
+        const score = similarityPrepared(tp, p)
         if (score >= MATCH_LIKELY && (!best || score > best.score)) best = { source: s, score }
       }
       if (!best) return

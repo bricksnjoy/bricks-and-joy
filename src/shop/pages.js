@@ -6,7 +6,7 @@ import {
 } from './core'
 import {
   ArrowLeft, CheckCircle2, Copy, Gift, Truck, ShieldCheck, BatteryCharging, Boxes,
-  Tag, Sparkles, ShoppingCart, Trash2, LogOut, Star, Package, ChevronRight, Eye, EyeOff
+  Sparkles, ShoppingCart, Trash2, LogOut, Star, Package, ChevronRight, Eye, EyeOff, Heart
 } from 'lucide-react'
 import { localToday } from '../lib/dates'
 

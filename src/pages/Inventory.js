@@ -4,6 +4,11 @@ import { localToday } from '../lib/dates'
 import { logAudit } from '../lib/audit'
 import { PageHeader, Card, Button, Input, Select, Table, Modal, Badge, StockBadge, Spinner, FormRow, useToast, Toasts, ImageTile } from '../components/UI'
 import { Plus, Trash2, Edit2, Upload, X, Package, Eye, Barcode, Download, Printer, Camera, LayoutGrid, List, MoreVertical, ShoppingBag, Percent, Minus, RotateCcw, Layers } from 'lucide-react'
+import JsBarcode from 'jsbarcode'
+import QRCode from 'qrcode'
+import BarcodeScanner from '../components/BarcodeScanner'
+import { restockPredictions, costHistoryByProduct } from '../lib/insights'
+import { groupAdjacent, familyRuns, sizeOf, splitName } from '../lib/variants'
 
 // Custom line-art icons matching the toy/store brand
 const BrickIcon = ({ size = 14, color = '#FFA500' }) => (
@@ -20,11 +25,6 @@ const CakeIcon = ({ size = 14, color = '#378ADD' }) => (
     <path d="M8 8V5M12 8V4.5M16 8V5" />
   </svg>
 )
-import JsBarcode from 'jsbarcode'
-import QRCode from 'qrcode'
-import BarcodeScanner from '../components/BarcodeScanner'
-import { restockPredictions, costHistoryByProduct } from '../lib/insights'
-import { groupAdjacent, familyRuns, sizeOf, splitName } from '../lib/variants'
 
 const CATEGORIES = ['Building & Blocks','Action Figures','Dolls & Plush','Board Games','Outdoor & Sports','Educational','Vehicles & RC','Arts & Crafts','Puzzles','Other']
 const AGE_RANGES = ['0–2','3–5','6–8','9–12','12+','All ages']

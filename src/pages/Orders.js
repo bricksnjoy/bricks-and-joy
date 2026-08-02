@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
-import { PageHeader, Card, Button, Input, Select, SearchSelect, Table, Modal, StatusBadge, StockBadge, Spinner, FormRow, useToast, Toasts, Badge } from '../components/UI'
+import { PageHeader, Card, Button, Input, Select, SearchSelect, Table, Modal, Spinner, FormRow, useToast, Toasts, Badge } from '../components/UI'
 import { Plus, Trash2, AlertTriangle, Package, Upload, Eye, CreditCard, X, Camera, Edit2, RotateCcw, MessageSquare, MoreVertical, LayoutGrid, List, Instagram, Printer } from 'lucide-react'
 import BarcodeScanner from '../components/BarcodeScanner'
 import { SlipNote, RescanButton, useSlipScan } from '../components/SlipScan'

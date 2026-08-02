@@ -18,24 +18,31 @@ export const norm = s => String(s || '')
   .trim()
   .replace(/\s+/g, ' ')
 
-const tokens = s => norm(s).split(' ').filter(Boolean)
+// Comparing every product against every other is a square number of pairs — a
+// few hundred products is a quarter of a million comparisons — so the tidying
+// up is done once per name here, not inside the loop.
+export const prepare = name => {
+  const n = norm(name)
+  return { n, t: new Set(n.split(' ').filter(Boolean)) }
+}
 
-// How alike two names are, 0–1. One being fully contained in the other scores
-// high; otherwise it is the share of words they have in common (Jaccard).
-export function similarity(a, b) {
-  const na = norm(a), nb = norm(b)
-  if (!na || !nb) return 0
-  if (na === nb) return 1
-  const ta = new Set(tokens(a)), tb = new Set(tokens(b))
+// How alike two prepared names are, 0–1. One being fully contained in the other
+// scores high; otherwise it is the share of words they have in common (Jaccard).
+export function similarityPrepared(a, b) {
+  if (!a.n || !b.n) return 0
+  if (a.n === b.n) return 1
   // A short name that is exactly the start of a longer one, or vice versa, is
   // usually right — "bouquet of roses" vs "bouquet of roses large".
-  if (na.length >= 4 && nb.length >= 4 && (na.includes(nb) || nb.includes(na))) {
+  if (a.n.length >= 4 && b.n.length >= 4 && (a.n.includes(b.n) || b.n.includes(a.n))) {
     // Only trust containment when the shorter side is more than one word, so a
     // single common word like "set" cannot carry a match on its own.
-    if (Math.min(ta.size, tb.size) >= 2) return 0.9
+    if (Math.min(a.t.size, b.t.size) >= 2) return 0.9
   }
   let shared = 0
-  ta.forEach(t => { if (tb.has(t)) shared += 1 })
-  const union = new Set([...ta, ...tb]).size
+  a.t.forEach(t => { if (b.t.has(t)) shared += 1 })
+  const union = a.t.size + b.t.size - shared
   return union ? shared / union : 0
 }
+
+// The same thing for a one-off comparison.
+export const similarity = (a, b) => similarityPrepared(prepare(a), prepare(b))

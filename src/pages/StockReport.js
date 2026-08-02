@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Button, Spinner, useToast, Toasts } from '../components/UI'
-import { ClipboardList, TrendingUp, Package, ShoppingBag, Boxes, AlertTriangle, Truck, Calculator } from 'lucide-react'
+import { TrendingUp, Truck, Calculator } from 'lucide-react'
 import { getSettings } from '../lib/settings'
 import { localToday, localDaysAgo } from '../lib/dates'
 

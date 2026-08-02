@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { PageHeader, Card, Spinner, Badge } from '../components/UI'
+import { PageHeader, Card, Spinner } from '../components/UI'
 import { AnalyticsMonthly, AnalyticsProducts, AnalyticsCategories } from '../components/BusinessSections'
-import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, AreaChart, Area, ComposedChart } from 'recharts'
+import { BarChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, AreaChart, Area, ComposedChart } from 'recharts'
 import { TrendingUp, TrendingDown, Package, ShoppingCart, Users, AlertTriangle, BarChart3, PieChart as PieIcon, LineChart as LineIcon, Activity, Trophy, Medal, Award, Flame, ArrowUpRight, ArrowDownRight, ArrowRight, CheckCircle, Minus, Coins, Tag, Rocket, Wallet, Target, RotateCcw, CalendarDays, CalendarRange } from 'lucide-react'
 import { toLocalISO } from '../lib/dates'
 

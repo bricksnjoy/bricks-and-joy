@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
-import { sendEmailJS, BNJ_EMAIL } from '../lib/email'
+import { BNJ_EMAIL } from '../lib/email'
+import { sendEmail } from '../lib/emailer'
 import { PageHeader, Card, Button, Input, Modal, Spinner, useToast, Toasts } from '../components/UI'
 import {
   Plus, Trash2, Edit2, Mail, CheckCircle, Circle, Sparkles, RefreshCw,
@@ -135,7 +136,7 @@ export default function Planning() {
         // 1st reminder: prep window opens (~lead days, e.g. 90 days out)
         if (st.daysUntil <= (c.lead_days || 90) && c.last_notified_year !== year) {
           try {
-            await sendEmailJS(c.notify_email, `⏰ Time to prep for ${c.name}!`, buildEmailBody(c, st, c.plan))
+            await sendEmail({ to: c.notify_email, subject: `⏰ Time to prep for ${c.name}!`, text: buildEmailBody(c, st, c.plan), meta: { context: 'Campaign prep reminder', name: c.name } })
             changes.last_notified_year = year
             toast.info(`Prep reminder emailed for ${c.name}`)
           } catch { /* best effort */ }
@@ -143,7 +144,7 @@ export default function Planning() {
         // 2nd reminder: final push at 30 days out
         if (st.daysUntil <= 30 && c.notified_30_year !== year) {
           try {
-            await sendEmailJS(c.notify_email, `🔔 ${c.name} is ${st.daysUntil} days away — final push!`, buildEmailBody(c, st, c.plan))
+            await sendEmail({ to: c.notify_email, subject: `🔔 ${c.name} is ${st.daysUntil} days away — final push!`, text: buildEmailBody(c, st, c.plan), meta: { context: 'Campaign 30-day reminder', name: c.name } })
             changes.notified_30_year = year
             toast.info(`30-day reminder emailed for ${c.name}`)
           } catch { /* best effort */ }
@@ -326,7 +327,7 @@ export default function Planning() {
   async function emailPlan(camp) {
     const st = campaignStatus(camp.occasion_date, camp.lead_days || 90)
     try {
-      await sendEmailJS(camp.notify_email || BNJ_EMAIL, `${camp.emoji || ''} ${camp.name} campaign plan`, buildEmailBody(camp, st, camp.plan))
+      await sendEmail({ to: camp.notify_email || BNJ_EMAIL, subject: `${camp.emoji || ''} ${camp.name} campaign plan`, text: buildEmailBody(camp, st, camp.plan), meta: { context: 'Campaign plan', name: camp.name } })
       toast.success(`Plan emailed to ${camp.notify_email || BNJ_EMAIL}`)
     } catch (e) {
       toast.error('Could not send email')
