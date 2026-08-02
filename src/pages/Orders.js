@@ -9,6 +9,7 @@ import { getSettings } from '../lib/settings'
 import { localToday } from '../lib/dates'
 import { logAudit } from '../lib/audit'
 import { blockedByLock } from '../lib/periodLock'
+import { sendOrderEmail } from '../lib/orderEmails'
 
 // Bank account shown in the "Payment" SMS template
 const BANK_ACCOUNT_NO = '7730000819195'
@@ -398,6 +399,18 @@ export default function Orders() {
     return false
   }
 
+  // Email the customer about their own order. The address comes from their
+  // customer record — orders taken over Instagram usually have none, and those
+  // quietly skip. Failures are reported but never undo the work that triggered
+  // them: an order is saved whether or not its email got out.
+  async function notifyCustomer(kind, order, items) {
+    const to = customers.find(c => c.id === order.customer_id)?.email
+    if (!to) return
+    const { sent, reason } = await sendOrderEmail(kind, { order, items, to })
+    if (sent) toast.info(`Emailed ${to}`)
+    else if (reason && reason !== 'off' && reason !== 'no-email') toast.error('Could not email the customer: ' + reason)
+  }
+
   async function applyStockDelta(productId, delta) {
     if (!productId || !delta) return
     const { data: prod } = await supabase.from('products').select('stock_qty').eq('id', productId).single()
@@ -509,6 +522,12 @@ export default function Orders() {
     logAudit('create', 'order', `${form.invoice_number || ''} — ${form.customer_name}`, { items: validItems.length, total: cartTotal })
     setSaving(false)
     toast.success(`Order added!${validItems.length > 1 ? ` (${validItems.length} items)` : ''}`)
+    // Tell the customer it's written down, if that email is switched on and we
+    // have an address for them. Never blocks saving.
+    notifyCustomer('confirmation', {
+      ...form,
+      total_price: validItems.reduce((s, i) => s + (parseFloat(i.unit_price) || 0) * (parseInt(i.qty) || 0), 0),
+    }, validItems.map(i => ({ product_name: i.product_name, qty: i.qty, total_price: (parseFloat(i.unit_price) || 0) * (parseInt(i.qty) || 0) })))
     setModal(false); load()
   }
 
@@ -619,7 +638,13 @@ export default function Orders() {
     while (payErr && dropMissingCol(payErr, patch)) { payErr = (await run(patch)).error }
     if (payErr) { setSaving(false); toast.error('Could not save: ' + payErr.message); return }
     logAudit('payment', 'order', `${payModal.invoice_number || payModal.id} — ${payModal.customer_name}`, { status: payForm.payment_status, method: payForm.payment_method })
-    setSaving(false); toast.success('Payment recorded!'); setPayModal(null); load()
+    setSaving(false); toast.success('Payment recorded!')
+    // Only worth telling them when money actually landed
+    if (payForm.payment_status === 'paid' || payForm.payment_status === 'partial') {
+      const inv = invoiceSummary(payModal)
+      notifyCustomer('payment', { ...payModal, payment_status: payForm.payment_status }, inv.items)
+    }
+    setPayModal(null); load()
   }
 
   async function saveReturn() {
@@ -694,6 +719,11 @@ export default function Orders() {
       }
     }
     logAudit(newStatus === 'cancelled' ? 'cancel' : 'update', 'order', `${order?.invoice_number || id} — ${order?.customer_name || ''}`, { status: newStatus })
+    // One email per invoice, not one per product line on it
+    if (newStatus === 'transit' && order.status !== 'transit') {
+      const inv = invoiceSummary(order)
+      if (inv.items[0]?.id === order.id) notifyCustomer('dispatched', { ...order, status: newStatus }, inv.items)
+    }
     load()
   }
 

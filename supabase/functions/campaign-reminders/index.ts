@@ -6,7 +6,7 @@
 //
 // Deploy:
 //   supabase functions deploy campaign-reminders --no-verify-jwt
-//   supabase secrets set EMAILJS_SERVICE=service_pt7xkma EMAILJS_TEMPLATE=template_9zgrhkb EMAILJS_PUBLIC_KEY=kLZVT1yzwlXV3hua6
+//   Uses RESEND_API_KEY and REPORT_FROM, already set for the other functions.
 //   (SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are provided automatically)
 //
 // Schedule it to run once a day (Supabase SQL editor):
@@ -21,9 +21,8 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-const EMAILJS_SERVICE = Deno.env.get('EMAILJS_SERVICE') ?? 'service_pt7xkma'
-const EMAILJS_TEMPLATE = Deno.env.get('EMAILJS_TEMPLATE') ?? 'template_9zgrhkb'
-const EMAILJS_PUBLIC_KEY = Deno.env.get('EMAILJS_PUBLIC_KEY') ?? 'kLZVT1yzwlXV3hua6'
+const RESEND_KEY = Deno.env.get('RESEND_API_KEY')
+const FROM = Deno.env.get('EMAIL_FROM') || Deno.env.get('REPORT_FROM') || "Brick's & Joy <onboarding@resend.dev>"
 const BNJ_EMAIL = 'bricknjoy@gmail.com'
 
 function nextOccurrence(dateISO: string, today: Date) {
@@ -36,15 +35,21 @@ const daysBetween = (a: Date, b: Date) =>
   Math.round((new Date(b).setHours(0, 0, 0, 0) - new Date(a).setHours(0, 0, 0, 0)) / 86400000)
 const fmt = (d: Date) => d.toLocaleDateString('en', { day: 'numeric', month: 'short', year: 'numeric' })
 
+// Sent through Resend, from the verified domain, like everything else the shop
+// sends. The reminder body is plain text, so it is wrapped to keep its layout.
 async function sendEmail(to: string, subject: string, message: string) {
-  const res = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+  if (!RESEND_KEY) throw new Error('RESEND_API_KEY is not set')
+  const esc = (s: string) => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]!))
+  const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { Authorization: `Bearer ${RESEND_KEY}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      service_id: EMAILJS_SERVICE,
-      template_id: EMAILJS_TEMPLATE,
-      user_id: EMAILJS_PUBLIC_KEY,
-      template_params: { to_email: to, subject, message, reply_to: BNJ_EMAIL, name: "Brick's & Joy", email: BNJ_EMAIL },
+      from: FROM,
+      to: [to],
+      subject,
+      reply_to: BNJ_EMAIL,
+      text: message,
+      html: `<div style="font-family:-apple-system,'Segoe UI',Arial,sans-serif;font-size:14px;line-height:1.6;color:#0d1b2a;white-space:pre-wrap">${esc(message)}</div>`,
     }),
   })
   if (!res.ok) throw new Error(await res.text())
