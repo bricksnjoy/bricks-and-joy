@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Button, Modal, Spinner, useToast, Toasts, Badge } from '../components/UI'
-import { sendEmailJS, BNJ_EMAIL } from '../lib/email'
+import { BNJ_EMAIL } from '../lib/email'
+import { sendEmail } from '../lib/emailer'
 import { sendSMS } from '../lib/sms'
 import {
   Mail, MessageSquare, Send, Plus, Trash2, Edit2, Phone, AtSign, User, Bike,
@@ -113,9 +114,13 @@ export default function MessageCenter() {
   // Eligible recipients for a channel (email needs email, sms needs phone)
   const hasChannel = (r, ch) => ch === 'email' ? !!(r.email && r.email.includes('@')) : !!(r.phone && r.phone.trim())
 
-  // Send one message on a channel to a recipient record
+  // Send one message on a channel to a recipient record. Email goes through the
+  // send-email function (Resend) when it is deployed, and falls back to the old
+  // client-side route on its own if it isn't — see lib/emailer.
   async function deliverOne(channel, r, subject, body) {
-    if (channel === 'email') return sendEmailJS(r.email, subject || 'Message from ' + BNJ_NAME, body)
+    if (channel === 'email') {
+      return sendEmail({ to: r.email, subject: subject || 'Message from ' + BNJ_NAME, text: body, replyTo: BNJ_EMAIL })
+    }
     return sendSMS(r.phone, body)
   }
 
