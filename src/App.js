@@ -289,6 +289,13 @@ export default function App() {
            on a phone meant the last columns could never be reached. */
         .main-content { min-width: 0; }
         .page-content { min-width: 0; max-width: 100%; }
+
+        /* Cap the modal to the *visible* viewport. Plain vh on iOS Safari measures
+           the tall viewport behind the toolbars, so the card grew past the screen
+           and its top/bottom hid behind the browser chrome with nothing to scroll
+           to — the "stuck in the middle, can't scroll up" report. dvh tracks the
+           currently visible height, so the card fits and scrolls to its own top. */
+        .modal-card { max-height: 92vh; max-height: 92dvh; -webkit-overflow-scrolling: touch; }
         /* Anything that scrolls sideways keeps it to itself */
         .page-content .ui-card { max-width: 100%; }
         .x-scroll-wrap, .rec-scroll { max-width: 100%; overscroll-behavior-x: contain; }
@@ -319,7 +326,7 @@ export default function App() {
           .modal-overlay { padding: 10px !important; }
           .modal-head { padding: 15px 16px !important; }
           .modal-body { padding: 16px !important; }
-          .modal-card { border-radius: 16px !important; max-height: 94vh !important; }
+          .modal-card { border-radius: 16px !important; max-height: 94vh !important; max-height: 94dvh !important; }
           /* Nothing inside a modal may force the card wider than the screen */
           .modal-body img, .modal-body video, .modal-body canvas { max-width: 100% !important; height: auto; }
           .modal-body input, .modal-body select, .modal-body textarea { max-width: 100%; }
