@@ -41,7 +41,7 @@ export default function Customers() {
     setLoading(true)
     const [c, o] = await Promise.all([
       supabase.from('customers').select('*').order('created_at', { ascending: false }),
-      supabase.from('orders').select('*').order('created_at', { ascending: false }),
+      supabase.from('orders').select('id, customer_id, order_date, status, payment_status, payment_method, channel, product_name, qty, total_price, invoice_number, delivery_person, notes, transfer_amount, created_at').order('created_at', { ascending: false }),
     ])
     setCustomers(c.data || [])
     setOrders(o.data || [])
@@ -57,22 +57,29 @@ export default function Customers() {
     setSaving(true)
     const payload = { ...form }
     const run = () => modal === 'add'
-      ? supabase.from('customers').insert(payload)
-      : supabase.from('customers').update(payload).eq('id', form.id)
-    let { error } = await run()
+      ? supabase.from('customers').insert(payload).select().single()
+      : supabase.from('customers').update(payload).eq('id', form.id).select().single()
+    let { data, error } = await run()
     // Drop any columns the database doesn't have yet (e.g. instagram, landmark) and retry
     while (error && /column .* does not exist|could not find/i.test(error.message || '')) {
       const m = (error.message || '').match(/'([a-z_]+)' column/i) || (error.message || '').match(/column "?([a-z_]+)"?/i)
       const col = m && m[1]
       if (!col || !(col in payload)) break
       delete payload[col]
-      const retry = await run(); error = retry.error
+      const retry = await run(); data = retry.data; error = retry.error
     }
     setSaving(false)
     if (error) { toast.error('Failed to save'); return }
     logAudit(modal === 'add' ? 'create' : 'update', 'customer', form.name, null)
     toast.success(modal === 'add' ? 'Customer added!' : 'Updated!')
-    setModal(null); load()
+    setModal(null)
+    // Put the change straight into the list. Reloading here meant fetching every
+    // order in the shop again just to show one new name, which is what made
+    // saving feel slow.
+    const saved = data || { ...payload, id: form.id }
+    setCustomers(prev => modal === 'add'
+      ? [saved, ...prev]
+      : prev.map(c => (c.id === saved.id ? { ...c, ...saved } : c)))
   }
 
   async function del(id) {
