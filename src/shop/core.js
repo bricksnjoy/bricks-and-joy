@@ -87,7 +87,13 @@ export function ProductImage({ src, name, style, className }) {
       </div>
     )
   }
-  return <img className={className} src={src} alt={name} onError={() => setFailed(true)} style={{ ...style, objectFit: 'cover' }} />
+  // Contained, not cropped. A toy photographed on white is the whole point of
+  // the picture — filling the square cut the ends off long boxes like an
+  // aeroplane or a camera. The small inset stops it touching the card's edge.
+  return (
+    <img className={className} src={src} alt={name} onError={() => setFailed(true)}
+      style={{ objectFit: 'contain', background: '#fff', padding: 5, boxSizing: 'border-box', ...style }} />
+  )
 }
 
 export function Stars({ rating = 0, size = 14, showValue = false, count }) {
