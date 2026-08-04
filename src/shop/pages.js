@@ -419,6 +419,11 @@ export function CartPage() {
 }
 
 // ── Checkout ────────────────────────────────────────────────────────────────────
+// Automated customer notifications (email / SMS / WhatsApp) are switched off for
+// now. Flip this to true to re-enable the order-processing email; SMS/WhatsApp
+// are not wired to the storefront yet.
+const NOTIFY_CUSTOMER = false
+
 export function CheckoutPage() {
   const { cart, cartSubtotal, giftWrap, user, navigate, clearCart, setLastOrder, settings, removeItem } = useShop()
   const GIFT_WRAP_FEE = num(settings.gift_wrap_fee)
@@ -574,7 +579,7 @@ export function CheckoutPage() {
       // — this is just an acknowledgement, sent quietly so a mail hiccup never
       // blocks the order. Guests get it too if they typed an email.
       const notifyEmail = user?.email || form.email.trim()
-      if (slipMatches && notifyEmail) {
+      if (NOTIFY_CUSTOMER && slipMatches && notifyEmail) {
         sendEmail({
           to: notifyEmail,
           subject: `Your Brick's & Joy order ${invoice} is being processed 🎉`,
@@ -595,7 +600,7 @@ The Brick's & Joy team`,
           meta: { name: fullName, context: 'order-processing' },
         }).catch(() => { /* acknowledgement only — never block the order */ })
       }
-      setLastOrder({ invoice, total, name: fullName, matched: slipMatches, cash, email: slipMatches ? notifyEmail : null })
+      setLastOrder({ invoice, total, name: fullName, matched: slipMatches, cash, email: NOTIFY_CUSTOMER && slipMatches ? notifyEmail : null })
       clearCart()
       navigate('/order-confirmed')
     } catch (err) {
