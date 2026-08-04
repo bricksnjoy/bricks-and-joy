@@ -619,15 +619,22 @@ export function ShopStyles() {
     .co-field input, .co-field select{ width:100%; box-sizing:border-box; border:1px solid #cfcbc4; border-radius:8px; padding:14px 14px; font-size:14px; font-family:inherit; background:#fff; color:#111; outline:none; transition:border-color .15s, box-shadow .15s; }
     .co-field input:focus, .co-field select:focus{ border-color:#111; box-shadow:0 0 0 1px #111; }
     .co-field input::placeholder{ color:#a09a90; }
+    /* an unfilled required field — a soft amber hint, not an error */
+    .co-field input.co-req{ border-color:#e8c98f; background:#fffdf7; }
     .co-two{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
     .co-two .co-field{ margin-bottom:0; }
     .co-pay{ width:100%; border:none; background:#111; color:#fff; font-weight:800; font-size:15px; letter-spacing:0.3px; padding:18px; border-radius:99px; cursor:pointer; margin-top:8px; transition:opacity .15s; }
     .co-pay:hover{ opacity:0.9; }
     .co-pay:disabled{ opacity:0.45; cursor:default; }
     /* summary items */
-    .co-item{ display:flex; align-items:center; gap:14px; margin-bottom:16px; }
+    .co-sumhead{ display:flex; justify-content:space-between; align-items:center; margin-bottom:18px; }
+    .co-editcart{ display:inline-flex; align-items:center; gap:5px; background:none; border:none; color:#8a6a2a; font-weight:700; font-size:13px; cursor:pointer; font-family:inherit; text-decoration:underline; padding:0; }
+    .co-editcart:hover{ color:#5f4914; }
+    .co-item{ display:flex; align-items:center; gap:14px; margin-bottom:18px; }
     .co-item .th{ position:relative; flex-shrink:0; }
     .co-item .qb{ position:absolute; top:-8px; right:-8px; min-width:20px; height:20px; padding:0 5px; box-sizing:border-box; background:#5c5750; color:#fff; border-radius:99px; font-size:11px; font-weight:700; display:flex; align-items:center; justify-content:center; }
+    .co-remove{ margin-top:8px; display:inline-flex; align-items:center; gap:5px; background:none; border:none; color:#a3948a; font-size:12.5px; cursor:pointer; font-family:inherit; padding:0; }
+    .co-remove:hover{ color:#E24B4A; }
     .co-coupon{ display:flex; gap:8px; margin:6px 0 18px; }
     .co-coupon input{ flex:1; min-width:0; border:1px solid #cfcbc4; border-radius:8px; padding:13px 13px; font-size:13.5px; font-family:inherit; background:#fff; outline:none; }
     .co-coupon input:focus{ border-color:#111; }
