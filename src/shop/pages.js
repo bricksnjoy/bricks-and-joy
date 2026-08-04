@@ -844,26 +844,44 @@ export function OrderConfirmed() {
   const matched = lastOrder.matched
   const cash = lastOrder.cash
   return (
-    <div className="sh-wrap" style={{ maxWidth: 620 }}>
-      <div className="sh-card2" style={{ textAlign: 'center', padding: '34px 26px' }}>
-        <div style={{ width: 66, height: 66, borderRadius: '50%', background: '#e8f7ee', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: 14 }}><CheckCircle2 size={34} color="#1D9E75" /></div>
-        <h1 style={{ margin: '0 0 6px', fontSize: 24, fontWeight: 900 }}>Order placed! 🎉</h1>
-        <p style={{ color: '#667', fontSize: 14, margin: '0 0 18px' }}>Thank you, {lastOrder.name}. Your order <b>{lastOrder.invoice}</b> is in.</p>
-        <div style={{ background: '#faf7f2', border: '1px dashed #e6d9bf', borderRadius: 16, padding: '18px 20px', textAlign: 'left' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}><span style={{ color: '#8a8278', fontSize: 13 }}>{cash ? 'Amount due (cash)' : 'Amount paid'}</span><b style={{ fontSize: 17, color: '#E24B4A' }}>{money(lastOrder.total)}</b></div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ color: '#8a8278', fontSize: 13 }}>Status</span>
-            <b style={{ fontSize: 13.5, color: matched ? '#1D8A5B' : '#b8740a' }}>{matched ? 'Confirmed — being processed' : 'Order created — under review'}</b>
+    <div className="oc-page">
+      <div className="oc-card">
+        <div className="oc-badge">
+          <span className="oc-ring" />
+          {/* little confetti bursting out from behind the tick */}
+          <span className="oc-confetti">
+            {['#FFB020', '#E24B4A', '#1D9E75', '#3B82F6', '#FF7AC6', '#FFD23F'].map((c, i) => (
+              <i key={i} style={{ background: c }} />
+            ))}
+          </span>
+          <CheckCircle2 size={46} color="#fff" strokeWidth={2.4} />
+        </div>
+
+        <h1 className="oc-title">Thank you! 🎉</h1>
+        <p className="oc-sub">Your order <b>{lastOrder.invoice}</b> is placed successfully.</p>
+
+        <div className="oc-detail">
+          <div className="oc-row">
+            <span>{cash ? 'Amount due (cash)' : 'Amount paid'}</span>
+            <b style={{ color: '#E24B4A', fontSize: 19 }}>{money(lastOrder.total)}</b>
           </div>
-          <div style={{ fontSize: 12.5, color: '#8a7f6e', marginTop: 12, lineHeight: 1.55 }}>
+          <div className="oc-row">
+            <span>Status</span>
+            <span className="oc-status" style={{ color: matched ? '#1D8A5B' : '#b8740a', background: matched ? '#e8f7ee' : '#fdf3e2' }}>
+              {matched ? 'Confirmed — being processed' : 'Order created — under review'}
+            </span>
+          </div>
+          <p className="oc-note">
             {cash
               ? <>We've received your order. Please have <b>{money(lastOrder.total)}</b> ready in cash for the delivery. Our team will confirm your order shortly on WhatsApp.</>
               : matched
                 ? <>Your transfer slip matched the total, so your order is confirmed and being prepared.{lastOrder.email ? <> We've emailed a confirmation to <b>{lastOrder.email}</b>.</> : null} We'll deliver it to you soon and keep you posted on WhatsApp.</>
                 : <>We've received your order and transfer slip. Our team will verify the payment and confirm your order shortly — you'll hear from us on WhatsApp.</>}
-          </div>
+          </p>
         </div>
-        <button className="sh-btn sh-btn-o" style={{ marginTop: 20 }} onClick={() => navigate('/')}>Continue shopping</button>
+
+        <button className="oc-btn" onClick={() => navigate('/')}>Continue shopping</button>
+        <button className="oc-link" onClick={() => navigate('/account')}>View my orders</button>
       </div>
     </div>
   )
