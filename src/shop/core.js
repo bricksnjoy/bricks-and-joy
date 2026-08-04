@@ -619,6 +619,8 @@ export function ShopStyles() {
     .co-field input, .co-field select{ width:100%; box-sizing:border-box; border:1px solid #cfcbc4; border-radius:8px; padding:14px 14px; font-size:14px; font-family:inherit; background:#fff; color:#111; outline:none; transition:border-color .15s, box-shadow .15s; }
     .co-field input:focus, .co-field select:focus{ border-color:#111; box-shadow:0 0 0 1px #111; }
     .co-field input::placeholder{ color:#a09a90; }
+    /* an unfilled required field — a soft amber hint, not an error */
+    .co-field input.co-req{ border-color:#e8c98f; background:#fffdf7; }
     .co-two{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
     .co-two .co-field{ margin-bottom:0; }
     .co-pay{ width:100%; border:none; background:#111; color:#fff; font-weight:800; font-size:15px; letter-spacing:0.3px; padding:18px; border-radius:99px; cursor:pointer; margin-top:8px; transition:opacity .15s; }

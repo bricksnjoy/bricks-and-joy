@@ -5,11 +5,13 @@ import {
   useShop, ProductImage, ProductCard, Stars, VideoEmbed, QtyStepper, Field
 } from './core'
 import {
-  ArrowLeft, CheckCircle2, Copy, Gift, Truck, ShieldCheck, BatteryCharging, Boxes,
+  ArrowLeft, CheckCircle2, Gift, Truck, ShieldCheck, BatteryCharging, Boxes,
   Sparkles, ShoppingCart, Trash2, LogOut, Star, Package, ChevronRight, Eye, EyeOff, Heart
 } from 'lucide-react'
 import { localToday } from '../lib/dates'
 import { uploadImage, SLIP } from '../lib/uploadImage'
+import { readSlip } from '../lib/slipOcr'
+import { sendEmail } from '../lib/emailer'
 
 // Google "G" mark (inline so it works under the strict CSP)
 function GoogleG() {
@@ -445,6 +447,17 @@ export function CheckoutPage() {
   const wrapFee = giftWrap ? GIFT_WRAP_FEE : 0
   const total = Math.max(0, cartSubtotal + wrapFee + shipFee - discount)
 
+  // Every delivery detail is required before an order can go through — a missing
+  // island or landmark is a parcel that can't be delivered. Pickup needs only a
+  // name and a contact number.
+  const missing = []
+  if (!fullName) missing.push('name')
+  if (!pickup && !form.address.trim()) missing.push('address')
+  if (!pickup && !form.island.trim()) missing.push('island')
+  if (!pickup && !form.landmark.trim()) missing.push('landmark')
+  if (!form.phone.trim()) missing.push('contact number')
+  const detailsComplete = missing.length === 0
+
   useEffect(() => { if (!cart.length) navigate('/cart') }, []) // eslint-disable-line
 
   // prefill from the signed-in customer's saved profile (only empty fields)
@@ -476,8 +489,9 @@ export function CheckoutPage() {
   }
 
   async function placeOrder() {
-    if (!fullName || !form.phone.trim() || (!pickup && !form.island.trim()) || !cart.length) return
-    if (!slip?.url) { setSlipError('Please attach your transfer slip first'); return }
+    if (!detailsComplete || !cart.length) return
+    const cash = payMethod === 'cash'
+    if (!cash && !slip?.url) { setSlipError('Please attach your transfer slip first'); return }
     setPlacing(true)
     try {
       const invoice = genInvoice()
@@ -485,6 +499,12 @@ export function CheckoutPage() {
       // record (with their Google email); guests get a fresh id each time.
       const customerId = user?.id || (crypto?.randomUUID && crypto.randomUUID()) || null
       const addr = [form.address, form.island].filter(Boolean).join(', ')
+      // Does the amount read off the slip match what's owed? A match means we can
+      // reassure the customer straight away; a mismatch (or an unreadable PDF)
+      // just leaves the order for the back office to check by hand. Cash orders
+      // have no slip, so they never auto-confirm.
+      const slipMatches = !cash && slip?.amount != null && Math.abs(num(slip.amount) - total) < 1
+      const payLabel = cash ? 'Cash' : 'Bank Transfer'
       const extras = [
         pickup ? 'Website order · 🏬 PICKUP from store' : `Website order · ${form.island}`,
         !pickup && form.landmark.trim() ? `Landmark: ${form.landmark.trim()}` : '',
@@ -492,6 +512,9 @@ export function CheckoutPage() {
         pickup ? 'Pickup — collect from store' : 'Delivery — free (front door & ferry)',
         applied ? `Coupon ${applied.code} −${money(discount)}` : '',
         `Amount to pay ${money(total)}`,
+        cash
+          ? (pickup ? 'Payment: Cash on pickup' : 'Payment: Cash on delivery')
+          : (slip?.amount != null ? (slipMatches ? 'Slip amount matches ✓' : `Slip reads ${money(slip.amount)} — please verify`) : 'Slip attached (PDF — verify manually)'),
         form.notes ? `Note: ${form.notes}` : '',
       ].filter(Boolean).join(' · ')
 
@@ -524,9 +547,9 @@ export function CheckoutPage() {
           total_price: +(Math.max(0, line - itemDiscount) + (isFirst ? shipFee + wrapFee : 0)).toFixed(2),
           discount: itemDiscount,
           channel: 'Website', status: 'created', order_date: orderDate,
-          invoice_number: invoice, payment_status: 'unpaid', payment_method: 'Bank Transfer',
+          invoice_number: invoice, payment_status: 'unpaid', payment_method: payLabel,
           // Kept on the first row only, the way the back office reads a slip
-          transfer_slip_url: isFirst ? slip?.url || null : null,
+          transfer_slip_url: isFirst && !cash ? slip?.url || null : null,
           fulfilment: pickup ? 'pickup' : 'delivery',
           delivery_fee: isFirst ? shipFee : 0,
           delivery_fee_covered: false,
@@ -547,7 +570,33 @@ export function CheckoutPage() {
           island: form.island.trim(), address: form.address, landmark: form.landmark.trim(), notes: form.notes, updated_at: new Date().toISOString(),
         }, { onConflict: 'id' })
       }
-      setLastOrder({ invoice, total, name: fullName })
+      // When the slip amount matches the total, tell the customer their purchase
+      // is being processed. Dispatch itself stays a manual step in the back office
+      // — this is just an acknowledgement, sent quietly so a mail hiccup never
+      // blocks the order. Guests get it too if they typed an email.
+      const notifyEmail = user?.email || form.email.trim()
+      if (slipMatches && notifyEmail) {
+        sendEmail({
+          to: notifyEmail,
+          subject: `Your Brick's & Joy order ${invoice} is being processed 🎉`,
+          text:
+`Hi ${fullName},
+
+Thank you for shopping with Brick's & Joy!
+
+We've received your transfer slip and it matches your order total of ${money(total)}, so your purchase is now confirmed and being processed. We'll get it ready and deliver it to you soon.
+
+  Order:  ${invoice}
+  Total:  ${money(total)}
+
+We'll message you on WhatsApp (${form.phone.trim()}) with delivery updates.
+
+With joy,
+The Brick's & Joy team`,
+          meta: { name: fullName, context: 'order-processing' },
+        }).catch(() => { /* acknowledgement only — never block the order */ })
+      }
+      setLastOrder({ invoice, total, name: fullName, matched: slipMatches, cash, email: slipMatches ? notifyEmail : null })
       clearCart()
       navigate('/order-confirmed')
     } catch (err) {
@@ -571,6 +620,12 @@ export function CheckoutPage() {
       const { url, name, type } = await uploadImage(file, { prefix: 'web-slip', preset: SLIP })
       if (!url) throw new Error('Could not read that file')
       setSlip({ url, name, type })
+      // Read the amount off the slip so we can confirm it matches the total. OCR
+      // reads images only (PDFs are left for a manual check); it never blocks the
+      // attach, so a failed read just leaves the amount unknown.
+      readSlip(file).then(r => {
+        if (r?.amount != null) setSlip(s => (s && s.url === url ? { ...s, amount: r.amount } : s))
+      }).catch(() => {})
     } catch (e) {
       setSlipError(e?.message || 'Could not upload the slip — please try again')
     } finally { setSlipBusy(false) }
@@ -581,7 +636,8 @@ export function CheckoutPage() {
     setCopied(key); setTimeout(() => setCopied(c => (c === key ? '' : c)), 1500)
   }
 
-  const canPlace = fullName && form.phone.trim() && (pickup || form.island.trim()) && cart.length && slip && payMethod === 'bank'
+  // Bank transfer needs the slip attached; cash is settled in person, so it doesn't.
+  const canPlace = detailsComplete && cart.length && (payMethod === 'cash' || (payMethod === 'bank' && slip))
   const [logoOk, setLogoOk] = useState(true)
 
   // Removing the last line would leave an empty checkout — send them back to the cart.
@@ -613,16 +669,17 @@ export function CheckoutPage() {
             </div>
           </div>
 
-          {/* DELIVERY */}
+          {/* DELIVERY — every field is required so nothing can't be delivered */}
           <div className="co-sec">
             <div className="co-h">{pickup ? 'Your details' : 'Delivery'}</div>
-            <div className="co-field"><input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Name" /></div>
+            <div style={{ fontSize: 12, color: '#999', marginTop: '-8px', marginBottom: 12 }}>{pickup ? 'We need your name and number to reach you.' : 'All fields are required so we can deliver to your door.'}</div>
+            <div className="co-field"><input className={!fullName ? 'co-req' : ''} value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Name *" /></div>
             {!pickup && <>
-              <div className="co-field"><input value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} placeholder="Address (house / street)" /></div>
-              <div className="co-field"><input value={form.landmark} onChange={e => setForm(f => ({ ...f, landmark: e.target.value }))} placeholder="Landmark (e.g. near Sifco) — helps the delivery find you" /></div>
-              <div className="co-field"><input value={form.island} onChange={e => setForm(f => ({ ...f, island: e.target.value }))} placeholder="Island (e.g. Malé, Hulhumalé)" /></div>
+              <div className="co-field"><input className={!form.address.trim() ? 'co-req' : ''} value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} placeholder="Address (house / street) *" /></div>
+              <div className="co-field"><input className={!form.landmark.trim() ? 'co-req' : ''} value={form.landmark} onChange={e => setForm(f => ({ ...f, landmark: e.target.value }))} placeholder="Landmark (e.g. near Sifco) — helps the delivery find you *" /></div>
+              <div className="co-field"><input className={!form.island.trim() ? 'co-req' : ''} value={form.island} onChange={e => setForm(f => ({ ...f, island: e.target.value }))} placeholder="Island (e.g. Malé, Hulhumalé) *" /></div>
             </>}
-            <div className="co-field"><input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} inputMode="tel" placeholder="Contact number / WhatsApp" /></div>
+            <div className="co-field"><input className={!form.phone.trim() ? 'co-req' : ''} value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} inputMode="tel" placeholder="Contact number / WhatsApp *" /></div>
             {pickup && <div style={{ background: '#f0fbf5', border: '1px solid #cfe3d6', borderRadius: 8, padding: '12px 14px', fontSize: 13, color: '#2c7a54' }}>🏬 We'll message you on WhatsApp when it's ready to collect. No delivery charge.</div>}
           </div>
 
@@ -679,6 +736,11 @@ export function CheckoutPage() {
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 600, color: '#1D8A5B' }}>Slip attached</div>
                     <div style={{ fontSize: 11.5, color: '#8a8278', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{slip.name}</div>
+                    {slip.amount != null && (
+                      Math.abs(num(slip.amount) - total) < 1
+                        ? <div style={{ fontSize: 11.5, fontWeight: 700, color: '#1D8A5B', marginTop: 2 }}>✓ Amount matches your total</div>
+                        : <div style={{ fontSize: 11.5, fontWeight: 700, color: '#b8740a', marginTop: 2 }}>Reads {money(slip.amount)} — we'll double-check it</div>
+                    )}
                   </div>
                   <button type="button" onClick={() => setSlip(null)}
                     style={{ background: 'none', border: '1px solid #e6e0d6', borderRadius: 7, padding: '5px 10px', cursor: 'pointer', fontSize: 12, color: '#888', fontFamily: 'inherit' }}>Change</button>
@@ -696,13 +758,40 @@ export function CheckoutPage() {
             </div>
             </>}
 
+            {/* Cash — no slip; paid in person on delivery or at pickup. */}
+            <button type="button" onClick={() => setPayMethod('cash')}
+              style={{ width: '100%', textAlign: 'left', border: `1.5px solid ${payMethod === 'cash' ? '#111' : '#ddd'}`, borderRadius: 8, padding: '14px 15px', display: 'flex', alignItems: 'center', gap: 10, background: '#fff', cursor: 'pointer', fontFamily: 'inherit', marginTop: 8 }}>
+              <span style={{ width: 16, height: 16, borderRadius: '50%', border: payMethod === 'cash' ? '5px solid #111' : '1.5px solid #bbb', flexShrink: 0 }} />
+              <div><div style={{ fontWeight: 700, fontSize: 14 }}>Pay with cash</div><div style={{ fontSize: 12.5, color: '#888' }}>{pickup ? 'Pay when you collect from the store.' : 'Pay in cash when your order arrives.'}</div></div>
+            </button>
+            {payMethod === 'cash' && (
+              <div style={{ border: '1px solid #cfe3d6', background: '#f0fbf5', borderRadius: 10, padding: '12px 14px', marginTop: 10, fontSize: 13, color: '#2c7a54' }}>
+                💵 Please have <b>{money(total)}</b> ready in cash {pickup ? 'when you collect your order.' : 'for the delivery team.'} We'll confirm your order on WhatsApp.
+              </div>
+            )}
+
             <div style={{ border: '1px solid #eee', borderRadius: 8, padding: '14px 15px', display: 'flex', alignItems: 'center', gap: 10, marginTop: 8, opacity: 0.55 }}>
               <span style={{ width: 16, height: 16, borderRadius: '50%', border: '1.5px solid #ccc' }} />
               <div><div style={{ fontWeight: 700, fontSize: 14 }}>Card payment</div><div style={{ fontSize: 12.5, color: '#888' }}>Coming soon</div></div>
             </div>
           </div>
 
-          <button className="co-pay" disabled={!canPlace || placing} onClick={placeOrder}>{placing ? 'Placing…' : `Pay now · ${money(total)}`}</button>
+          {!detailsComplete && (
+            <div style={{ fontSize: 12.5, color: '#b8740a', textAlign: 'center', margin: '2px 0 -4px' }}>
+              Please add your {missing.join(', ').replace(/, ([^,]*)$/, ' and $1')} to continue.
+            </div>
+          )}
+          {detailsComplete && !payMethod && (
+            <div style={{ fontSize: 12.5, color: '#b8740a', textAlign: 'center', margin: '2px 0 -4px' }}>
+              Select a payment method to continue.
+            </div>
+          )}
+          {detailsComplete && payMethod === 'bank' && !slip && (
+            <div style={{ fontSize: 12.5, color: '#b8740a', textAlign: 'center', margin: '2px 0 -4px' }}>
+              Attach your transfer slip to place the order.
+            </div>
+          )}
+          <button className="co-pay" disabled={!canPlace || placing} onClick={placeOrder}>{placing ? 'Placing…' : `${payMethod === 'cash' ? 'Place order' : 'Pay now'} · ${money(total)}`}</button>
           <div style={{ textAlign: 'center', marginTop: 14 }}>
             <button onClick={() => navigate('/cart')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#888', fontSize: 13, fontFamily: 'inherit', textDecoration: 'underline' }}>Return to cart</button>
           </div>
@@ -765,26 +854,29 @@ export function CheckoutPage() {
 // ── Order confirmed ─────────────────────────────────────────────────────────────
 export function OrderConfirmed() {
   const { lastOrder, navigate } = useShop()
-  const [copied, setCopied] = useState(false)
   useEffect(() => { if (!lastOrder) navigate('/') }, []) // eslint-disable-line
   if (!lastOrder) return null
-  const copy = () => navigator.clipboard?.writeText(BANK.account).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1800) }).catch(() => {})
+  const matched = lastOrder.matched
+  const cash = lastOrder.cash
   return (
     <div className="sh-wrap" style={{ maxWidth: 620 }}>
       <div className="sh-card2" style={{ textAlign: 'center', padding: '34px 26px' }}>
         <div style={{ width: 66, height: 66, borderRadius: '50%', background: '#e8f7ee', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: 14 }}><CheckCircle2 size={34} color="#1D9E75" /></div>
         <h1 style={{ margin: '0 0 6px', fontSize: 24, fontWeight: 900 }}>Order placed! 🎉</h1>
-        <p style={{ color: '#667', fontSize: 14, margin: '0 0 4px' }}>Thank you, {lastOrder.name}. Your order <b>{lastOrder.invoice}</b> is in.</p>
-        <p style={{ color: '#999', fontSize: 13, margin: '0 0 22px' }}>Please complete payment by bank transfer:</p>
+        <p style={{ color: '#667', fontSize: 14, margin: '0 0 18px' }}>Thank you, {lastOrder.name}. Your order <b>{lastOrder.invoice}</b> is in.</p>
         <div style={{ background: '#faf7f2', border: '1px dashed #e6d9bf', borderRadius: 16, padding: '18px 20px', textAlign: 'left' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}><span style={{ color: '#8a8278', fontSize: 13 }}>Amount</span><b style={{ fontSize: 17, color: '#E24B4A' }}>{money(lastOrder.total)}</b></div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}><span style={{ color: '#8a8278', fontSize: 13 }}>Account name</span><b style={{ fontSize: 14 }}>{BANK.name}</b></div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}><span style={{ color: '#8a8278', fontSize: 13 }}>{cash ? 'Amount due (cash)' : 'Amount paid'}</span><b style={{ fontSize: 17, color: '#E24B4A' }}>{money(lastOrder.total)}</b></div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ color: '#8a8278', fontSize: 13 }}>Account number</span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><b style={{ fontSize: 15 }}>{BANK.account}</b>
-              <button className="sh-x" onClick={copy} style={{ color: copied ? '#1D9E75' : '#FFA500' }}>{copied ? <CheckCircle2 size={16} /> : <Copy size={15} />}</button></span>
+            <span style={{ color: '#8a8278', fontSize: 13 }}>Status</span>
+            <b style={{ fontSize: 13.5, color: matched ? '#1D8A5B' : '#b8740a' }}>{matched ? 'Confirmed — being processed' : 'Order created — under review'}</b>
           </div>
-          <div style={{ fontSize: 12, color: '#a79a80', marginTop: 12, lineHeight: 1.5 }}>Use <b>{lastOrder.invoice}</b> as the transfer reference and send us the slip. We'll confirm delivery with you.</div>
+          <div style={{ fontSize: 12.5, color: '#8a7f6e', marginTop: 12, lineHeight: 1.55 }}>
+            {cash
+              ? <>We've received your order. Please have <b>{money(lastOrder.total)}</b> ready in cash on delivery/pickup. Our team will confirm your order shortly on WhatsApp.</>
+              : matched
+                ? <>Your transfer slip matched the total, so your order is confirmed and being prepared.{lastOrder.email ? <> We've emailed a confirmation to <b>{lastOrder.email}</b>.</> : null} We'll deliver it to you soon and keep you posted on WhatsApp.</>
+                : <>We've received your order and transfer slip. Our team will verify the payment and confirm your order shortly — you'll hear from us on WhatsApp.</>}
+          </div>
         </div>
         <button className="sh-btn sh-btn-o" style={{ marginTop: 20 }} onClick={() => navigate('/')}>Continue shopping</button>
       </div>
