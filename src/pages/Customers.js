@@ -39,9 +39,21 @@ export default function Customers() {
 
   async function load() {
     setLoading(true)
+    // Asking for named columns is much lighter than select('*') here — it leaves
+    // behind the transfer slip, which on older orders holds the whole picture
+    // inline. But naming a column this database hasn't been migrated to have
+    // makes Supabase reject the entire query and hand back nothing, which reads
+    // as every customer having no orders at all. So fall back to everything if
+    // the slim version is refused.
+    const SLIM = 'id, customer_id, order_date, status, payment_status, payment_method, channel, product_name, qty, total_price, invoice_number, delivery_person, notes, transfer_amount, created_at'
+    const loadOrders = async () => {
+      const slim = await supabase.from('orders').select(SLIM).order('created_at', { ascending: false })
+      if (!slim.error) return slim
+      return supabase.from('orders').select('*').order('created_at', { ascending: false })
+    }
     const [c, o] = await Promise.all([
       supabase.from('customers').select('*').order('created_at', { ascending: false }),
-      supabase.from('orders').select('id, customer_id, order_date, status, payment_status, payment_method, channel, product_name, qty, total_price, invoice_number, delivery_person, notes, transfer_amount, created_at').order('created_at', { ascending: false }),
+      loadOrders(),
     ])
     setCustomers(c.data || [])
     setOrders(o.data || [])
