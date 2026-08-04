@@ -428,12 +428,14 @@ export function CheckoutPage() {
   const freeShip = freeOver > 0 && cartSubtotal >= freeOver
   const shipFee = pickup ? 0 : (freeShip ? 0 : (ship?.fee || 0))
   const meta = user?.user_metadata || {}
+  // The same shape as a customer record in the back office — one name, an
+  // address, a landmark and a contact number — so what is typed here lands in
+  // the customer's own fields instead of being flattened into one line.
   const [form, setForm] = useState({
-    first: meta.first_name || (meta.full_name || '').split(' ')[0] || '',
-    last: meta.last_name || (meta.full_name || '').split(' ').slice(1).join(' ') || '',
-    phone: meta.phone || '', island: '', address: '', notes: '', email: user?.email || '',
+    name: meta.full_name || [meta.first_name, meta.last_name].filter(Boolean).join(' ') || '',
+    phone: meta.phone || '', island: '', address: '', landmark: '', notes: '', email: user?.email || '',
   })
-  const fullName = `${form.first} ${form.last}`.trim()
+  const fullName = (form.name || '').trim()
   const [coupon, setCoupon] = useState('')
   const [applied, setApplied] = useState(null) // { type, value, code }
   const [couponMsg, setCouponMsg] = useState('')
@@ -486,6 +488,7 @@ export function CheckoutPage() {
       const addr = [form.address, form.island].filter(Boolean).join(', ')
       const extras = [
         pickup ? 'Website order · 🏬 PICKUP from store' : `Website order · ${form.island}`,
+        !pickup && form.landmark.trim() ? `Landmark: ${form.landmark.trim()}` : '',
         giftWrap ? `Gift wrap +${money(GIFT_WRAP_FEE)}` : '',
         pickup ? 'Pickup — collect from store' : `Delivery est. ${freeShip ? 'FREE' : money(shipFee)} (${ship?.label})`,
         applied ? `Coupon ${applied.code} −${money(discount)}` : '',
@@ -494,7 +497,11 @@ export function CheckoutPage() {
       ].filter(Boolean).join(' · ')
 
       if (customerId) {
-        const cp = { id: customerId, name: fullName, phone: form.phone.trim(), email: user?.email || form.email || null, address: addr }
+        const cp = {
+          id: customerId, name: fullName, phone: form.phone.trim(),
+          email: user?.email || form.email || null,
+          address: addr, landmark: form.landmark.trim() || null,
+        }
         if (!user) cp.notes = `Website order ${invoice}`   // keep existing notes for known accounts
         let { error } = await supabase.from('customers').upsert(cp, { onConflict: 'id' })
         while (error && dropMissingCol(error, cp)) { error = (await supabase.from('customers').upsert(cp, { onConflict: 'id' })).error }
@@ -538,7 +545,7 @@ export function CheckoutPage() {
       if (user) {
         supabase.from('customer_profiles').upsert({
           id: user.id, email: user.email, full_name: fullName, phone: form.phone.trim(),
-          island: form.island.trim(), address: form.address, notes: form.notes, updated_at: new Date().toISOString(),
+          island: form.island.trim(), address: form.address, landmark: form.landmark.trim(), notes: form.notes, updated_at: new Date().toISOString(),
         }, { onConflict: 'id' })
       }
       setLastOrder({ invoice, total, name: fullName })
@@ -621,15 +628,13 @@ export function CheckoutPage() {
           {/* DELIVERY */}
           <div className="co-sec">
             <div className="co-h">{pickup ? 'Your details' : 'Delivery'}</div>
-            <div className="co-two">
-              <div className="co-field"><input value={form.first} onChange={e => setForm(f => ({ ...f, first: e.target.value }))} placeholder="First name" /></div>
-              <div className="co-field"><input value={form.last} onChange={e => setForm(f => ({ ...f, last: e.target.value }))} placeholder="Last name" /></div>
-            </div>
+            <div className="co-field"><input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Name" /></div>
             {!pickup && <>
-              <div className="co-field"><input value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} placeholder="Address (house / street / landmark)" /></div>
+              <div className="co-field"><input value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} placeholder="Address (house / street)" /></div>
+              <div className="co-field"><input value={form.landmark} onChange={e => setForm(f => ({ ...f, landmark: e.target.value }))} placeholder="Landmark (e.g. near Sifco) — helps the delivery find you" /></div>
               <div className="co-field"><input value={form.island} onChange={e => setForm(f => ({ ...f, island: e.target.value }))} placeholder="Island (e.g. Malé, Hulhumalé)" /></div>
             </>}
-            <div className="co-field"><input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} inputMode="tel" placeholder="Phone / WhatsApp" /></div>
+            <div className="co-field"><input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} inputMode="tel" placeholder="Contact number / WhatsApp" /></div>
             {pickup && <div style={{ background: '#f0fbf5', border: '1px solid #cfe3d6', borderRadius: 8, padding: '12px 14px', fontSize: 13, color: '#2c7a54' }}>🏬 We'll message you on WhatsApp when it's ready to collect. No delivery charge.</div>}
           </div>
 
@@ -733,6 +738,26 @@ export function CheckoutPage() {
           <div className="co-row"><span>{pickup ? 'Pickup' : 'Shipping'}</span><span>{pickup || freeShip ? 'FREE' : money(shipFee)}</span></div>
           {discount > 0 && <div className="co-row" style={{ color: '#1D9E75' }}><span>Discount</span><span>−{money(discount)}</span></div>}
           <div className="co-tot"><span>Total</span><span><span className="usd">MVR</span>{money(total).replace('MVR ', '')}</span></div>
+
+          {/* Where it is going, as it will be saved against the customer — so a
+              wrong number or a missing landmark is caught before ordering. */}
+          {(fullName || form.address || form.landmark || form.phone) && (
+            <div style={{ borderTop: '1px solid #e6e0d6', marginTop: 16, paddingTop: 14 }}>
+              <div style={{ fontSize: 11.5, fontWeight: 800, color: '#8a8278', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>
+                {pickup ? 'Collected by' : 'Deliver to'}
+              </div>
+              {[
+                ['Name', fullName],
+                ...(pickup ? [] : [['Address', [form.address, form.island].filter(Boolean).join(', ')], ['Landmark', form.landmark]]),
+                ['Contact number', form.phone],
+              ].map(([k, v]) => (
+                <div key={k} style={{ display: 'flex', gap: 12, justifyContent: 'space-between', padding: '3px 0', fontSize: 13 }}>
+                  <span style={{ color: '#8a8278', flexShrink: 0 }}>{k}</span>
+                  <span style={{ textAlign: 'right', fontWeight: 600, color: v ? '#0d1b2a' : '#c4bcb0' }}>{v || '—'}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div></div>
       </div>
     </div>
