@@ -9,6 +9,7 @@ import {
   Sparkles, ShoppingCart, Trash2, LogOut, Star, Package, ChevronRight, Eye, EyeOff, Heart
 } from 'lucide-react'
 import { localToday } from '../lib/dates'
+import { uploadImage, SLIP } from '../lib/uploadImage'
 
 // Google "G" mark (inline so it works under the strict CSP)
 function GoogleG() {
@@ -475,6 +476,7 @@ export function CheckoutPage() {
 
   async function placeOrder() {
     if (!fullName || !form.phone.trim() || (!pickup && !form.island.trim()) || !cart.length) return
+    if (!slip?.url) { setSlipError('Please attach your transfer slip first'); return }
     setPlacing(true)
     try {
       const invoice = genInvoice()
@@ -517,6 +519,8 @@ export function CheckoutPage() {
           discount: itemDiscount,
           channel: 'Website', status: 'created', order_date: orderDate,
           invoice_number: invoice, payment_status: 'unpaid', payment_method: 'Bank Transfer',
+          // Kept on the first row only, the way the back office reads a slip
+          transfer_slip_url: isFirst ? slip?.url || null : null,
           fulfilment: pickup ? 'pickup' : 'delivery',
           delivery_fee: isFirst ? shipFee : 0,
           delivery_fee_covered: false,
@@ -547,7 +551,31 @@ export function CheckoutPage() {
     }
   }
 
-  const canPlace = fullName && form.phone.trim() && (pickup || form.island.trim()) && cart.length
+  // ── Payment proof ──────────────────────────────────────────────────────────
+  // The slip goes to storage as it is picked, so by the time the order is placed
+  // its address is already known and nothing has to be uploaded mid-checkout.
+  const [slip, setSlip] = useState(null)          // { url, name, type }
+  const [slipBusy, setSlipBusy] = useState(false)
+  const [slipError, setSlipError] = useState('')
+  const [copied, setCopied] = useState('')
+
+  async function attachSlip(file) {
+    setSlipError(''); setSlipBusy(true)
+    try {
+      const { url, name, type } = await uploadImage(file, { prefix: 'web-slip', preset: SLIP })
+      if (!url) throw new Error('Could not read that file')
+      setSlip({ url, name, type })
+    } catch (e) {
+      setSlipError(e?.message || 'Could not upload the slip — please try again')
+    } finally { setSlipBusy(false) }
+  }
+
+  function copyText(text, key) {
+    try { navigator.clipboard?.writeText(String(text)) } catch { /* not fatal */ }
+    setCopied(key); setTimeout(() => setCopied(c => (c === key ? '' : c)), 1500)
+  }
+
+  const canPlace = fullName && form.phone.trim() && (pickup || form.island.trim()) && cart.length && slip
   const [logoOk, setLogoOk] = useState(true)
   return (
     <div className="co">
@@ -622,7 +650,53 @@ export function CheckoutPage() {
             <div style={{ fontSize: 12.5, color: '#888', marginTop: '-8px', marginBottom: 12 }}>All transactions are secure. Pay by bank transfer after ordering.</div>
             <div style={{ border: '1.5px solid #111', borderRadius: 8, padding: '14px 15px', display: 'flex', alignItems: 'center', gap: 10 }}>
               <span style={{ width: 16, height: 16, borderRadius: '50%', border: '5px solid #111' }} />
-              <div><div style={{ fontWeight: 700, fontSize: 14 }}>Bank transfer</div><div style={{ fontSize: 12.5, color: '#888' }}>Account details shown after you order.</div></div>
+              <div><div style={{ fontWeight: 700, fontSize: 14 }}>Bank transfer</div><div style={{ fontSize: 12.5, color: '#888' }}>Transfer now and attach the slip below.</div></div>
+            </div>
+
+            {/* Where to send the money. Shown before ordering, not after, because
+                the slip has to be attached before the order can be placed. */}
+            <div style={{ border: '1px solid #e6e0d6', background: '#fffdf6', borderRadius: 10, padding: '14px 15px', marginTop: 10 }}>
+              <div style={{ fontSize: 11.5, fontWeight: 800, color: '#8a6a2a', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 9 }}>Transfer to</div>
+              {[['Account name', BANK.name], ['Account number', BANK.account], ['Amount', money(total)]].map(([k, v]) => (
+                <div key={k} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', padding: '5px 0', fontSize: 13.5 }}>
+                  <span style={{ color: '#8a8278' }}>{k}</span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                    <b style={{ letterSpacing: k === 'Account number' ? '0.5px' : undefined }}>{v}</b>
+                    <button type="button" onClick={() => copyText(v, k)}
+                      style={{ background: 'none', border: '1px solid #e6e0d6', borderRadius: 6, padding: '2px 7px', cursor: 'pointer', fontSize: 11, color: '#8a6a2a', fontFamily: 'inherit' }}>
+                      {copied === k ? 'Copied' : 'Copy'}
+                    </button>
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {/* The slip. Required — an order with no proof of payment is one
+                somebody has to chase. */}
+            <div style={{ marginTop: 10 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Transfer slip <span style={{ color: '#E24B4A' }}>*</span></div>
+              {slip ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, border: '1px solid #cfe8db', background: '#f4fbf7', borderRadius: 10, padding: '10px 12px' }}>
+                  {slip.type?.startsWith('image/')
+                    ? <img src={slip.url} alt="" style={{ width: 54, height: 54, objectFit: 'contain', background: '#fff', borderRadius: 8, border: '1px solid #e6e0d6' }} />
+                    : <span style={{ fontSize: 24 }}>📄</span>}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: '#1D8A5B' }}>Slip attached</div>
+                    <div style={{ fontSize: 11.5, color: '#8a8278', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{slip.name}</div>
+                  </div>
+                  <button type="button" onClick={() => setSlip(null)}
+                    style={{ background: 'none', border: '1px solid #e6e0d6', borderRadius: 7, padding: '5px 10px', cursor: 'pointer', fontSize: 12, color: '#888', fontFamily: 'inherit' }}>Change</button>
+                </div>
+              ) : (
+                <label style={{ display: 'block', border: '1.5px dashed #d9cfc0', borderRadius: 10, padding: '16px 14px', textAlign: 'center', cursor: slipBusy ? 'wait' : 'pointer', background: '#fff' }}>
+                  <input type="file" accept="image/*,application/pdf" style={{ display: 'none' }} disabled={slipBusy}
+                    onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) attachSlip(f) }} />
+                  <div style={{ fontSize: 13.5, fontWeight: 700, color: '#8a6a2a' }}>{slipBusy ? 'Uploading…' : 'Attach your transfer slip'}</div>
+                  <div style={{ fontSize: 12, color: '#a79a80', marginTop: 3 }}>A screenshot or PDF from your banking app</div>
+                </label>
+              )}
+              {slipError && <div style={{ fontSize: 12, color: '#E24B4A', marginTop: 6 }}>{slipError}</div>}
+              {!slip && <div style={{ fontSize: 12, color: '#a79a80', marginTop: 6 }}>Your order can't be placed until the slip is attached.</div>}
             </div>
             <div style={{ border: '1px solid #eee', borderRadius: 8, padding: '14px 15px', display: 'flex', alignItems: 'center', gap: 10, marginTop: 8, opacity: 0.55 }}>
               <span style={{ width: 16, height: 16, borderRadius: '50%', border: '1.5px solid #ccc' }} />
@@ -640,7 +714,7 @@ export function CheckoutPage() {
         <div className="co-right"><div className="co-right-in">
           {cart.map(it => (
             <div key={it.id} className="co-item">
-              <div className="th"><ProductImage src={it.photo_url} name={it.name} style={{ width: 64, height: 64, borderRadius: 8, border: '1px solid #e6e0d6' }} /><span className="qb">{it.qty}</span></div>
+              <div className="th"><ProductImage src={it.photo_url} name={it.name} style={{ width: 92, height: 92, borderRadius: 10, border: '1px solid #e6e0d6' }} /><span className="qb">{it.qty}</span></div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13.5, fontWeight: 600 }}>{it.name}</div>
               </div>
