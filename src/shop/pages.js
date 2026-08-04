@@ -422,9 +422,10 @@ export function CartPage() {
 export function CheckoutPage() {
   const { cart, cartSubtotal, giftWrap, user, navigate, clearCart, setLastOrder, settings, removeItem } = useShop()
   const GIFT_WRAP_FEE = num(settings.gift_wrap_fee)
-  const [fulfil, setFulfil] = useState('delivery')
   const [payMethod, setPayMethod] = useState('')   // '' until the shopper picks one
-  const pickup = fulfil === 'pickup'
+  // Pickup is disabled for now — there's no store to collect from, so every
+  // order is a delivery. Kept as a flag so pickup can be switched back on later.
+  const pickup = false
   // Delivery (front door + ferry) and gift wrapping are free. Any ferry surcharge
   // or special request is arranged with the customer directly, not billed here.
   const shipFee = 0
@@ -447,14 +448,12 @@ export function CheckoutPage() {
   const wrapFee = giftWrap ? GIFT_WRAP_FEE : 0
   const total = Math.max(0, cartSubtotal + wrapFee + shipFee - discount)
 
-  // Every delivery detail is required before an order can go through — a missing
-  // island or landmark is a parcel that can't be delivered. Pickup needs only a
-  // name and a contact number.
+  // Name, address, island and contact number are required so a parcel can
+  // actually be delivered. The landmark just helps the driver, so it's optional.
   const missing = []
   if (!fullName) missing.push('name')
-  if (!pickup && !form.address.trim()) missing.push('address')
-  if (!pickup && !form.island.trim()) missing.push('island')
-  if (!pickup && !form.landmark.trim()) missing.push('landmark')
+  if (!form.address.trim()) missing.push('address')
+  if (!form.island.trim()) missing.push('island')
   if (!form.phone.trim()) missing.push('contact number')
   const detailsComplete = missing.length === 0
 
@@ -655,43 +654,24 @@ The Brick's & Joy team`,
       <div className="co-body">
         {/* LEFT — form */}
         <div className="co-left"><div className="co-left-in">
-          {/* fulfilment */}
+          {/* DELIVERY — name, address, island and number are required; landmark is optional */}
           <div className="co-sec">
-            <div className="co-h">How would you like it?</div>
-            <div className="co-two">
-              {[['delivery', '🚚 Delivery', 'We bring it to you'], ['pickup', '🏬 Pickup', 'Collect from our store']].map(([k, label, sub]) => (
-                <button key={k} type="button" onClick={() => setFulfil(k)}
-                  style={{ textAlign: 'left', padding: '13px 15px', borderRadius: 10, cursor: 'pointer', fontFamily: 'inherit', border: `1.5px solid ${fulfil === k ? '#111' : '#ddd'}`, background: '#fff' }}>
-                  <div style={{ fontWeight: 700, fontSize: 14 }}>{label}</div>
-                  <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>{sub}</div>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* DELIVERY — every field is required so nothing can't be delivered */}
-          <div className="co-sec">
-            <div className="co-h">{pickup ? 'Your details' : 'Delivery'}</div>
-            <div style={{ fontSize: 12, color: '#999', marginTop: '-8px', marginBottom: 12 }}>{pickup ? 'We need your name and number to reach you.' : 'All fields are required so we can deliver to your door.'}</div>
+            <div className="co-h">Delivery</div>
+            <div style={{ fontSize: 12, color: '#999', marginTop: '-8px', marginBottom: 12 }}>We deliver to your door — the landmark is optional, everything else we need.</div>
             <div className="co-field"><input className={!fullName ? 'co-req' : ''} value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Name *" /></div>
-            {!pickup && <>
-              <div className="co-field"><input className={!form.address.trim() ? 'co-req' : ''} value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} placeholder="Address (house / street) *" /></div>
-              <div className="co-field"><input className={!form.landmark.trim() ? 'co-req' : ''} value={form.landmark} onChange={e => setForm(f => ({ ...f, landmark: e.target.value }))} placeholder="Landmark (e.g. near Sifco) — helps the delivery find you *" /></div>
-              <div className="co-field"><input className={!form.island.trim() ? 'co-req' : ''} value={form.island} onChange={e => setForm(f => ({ ...f, island: e.target.value }))} placeholder="Island (e.g. Malé, Hulhumalé) *" /></div>
-            </>}
+            <div className="co-field"><input className={!form.address.trim() ? 'co-req' : ''} value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} placeholder="Address (house / street) *" /></div>
+            <div className="co-field"><input value={form.landmark} onChange={e => setForm(f => ({ ...f, landmark: e.target.value }))} placeholder="Landmark (e.g. near Sifco) — helps the delivery find you" /></div>
+            <div className="co-field"><input className={!form.island.trim() ? 'co-req' : ''} value={form.island} onChange={e => setForm(f => ({ ...f, island: e.target.value }))} placeholder="Island (e.g. Malé, Hulhumalé) *" /></div>
             <div className="co-field"><input className={!form.phone.trim() ? 'co-req' : ''} value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} inputMode="tel" placeholder="Contact number / WhatsApp *" /></div>
-            {pickup && <div style={{ background: '#f0fbf5', border: '1px solid #cfe3d6', borderRadius: 8, padding: '12px 14px', fontSize: 13, color: '#2c7a54' }}>🏬 We'll message you on WhatsApp when it's ready to collect. No delivery charge.</div>}
           </div>
 
           {/* Delivery is free to the front door (ferry included), so there is no
               shipping method to choose. Anything unusual is arranged directly. */}
-          {!pickup && (
-            <div className="co-sec">
-              <div style={{ background: '#f0fbf5', border: '1px solid #cfe3d6', borderRadius: 8, padding: '12px 14px', fontSize: 13, color: '#2c7a54' }}>
-                🚚 Free delivery to your front door — ferry included. Gift wrapping is on us too.
-              </div>
+          <div className="co-sec">
+            <div style={{ background: '#f0fbf5', border: '1px solid #cfe3d6', borderRadius: 8, padding: '12px 14px', fontSize: 13, color: '#2c7a54' }}>
+              🚚 Free delivery to your front door — ferry included. Gift wrapping is on us too.
             </div>
-          )}
+          </div>
 
           {/* PAYMENT */}
           <div className="co-sec">
@@ -872,7 +852,7 @@ export function OrderConfirmed() {
           </div>
           <div style={{ fontSize: 12.5, color: '#8a7f6e', marginTop: 12, lineHeight: 1.55 }}>
             {cash
-              ? <>We've received your order. Please have <b>{money(lastOrder.total)}</b> ready in cash on delivery/pickup. Our team will confirm your order shortly on WhatsApp.</>
+              ? <>We've received your order. Please have <b>{money(lastOrder.total)}</b> ready in cash for the delivery. Our team will confirm your order shortly on WhatsApp.</>
               : matched
                 ? <>Your transfer slip matched the total, so your order is confirmed and being prepared.{lastOrder.email ? <> We've emailed a confirmation to <b>{lastOrder.email}</b>.</> : null} We'll deliver it to you soon and keep you posted on WhatsApp.</>
                 : <>We've received your order and transfer slip. Our team will verify the payment and confirm your order shortly — you'll hear from us on WhatsApp.</>}
