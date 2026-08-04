@@ -418,15 +418,14 @@ export function CartPage() {
 
 // ── Checkout ────────────────────────────────────────────────────────────────────
 export function CheckoutPage() {
-  const { cart, cartSubtotal, giftWrap, shipIdx, setShipIdx, user, navigate, clearCart, setLastOrder, settings } = useShop()
-  const SHIPPING = settings.shipping || []
+  const { cart, cartSubtotal, giftWrap, user, navigate, clearCart, setLastOrder, settings, removeItem } = useShop()
   const GIFT_WRAP_FEE = num(settings.gift_wrap_fee)
-  const freeOver = num(settings.free_delivery_over)
   const [fulfil, setFulfil] = useState('delivery')
+  const [payMethod, setPayMethod] = useState('')   // '' until the shopper picks one
   const pickup = fulfil === 'pickup'
-  const ship = SHIPPING[shipIdx] || SHIPPING[0] || { label: '—', fee: 0 }
-  const freeShip = freeOver > 0 && cartSubtotal >= freeOver
-  const shipFee = pickup ? 0 : (freeShip ? 0 : (ship?.fee || 0))
+  // Delivery (front door + ferry) and gift wrapping are free. Any ferry surcharge
+  // or special request is arranged with the customer directly, not billed here.
+  const shipFee = 0
   const meta = user?.user_metadata || {}
   // The same shape as a customer record in the back office — one name, an
   // address, a landmark and a contact number — so what is typed here lands in
@@ -490,7 +489,7 @@ export function CheckoutPage() {
         pickup ? 'Website order · 🏬 PICKUP from store' : `Website order · ${form.island}`,
         !pickup && form.landmark.trim() ? `Landmark: ${form.landmark.trim()}` : '',
         giftWrap ? `Gift wrap +${money(GIFT_WRAP_FEE)}` : '',
-        pickup ? 'Pickup — collect from store' : `Delivery est. ${freeShip ? 'FREE' : money(shipFee)} (${ship?.label})`,
+        pickup ? 'Pickup — collect from store' : 'Delivery — free (front door & ferry)',
         applied ? `Coupon ${applied.code} −${money(discount)}` : '',
         `Amount to pay ${money(total)}`,
         form.notes ? `Note: ${form.notes}` : '',
@@ -582,8 +581,14 @@ export function CheckoutPage() {
     setCopied(key); setTimeout(() => setCopied(c => (c === key ? '' : c)), 1500)
   }
 
-  const canPlace = fullName && form.phone.trim() && (pickup || form.island.trim()) && cart.length && slip
+  const canPlace = fullName && form.phone.trim() && (pickup || form.island.trim()) && cart.length && slip && payMethod === 'bank'
   const [logoOk, setLogoOk] = useState(true)
+
+  // Removing the last line would leave an empty checkout — send them back to the cart.
+  function removeFromOrder(id) {
+    if (cart.length <= 1) { removeItem(id); navigate('/cart'); return }
+    removeItem(id)
+  }
   return (
     <div className="co">
       <div className="co-top">
@@ -594,23 +599,6 @@ export function CheckoutPage() {
       <div className="co-body">
         {/* LEFT — form */}
         <div className="co-left"><div className="co-left-in">
-          {/* account / email */}
-          <div className="co-sec">
-            {user ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, border: '1px solid #eee', borderRadius: 8, padding: '12px 14px' }}>
-                {user.user_metadata?.avatar_url
-                  ? <img src={user.user_metadata.avatar_url} alt="" style={{ width: 26, height: 26, borderRadius: '50%' }} />
-                  : <span style={{ width: 26, height: 26, borderRadius: '50%', background: '#0d1b2a', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 12 }}>{(user.email || '?')[0].toUpperCase()}</span>}
-                <span style={{ fontSize: 14 }}>{user.email}</span>
-              </div>
-            ) : (
-              <>
-                <div className="co-h">Contact</div>
-                <div className="co-field"><input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="Email address" autoComplete="email" /></div>
-              </>
-            )}
-          </div>
-
           {/* fulfilment */}
           <div className="co-sec">
             <div className="co-h">How would you like it?</div>
@@ -638,26 +626,29 @@ export function CheckoutPage() {
             {pickup && <div style={{ background: '#f0fbf5', border: '1px solid #cfe3d6', borderRadius: 8, padding: '12px 14px', fontSize: 13, color: '#2c7a54' }}>🏬 We'll message you on WhatsApp when it's ready to collect. No delivery charge.</div>}
           </div>
 
-          {/* SHIPPING METHOD */}
+          {/* Delivery is free to the front door (ferry included), so there is no
+              shipping method to choose. Anything unusual is arranged directly. */}
           {!pickup && (
             <div className="co-sec">
-              <div className="co-h">Shipping method</div>
-              <div className="co-field"><select value={shipIdx} onChange={e => setShipIdx(Number(e.target.value))}>
-                {SHIPPING.map((s, i) => <option key={i} value={i}>{s.label} — {freeShip ? 'FREE' : money(s.fee)}</option>)}
-              </select></div>
-              <div style={{ fontSize: 12, color: '#999' }}>Delivery is an estimate — the final charge is confirmed with you.</div>
+              <div style={{ background: '#f0fbf5', border: '1px solid #cfe3d6', borderRadius: 8, padding: '12px 14px', fontSize: 13, color: '#2c7a54' }}>
+                🚚 Free delivery to your front door — ferry included. Gift wrapping is on us too.
+              </div>
             </div>
           )}
 
           {/* PAYMENT */}
           <div className="co-sec">
             <div className="co-h">Payment</div>
-            <div style={{ fontSize: 12.5, color: '#888', marginTop: '-8px', marginBottom: 12 }}>All transactions are secure. Pay by bank transfer after ordering.</div>
-            <div style={{ border: '1.5px solid #111', borderRadius: 8, padding: '14px 15px', display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ width: 16, height: 16, borderRadius: '50%', border: '5px solid #111' }} />
-              <div><div style={{ fontWeight: 700, fontSize: 14 }}>Bank transfer</div><div style={{ fontSize: 12.5, color: '#888' }}>Transfer now and attach the slip below.</div></div>
-            </div>
+            <div style={{ fontSize: 12.5, color: '#888', marginTop: '-8px', marginBottom: 12 }}>All transactions are secure. Choose how you'd like to pay.</div>
 
+            {/* The method is a choice — the transfer details only open once it's picked. */}
+            <button type="button" onClick={() => setPayMethod('bank')}
+              style={{ width: '100%', textAlign: 'left', border: `1.5px solid ${payMethod === 'bank' ? '#111' : '#ddd'}`, borderRadius: 8, padding: '14px 15px', display: 'flex', alignItems: 'center', gap: 10, background: '#fff', cursor: 'pointer', fontFamily: 'inherit' }}>
+              <span style={{ width: 16, height: 16, borderRadius: '50%', border: payMethod === 'bank' ? '5px solid #111' : '1.5px solid #bbb', flexShrink: 0 }} />
+              <div><div style={{ fontWeight: 700, fontSize: 14 }}>Bank transfer</div><div style={{ fontSize: 12.5, color: '#888' }}>Transfer now and attach the slip.</div></div>
+            </button>
+
+            {payMethod === 'bank' && <>
             {/* Where to send the money. Shown before ordering, not after, because
                 the slip has to be attached before the order can be placed. */}
             <div style={{ border: '1px solid #e6e0d6', background: '#fffdf6', borderRadius: 10, padding: '14px 15px', marginTop: 10 }}>
@@ -703,6 +694,8 @@ export function CheckoutPage() {
               {slipError && <div style={{ fontSize: 12, color: '#E24B4A', marginTop: 6 }}>{slipError}</div>}
               {!slip && <div style={{ fontSize: 12, color: '#a79a80', marginTop: 6 }}>Your order can't be placed until the slip is attached.</div>}
             </div>
+            </>}
+
             <div style={{ border: '1px solid #eee', borderRadius: 8, padding: '14px 15px', display: 'flex', alignItems: 'center', gap: 10, marginTop: 8, opacity: 0.55 }}>
               <span style={{ width: 16, height: 16, borderRadius: '50%', border: '1.5px solid #ccc' }} />
               <div><div style={{ fontWeight: 700, fontSize: 14 }}>Card payment</div><div style={{ fontSize: 12.5, color: '#888' }}>Coming soon</div></div>
@@ -717,11 +710,16 @@ export function CheckoutPage() {
 
         {/* RIGHT — grey order summary */}
         <div className="co-right"><div className="co-right-in">
+          <div className="co-sumhead">
+            <div style={{ fontWeight: 800, fontSize: 16 }}>Order summary</div>
+            <button type="button" className="co-editcart" onClick={() => navigate('/cart')}><ArrowLeft size={13} /> Edit cart</button>
+          </div>
           {cart.map(it => (
             <div key={it.id} className="co-item">
-              <div className="th"><ProductImage src={it.photo_url} name={it.name} style={{ width: 92, height: 92, borderRadius: 10, border: '1px solid #e6e0d6' }} /><span className="qb">{it.qty}</span></div>
+              <div className="th" onClick={() => navigate(`/product/${it.id}`)} style={{ cursor: 'pointer' }}><ProductImage src={it.photo_url} name={it.name} style={{ width: 118, height: 118, borderRadius: 12, border: '1px solid #e6e0d6' }} /><span className="qb">{it.qty}</span></div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13.5, fontWeight: 600 }}>{it.name}</div>
+                <div style={{ fontSize: 14, fontWeight: 600, cursor: 'pointer' }} onClick={() => navigate(`/product/${it.id}`)}>{it.name}</div>
+                <button type="button" className="co-remove" onClick={() => removeFromOrder(it.id)}><Trash2 size={13} /> Remove</button>
               </div>
               <div style={{ fontWeight: 600, fontSize: 14 }}>{money(num(it.price) * it.qty)}</div>
             </div>
@@ -735,7 +733,7 @@ export function CheckoutPage() {
 
           <div className="co-row"><span>Subtotal</span><span>{money(cartSubtotal)}</span></div>
           {giftWrap && <div className="co-row"><span>Gift wrapping</span><span>{money(GIFT_WRAP_FEE)}</span></div>}
-          <div className="co-row"><span>{pickup ? 'Pickup' : 'Shipping'}</span><span>{pickup || freeShip ? 'FREE' : money(shipFee)}</span></div>
+          <div className="co-row"><span>{pickup ? 'Pickup' : 'Delivery'}</span><span style={{ color: '#1D9E75', fontWeight: 700 }}>FREE</span></div>
           {discount > 0 && <div className="co-row" style={{ color: '#1D9E75' }}><span>Discount</span><span>−{money(discount)}</span></div>}
           <div className="co-tot"><span>Total</span><span><span className="usd">MVR</span>{money(total).replace('MVR ', '')}</span></div>
 
