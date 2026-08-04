@@ -16,7 +16,7 @@ const BANK_ACCOUNT_NO = '7730000819195'
 const BANK_ACCOUNT_NAME = 'BRICKS & JOY'
 
 const CHANNELS = ['Website','Instagram','Facebook','Retail shop','Pop-up shop','Call']
-const STATUSES = [{ value: 'created', label: 'Order created' },{ value: 'transit', label: 'Dispatched' },{ value: 'delivered', label: 'Delivered' },{ value: 'cancelled', label: 'Cancelled' }]
+const STATUSES = [{ value: 'review', label: 'Under review' },{ value: 'created', label: 'Order created' },{ value: 'transit', label: 'Dispatched' },{ value: 'delivered', label: 'Delivered' },{ value: 'cancelled', label: 'Cancelled' }]
 const PAY_METHODS = ['Cash','BML Transfer','Bank Transfer','Card','Other']
 const EMPTY_FORM = { customer_id:'', customer_name:'', channel:'Instagram', status:'created', order_date:'', notes:'', payment_status:'unpaid', payment_method:'', transfer_reference:'', invoice_number:'', fulfilment:'delivery', delivery_person:'', delivery_date:'', delivery_time:'', discount_value:0, discount_type:'amount', special_request:'', charges: [] }
 const today = localToday
@@ -88,7 +88,7 @@ export default function Orders() {
   const [payForm, setPayForm] = useState({ payment_method: 'Cash', transfer_reference: '', transfer_slip_url: '', payment_status: 'paid' })
   const [returnForm, setReturnForm] = useState({ reason: '', refund_amount: 0, refund_method: 'BML Transfer', refund_reference: '', refunded_on: localToday() })
   const [saving, setSaving] = useState(false)
-  const [filter, setFilter] = useState('created')
+  const [filter, setFilter] = useState('review')
   const [uploadingSlip, setUploadingSlip] = useState(false)
   const [scanning, setScanning] = useState(null)
   const [contacts, setContacts] = useState([])
@@ -929,7 +929,7 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
   const outOfStockCount = products.filter(p => p.stock_qty <= 0).length
 
   const AVATAR_COLORS = ['#7F77DD','#1D9E75','#FFA500','#378ADD','#E24B4A','#0F6E56']
-  const statusColors = { created: '#7F77DD', pending: '#FFA500', transit: '#378ADD', delivered: '#1D9E75', cancelled: '#E24B4A' }
+  const statusColors = { review: '#E08A00', created: '#7F77DD', pending: '#FFA500', transit: '#378ADD', delivered: '#1D9E75', cancelled: '#E24B4A' }
   const payColors = { paid: '#1D9E75', partial: '#FFA500', unpaid: '#E24B4A' }
 
   const productPhoto = o => products.find(p => p.id === o.product_id)?.photo_url || ''
@@ -1085,6 +1085,7 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
             {/* Status filters */}
             <div className="ord-filters" style={{ display: 'flex', background: '#f5f5f5', borderRadius: 10, padding: 3, gap: 2 }}>
               {[
+                { key: 'review', label: 'Under review', count: orders.filter(o => o.status === 'review').length },
                 { key: 'created', label: 'Created', count: orders.filter(o => o.status === 'created').length },
                 { key: 'transit', label: 'Dispatched', count: orders.filter(o => o.status === 'transit').length },
                 { key: 'delivered', label: 'Delivered', count: orders.filter(o => o.status === 'delivered').length },
@@ -1168,6 +1169,9 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
                             <button className="ord-kebab-item" onClick={() => { openSms(o); setKebabOpen(null) }}><MessageSquare size={13} /> SMS</button>
                             {o.status !== 'cancelled' && (
                               <button className="ord-kebab-item" onClick={() => { setReturnModal(o); setReturnForm({ reason: '', refund_amount: o.total_price || 0 }); setKebabOpen(null) }}><RotateCcw size={13} /> Return</button>
+                            )}
+                            {o.status !== 'cancelled' && (
+                              <button className="ord-kebab-item danger" onClick={() => { if (window.confirm('Cancel this order? The customer will see it as cancelled in their order history.')) updateStatus(o.id, 'cancelled'); setKebabOpen(null) }}><X size={13} /> Cancel order</button>
                             )}
                             <button className="ord-kebab-item danger" onClick={() => { del(o.id); setKebabOpen(null) }}><Trash2 size={13} /> Delete</button>
                           </div>
