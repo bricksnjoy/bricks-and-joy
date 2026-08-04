@@ -49,7 +49,7 @@ const TIERS = [
   { name: 'Legend', min: 15000, emoji: '👑', perks: ['VIP support', 'Exclusive drops'] },
 ]
 const ORDER_STATUS = {
-  created: ['Order received', '#6a1b9a'], pending: ['Pending', '#b8740a'],
+  review: ['Under review', '#b8740a'], created: ['Order confirmed', '#6a1b9a'], pending: ['Pending', '#b8740a'],
   transit: ['On the way', '#1565c0'], delivered: ['Delivered', '#1D9E75'], cancelled: ['Cancelled', '#c62828'],
 }
 
@@ -550,7 +550,9 @@ export function CheckoutPage() {
           unit_price: num(it.price),
           total_price: +(Math.max(0, line - itemDiscount) + (isFirst ? shipFee + wrapFee : 0)).toFixed(2),
           discount: itemDiscount,
-          channel: 'Website', status: 'created', order_date: orderDate,
+          // Website orders land as "under review" — bank or cash — until the back
+          // office checks the slip/payment and confirms (or cancels) them.
+          channel: 'Website', status: 'review', order_date: orderDate,
           invoice_number: invoice, payment_status: 'unpaid', payment_method: payLabel,
           // Kept on the first row only, the way the back office reads a slip
           transfer_slip_url: isFirst && !cash ? slip?.url || null : null,
@@ -841,7 +843,6 @@ export function OrderConfirmed() {
   const { lastOrder, navigate } = useShop()
   useEffect(() => { if (!lastOrder) navigate('/') }, []) // eslint-disable-line
   if (!lastOrder) return null
-  const matched = lastOrder.matched
   const cash = lastOrder.cash
   return (
     <div className="oc-page">
@@ -867,16 +868,12 @@ export function OrderConfirmed() {
           </div>
           <div className="oc-row">
             <span>Status</span>
-            <span className="oc-status" style={{ color: matched ? '#1D8A5B' : '#b8740a', background: matched ? '#e8f7ee' : '#fdf3e2' }}>
-              {matched ? 'Confirmed — being processed' : 'Order created — under review'}
-            </span>
+            <span className="oc-status" style={{ color: '#b8740a', background: '#fdf3e2' }}>Under review</span>
           </div>
           <p className="oc-note">
             {cash
-              ? <>We've received your order. Please have <b>{money(lastOrder.total)}</b> ready in cash for the delivery. Our team will confirm your order shortly on WhatsApp.</>
-              : matched
-                ? <>Your transfer slip matched the total, so your order is confirmed and being prepared.{lastOrder.email ? <> We've emailed a confirmation to <b>{lastOrder.email}</b>.</> : null} We'll deliver it to you soon and keep you posted on WhatsApp.</>
-                : <>We've received your order and transfer slip. Our team will verify the payment and confirm your order shortly — you'll hear from us on WhatsApp.</>}
+              ? <>We've received your order. Please have <b>{money(lastOrder.total)}</b> ready in cash for the delivery. Our team will review and confirm your order shortly on WhatsApp.</>
+              : <>We've received your order and payment slip. Our team will check the payment and confirm your order shortly — you'll hear from us on WhatsApp.</>}
           </p>
         </div>
 
