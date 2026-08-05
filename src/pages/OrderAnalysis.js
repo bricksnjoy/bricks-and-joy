@@ -253,7 +253,34 @@ export default function OrderAnalysis() {
   async function loadItems(id) {
     setItemsLoading(true)
     const { data } = await supabase.from('order_analysis_items').select('*').eq('analysis_id', id).order('sort_order').order('created_at')
-    setItems(data || [])
+    let list = data || []
+    // A draft mirrors the supplier catalog's cost: on open, pull the current cost
+    // for every catalog-linked line, so a price change in the catalog — however it
+    // was made (single edit, bulk import, anything) — shows here. This only ever
+    // reads the catalog and writes the analysis; an edit made in the analysis
+    // never flows back to the catalog. Planned sell price and quantity are left
+    // exactly as they were set. Converted analyses are history and never touched.
+    try {
+      const { data: aRow } = await supabase.from('order_analyses').select('status').eq('id', id).maybeSingle()
+      if (aRow && aRow.status !== 'converted') {
+        const ids = [...new Set(list.map(i => i.supplier_product_id).filter(Boolean))]
+        if (ids.length) {
+          const { data: sps } = await supabase.from('supplier_products').select('id, cost_price').in('id', ids)
+          const costOf = new Map((sps || []).map(s => [s.id, s.cost_price == null ? 0 : Number(s.cost_price)]))
+          const changed = []
+          list = list.map(it => {
+            if (it.supplier_product_id != null && costOf.has(it.supplier_product_id) && Number(it.unit_cost) !== costOf.get(it.supplier_product_id)) {
+              changed.push([it.id, costOf.get(it.supplier_product_id)])
+              return { ...it, unit_cost: costOf.get(it.supplier_product_id) }
+            }
+            return it
+          })
+          // Persist the reconciled costs (best-effort — display already reflects them).
+          changed.forEach(([iid, nc]) => supabase.from('order_analysis_items').update({ unit_cost: nc }).eq('id', iid))
+        }
+      }
+    } catch { /* the reconcile is best-effort; never block showing the analysis */ }
+    setItems(list)
     setItemsLoading(false)
   }
 
