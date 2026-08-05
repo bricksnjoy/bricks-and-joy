@@ -554,6 +554,34 @@ export default function SupplierCatalog() {
     }
     setSaving(false)
     if (error) { toast.error('Failed to save: ' + error.message); return }
+
+    // Keep open order analyses in step with the catalog. An edit to a catalog
+    // product's cost or details flows into every draft analysis whose lines
+    // reference it, so a price change here shows up in the analysis maths too.
+    // Converted analyses are history and keep the prices they were ordered at.
+    if (editItem) {
+      try {
+        const { data: openA } = await supabase.from('order_analyses').select('id, status')
+        const openIds = (openA || []).filter(a => a.status !== 'converted').map(a => a.id)
+        if (openIds.length) {
+          const syncPatch = {
+            unit_cost: payload.cost_price == null ? 0 : payload.cost_price,
+            product_name: payload.product_name, sku: payload.sku,
+            category: payload.category, brand: payload.brand,
+            sizes: payload.sizes, image_url: payload.image_url,
+          }
+          let { error: sErr } = await supabase.from('order_analysis_items').update(syncPatch).eq('supplier_product_id', editItem.id).in('analysis_id', openIds)
+          // Drop any column this DB doesn't have and retry, like the save above.
+          while (sErr && /column .* does not exist|could not find/i.test(sErr.message || '')) {
+            const col = missingColumn(sErr.message)
+            if (!col || !(col in syncPatch)) break
+            delete syncPatch[col]
+            sErr = (await supabase.from('order_analysis_items').update(syncPatch).eq('supplier_product_id', editItem.id).in('analysis_id', openIds)).error
+          }
+        }
+      } catch { /* best-effort — a sync hiccup must never block the catalog save */ }
+    }
+
     toast.success(editItem ? 'Updated!' : 'Product added to catalog!')
     setAddModal(false)
     load()
