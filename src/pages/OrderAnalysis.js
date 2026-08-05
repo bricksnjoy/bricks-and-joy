@@ -1088,7 +1088,7 @@ export default function OrderAnalysis() {
 
         <PageHeader
           title={open.name}
-          subtitle={`${groups.length} vendor${groups.length === 1 ? '' : 's'} · ${rows.length} product${rows.length === 1 ? '' : 's'} · ${converted ? `ordered as ${open.batch_no}` : 'draft — nothing has been ordered'}`}
+          subtitle={`${groups.length} vendor${groups.length === 1 ? '' : 's'} · ${rows.length} product${rows.length === 1 ? '' : 's'} · ${converted ? `✓ Completed — ordered as ${open.batch_no}` : 'draft — nothing has been ordered'}`}
           action={
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <Button variant="ghost" onClick={exportExcel}><FileSpreadsheet size={14} /> Excel</Button>
@@ -1108,7 +1108,7 @@ export default function OrderAnalysis() {
           <Card style={{ marginBottom: 18, background: '#f2faf5', border: '1px solid #cfe8db', display: 'flex', alignItems: 'center', gap: 10 }}>
             <CheckCircle size={17} color="#1D9E75" />
             <span style={{ fontSize: 13, color: '#2c7a54' }}>
-              This analysis became batch order{(open.batch_no || '').includes(',') ? 's' : ''} <b>{open.batch_no}</b>. Track and receive {(open.batch_no || '').includes(',') ? 'them' : 'it'} from the Batch Orders page — editing here no longer changes the order.
+              <b>Completed.</b> This analysis became batch order{(open.batch_no || '').includes(',') ? 's' : ''} <b>{open.batch_no}</b>. Track and receive {(open.batch_no || '').includes(',') ? 'them' : 'it'} from the Batch Orders page — editing here no longer changes the order.
             </span>
           </Card>
         )}
@@ -1654,7 +1654,7 @@ export default function OrderAnalysis() {
         </Card>
       )}
 
-      {[['Drafts', drafts], ['Ordered', done]].map(([label, list]) => list.length > 0 && (
+      {[['Drafts', drafts], ['Completed', done]].map(([label, list]) => list.length > 0 && (
         <div key={label} style={{ marginBottom: 26 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: '#ccc', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 10 }}>{label}</div>
           <div className="grid-collapse" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 14 }}>
@@ -1713,11 +1713,11 @@ function AnalysisCard({ a, onOpen, onDelete }) {
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 14.5, fontWeight: 700, color: '#0d1b2a', letterSpacing: '-0.2px' }}>{a.name}</div>
           <div style={{ fontSize: 11.5, color: '#bbb', marginTop: 3 }}>
-            {a.supplier_name ? `${a.supplier_name} · ` : ''}{(a.created_at || '').slice(0, 10)}
+            {a.supplier_name ? `${a.supplier_name} · ` : ''}{(a.created_at || '').slice(0, 10)}{converted && a.batch_no ? ` · ${a.batch_no}` : ''}
           </div>
         </div>
         {converted
-          ? <Badge color="green">{a.batch_no || 'Ordered'}</Badge>
+          ? <Badge color="green"><CheckCircle size={11} style={{ verticalAlign: -1, marginRight: 3 }} />Completed</Badge>
           : <Badge color="amber">Draft</Badge>}
       </div>
 
