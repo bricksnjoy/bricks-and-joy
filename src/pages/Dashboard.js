@@ -4,9 +4,9 @@ import { localToday, toLocalISO } from '../lib/dates'
 import { StockBadge, StatusBadge, Spinner } from '../components/UI'
 import {
   Package, ShoppingCart, Users, TrendingUp, TrendingDown,
-  AlertTriangle, CheckCircle, DollarSign, Zap, CreditCard,
+  AlertTriangle, CheckCircle, DollarSign, Zap,
   ArrowUpRight, ArrowDownRight, Activity, Star, UserCheck,
-  Wallet, Truck, Sparkles, ChevronRight, Lightbulb
+  Wallet, Truck, Sparkles, ChevronRight, Lightbulb, Plus
 } from 'lucide-react'
 import { actionItems, generateInsights, restockPredictions } from '../lib/insights'
 import { loyaltyProfile } from '../lib/loyalty'
@@ -156,8 +156,26 @@ export default function Dashboard() {
   const [insights, setInsights] = useState([])
   const [daily, setDaily] = useState([])
   const [range, setRange] = useState('1m')
-  const [metric, setMetric] = useState('revenue')
   const [loading, setLoading] = useState(true)
+  // Needs attention and Smart insights sit behind the two header buttons; what
+  // has already been read is remembered so the badge only counts what is new.
+  const [showActions, setShowActions] = useState(false)
+  const [showInsights, setShowInsights] = useState(false)
+  const [seen, setSeen] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('bnj_dash_seen') || '{}') } catch { return {} }
+  })
+  function markSeen(kind, keys) {
+    const next = { ...seen, [kind]: keys }
+    setSeen(next)
+    try { localStorage.setItem('bnj_dash_seen', JSON.stringify(next)) } catch { /* private mode */ }
+  }
+  const newActions = actions.filter(a => !(seen.actions || []).includes(a.key)).length
+  const newInsights = insights.filter(i => !(seen.insights || []).includes(i.text)).length
+  // Shortcut to the Orders page's new-order form
+  function newOrder() {
+    try { sessionStorage.setItem('bnj_new_order', '1') } catch { /* private mode */ }
+    navTo('orders')
+  }
 
   useEffect(() => { loadDashboard() }, [])
 
@@ -241,7 +259,7 @@ export default function Dashboard() {
     setActions(actionItems({ orders: ords, products: prods, customers: custs, loyaltyProfiles }))
     setInsights(generateInsights({ orders: ords, products: prods, customers: custs, restock, loyaltyProfiles }))
 
-    setStats({ products: prods.length, totalStock: prods.reduce((s, p) => s + (p.stock_qty || 0), 0), customers: custs.length, activeOrders: ords.filter(o => o.status === 'pending' || o.status === 'transit').length, deliveredOrders: delivered.length, revenue, netProfit, pendingOrders: ords.filter(o => o.status === 'pending').length, todaySales, thisMonthSales, lastMonthSales, monthChange })
+    setStats({ products: prods.length, totalStock: prods.reduce((s, p) => s + (p.stock_qty || 0), 0), customers: custs.length, totalOrders: ords.length, activeOrders: ords.filter(o => o.status === 'pending' || o.status === 'transit').length, deliveredOrders: delivered.length, revenue, netProfit, pendingOrders: ords.filter(o => o.status === 'pending').length, todaySales, thisMonthSales, lastMonthSales, monthChange })
     setLowStock(prods.filter(p => p.stock_qty <= (p.low_stock_threshold ?? 10)).slice(0, 5))
     setRecentOrders(ords.slice(0, 6))
     setRecentCustomers(custs.slice(0, 4))
@@ -259,16 +277,7 @@ export default function Dashboard() {
       return { revenue, orders, customers: sum(rows, 'customers'), aov: orders ? revenue / orders : 0 }
     }
     const c = fold(cur), p = fold(prev)
-    const delta = k => (p[k] > 0 ? ((c[k] - p[k]) / p[k]) * 100 : null)
-    return {
-      data: cur, days,
-      tiles: [
-        { key: 'revenue', label: 'Revenue', icon: DollarSign, value: mvFull(c.revenue), delta: delta('revenue'), fmt: mvFull },
-        { key: 'orders', label: 'Orders', icon: ShoppingCart, value: c.orders.toLocaleString('en-US'), delta: delta('orders'), fmt: v => Math.round(v).toLocaleString('en-US') },
-        { key: 'aov', label: 'Avg. order value', icon: CreditCard, value: mvFull(c.aov), delta: delta('aov'), fmt: mvFull },
-        { key: 'customers', label: 'New customers', icon: Users, value: c.customers.toLocaleString('en-US'), delta: delta('customers'), fmt: v => Math.round(v).toLocaleString('en-US') },
-      ],
-    }
+    return { data: cur, days, total: c.revenue, delta: p.revenue > 0 ? ((c.revenue - p.revenue) / p.revenue) * 100 : null }
   }, [daily, range])
 
   if (loading) return <Spinner />
@@ -277,14 +286,20 @@ export default function Dashboard() {
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
   const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
 
-  // The figures the revenue panel doesn't already carry
+  // The four headline totals
+  const topCards = [
+    { label: 'Total Revenue', value: mvFull(stats.revenue), icon: DollarSign, color: '#1D9E75', bg: '#E7F6EF' },
+    { label: 'Total Orders', value: stats.totalOrders.toLocaleString('en-US'), icon: ShoppingCart, color: '#FFA500', bg: '#FFF6E3' },
+    { label: 'Total Customers', value: stats.customers.toLocaleString('en-US'), icon: Users, color: '#7F77DD', bg: '#EEEDFE' },
+    { label: 'Units in Stock', value: stats.totalStock.toLocaleString('en-US'), icon: Activity, color: '#0F6E56', bg: '#E7F6EF' },
+  ]
+
+  // The figures the headline cards and the revenue panel don't already carry
   const metrics = [
     { label: 'Net Profit', value: `${stats.netProfit >= 0 ? '' : '-'}MVR ${Math.abs(stats.netProfit).toFixed(0)}`, icon: stats.netProfit >= 0 ? TrendingUp : TrendingDown, color: stats.netProfit >= 0 ? '#1D9E75' : '#E24B4A', bg: stats.netProfit >= 0 ? '#E7F6EF' : '#FCEBEB' },
     { label: "Today's Sales", value: `MVR ${stats.todaySales.toFixed(0)}`, icon: Zap, color: '#FFA500', bg: '#FFF6E3' },
     { label: 'Active Orders', value: stats.activeOrders, icon: ShoppingCart, color: '#FFA500', bg: '#FFF6E3' },
     { label: 'Products', value: stats.products, icon: Package, color: '#378ADD', bg: '#E6F1FB' },
-    { label: 'Customers', value: stats.customers, icon: Users, color: '#7F77DD', bg: '#EEEDFE' },
-    { label: 'Units in Stock', value: stats.totalStock, icon: Activity, color: '#0F6E56', bg: '#E7F6EF' },
   ]
 
   const statusGroups = [
@@ -332,6 +347,12 @@ export default function Dashboard() {
         .rv-trow { display: flex; align-items: center; gap: 10px; margin-top: 9px; flex-wrap: wrap; }
         .rv-tval { font-size: 25px; font-weight: 600; color: #0d1b2a; letter-spacing: -0.8px; line-height: 1; }
         .rv-chip { display: inline-flex; align-items: center; gap: 2px; font-size: 11.5px; font-weight: 600; padding: 3px 8px; border-radius: 99px; }
+        .dash-iconbtn { position: relative; background: #fff; border: 1px solid #eee; border-radius: 10px; width: 38px; height: 36px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all .15s; }
+        .dash-iconbtn:hover { border-color: #ddd; box-shadow: 0 3px 12px rgba(0,0,0,0.06); }
+        .dash-iconbtn.on { background: #0d1b2a; border-color: #0d1b2a; }
+        .dash-badge { position: absolute; top: -6px; right: -6px; min-width: 17px; height: 17px; padding: 0 4px; box-sizing: border-box; border-radius: 99px; background: #E24B4A; color: #fff; font-size: 10px; font-weight: 800; display: flex; align-items: center; justify-content: center; border: 2px solid #fff; font-family: ${UI}; }
+        .dash-newbtn { display: inline-flex; align-items: center; gap: 6px; background: #FFA500; color: #fff; border: none; border-radius: 10px; padding: 9px 16px; font-family: ${UI}; font-size: 13px; font-weight: 600; cursor: pointer; transition: all .15s; box-shadow: 0 4px 14px rgba(255,165,0,0.32); }
+        .dash-newbtn:hover { background: #f09a00; transform: translateY(-1px); }
         .rv-mini { font-family: ${UI}; display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 14px; }
         .rv-minicard { background: #fff; border: 1px solid #ece7de; border-radius: 14px; padding: 14px 16px; display: flex; align-items: flex-start; gap: 10px; }
         .rv-minival { font-size: 19px; font-weight: 600; color: #0d1b2a; letter-spacing: -0.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -353,22 +374,48 @@ export default function Dashboard() {
       {/* Header */}
       <div style={{ marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 10 }}>
         <div>
-          <h1 style={{ fontSize: 26, fontWeight: 800, margin: 0, color: '#0d1b2a', letterSpacing: '-0.6px' }}>{greeting} 👋</h1>
+          <h1 style={{ fontSize: 26, fontWeight: 800, margin: 0, color: '#0d1b2a', letterSpacing: '-0.6px' }}>{greeting}</h1>
           <p style={{ margin: '4px 0 0', color: '#bbb', fontSize: 12, fontWeight: 500 }}>{today}</p>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <div style={{ background: '#fff', border: '1px solid #eee', borderRadius: 10, padding: '8px 14px', fontSize: 12, fontWeight: 600, color: '#0d1b2a', display: 'flex', alignItems: 'center', gap: 6 }}>
             <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#1D9E75' }} />
             Live
           </div>
+          <button className={`dash-iconbtn${showActions ? ' on' : ''}`} title="Needs attention"
+            onClick={() => { const n = !showActions; setShowActions(n); if (n) markSeen('actions', actions.map(a => a.key)) }}>
+            <AlertTriangle size={16} color={showActions ? '#fff' : '#E24B4A'} />
+            {newActions > 0 && !showActions && <span className="dash-badge">{newActions}</span>}
+          </button>
+          <button className={`dash-iconbtn${showInsights ? ' on' : ''}`} title="Smart insights"
+            onClick={() => { const n = !showInsights; setShowInsights(n); if (n) markSeen('insights', insights.map(i => i.text)) }}>
+            <Sparkles size={16} color={showInsights ? '#fff' : '#7F77DD'} />
+            {newInsights > 0 && !showInsights && <span className="dash-badge">{newInsights}</span>}
+          </button>
+          <button className="dash-newbtn" onClick={newOrder}><Plus size={15} /> New order</button>
         </div>
       </div>
 
-      {/* Action center + AI insights */}
-      {(actions.length > 0 || insights.length > 0) && (
-        <div className="grid-collapse" style={{ display: 'grid', gridTemplateColumns: actions.length ? '1fr 1fr' : '1fr', gap: 14, marginBottom: 16 }}>
+      {/* Headline totals */}
+      <div className="rv-mini" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+        {topCards.map((m, i) => (
+          <div key={i} className="rv-minicard" style={{ animation: 'fadeSlideUp 0.3s ease both', animationDelay: `${i * 0.05}s` }}>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div className="rv-tlabel" style={{ marginBottom: 7 }}>{m.label}</div>
+              <div className="rv-minival" style={{ fontSize: 22 }}>{m.value}</div>
+            </div>
+            <span style={{ background: m.bg, borderRadius: 10, padding: 8, display: 'flex', flexShrink: 0 }}>
+              <m.icon size={15} color={m.color} />
+            </span>
+          </div>
+        ))}
+      </div>
+
+      {/* Action center + AI insights — opened from the two header buttons */}
+      {((showActions && actions.length > 0) || (showInsights && insights.length > 0)) && (
+        <div className="grid-collapse" style={{ display: 'grid', gridTemplateColumns: (showActions && actions.length && showInsights && insights.length) ? '1fr 1fr' : '1fr', gap: 14, marginBottom: 16 }}>
           {/* Needs attention */}
-          {actions.length > 0 && (
+          {showActions && actions.length > 0 && (
             <div className="panel" style={{ animation: 'fadeSlideUp 0.3s ease both' }}>
               <div className="panel-header">
                 <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
@@ -401,7 +448,7 @@ export default function Dashboard() {
           )}
 
           {/* AI insights */}
-          {insights.length > 0 && (
+          {showInsights && insights.length > 0 && (
             <div className="panel" style={{ animation: 'fadeSlideUp 0.3s ease both', animationDelay: '0.05s' }}>
               <div className="panel-header">
                 <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
@@ -429,6 +476,16 @@ export default function Dashboard() {
       {/* ── Revenue ─────────────────────────────────────────────────────── */}
       <div className="rv-panel">
         <div className="rv-top">
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 13, color: '#8a8278', fontWeight: 500 }}>Revenue</span>
+            <span style={{ fontSize: 24, fontWeight: 600, color: '#0d1b2a', letterSpacing: '-0.7px' }}>{mvFull(rev.total)}</span>
+            {rev.delta != null && (
+              <span className="rv-chip" style={{ background: rev.delta >= 0 ? '#E7F6EF' : '#FCEBEB', color: rev.delta >= 0 ? '#1D8A5B' : '#D0453F' }}>
+                {rev.delta >= 0 ? <ArrowUpRight size={11} /> : <ArrowDownRight size={11} />}
+                {Math.abs(rev.delta).toFixed(1)}%
+              </span>
+            )}
+          </div>
           <div className="rv-ranges">
             {RANGES.map(r => (
               <button key={r.key} className={range === r.key ? 'on' : ''} onClick={() => setRange(r.key)}>{r.label}</button>
@@ -436,31 +493,10 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* KPI strip — pick one to plot */}
-        <div className="rv-tiles">
-          {rev.tiles.map(t => (
-            <button key={t.key} className={`rv-tile${metric === t.key ? ' on' : ''}`} onClick={() => setMetric(t.key)}>
-              <div className="rv-tlabel"><t.icon size={13} color="#a9a094" /> {t.label}</div>
-              <div className="rv-trow">
-                <span className="rv-tval">{t.value}</span>
-                {t.delta != null && (
-                  <span className="rv-chip" style={{ background: t.delta >= 0 ? '#E7F6EF' : '#FCEBEB', color: t.delta >= 0 ? '#1D8A5B' : '#D0453F' }}>
-                    {t.delta >= 0 ? <ArrowUpRight size={11} /> : <ArrowDownRight size={11} />}
-                    {Math.abs(t.delta).toFixed(1)}%
-                  </span>
-                )}
-              </div>
-            </button>
-          ))}
-        </div>
-
-        <div style={{ padding: '22px 22px 16px' }}>
+        <div style={{ padding: '4px 22px 16px' }}>
           {rev.data.length === 0
             ? <div style={{ padding: '70px 0', textAlign: 'center', color: '#c4bcb0', fontSize: 13, fontFamily: UI }}>No data for this period yet</div>
-            : (() => {
-              const t = rev.tiles.find(x => x.key === metric) || rev.tiles[0]
-              return <TrendLine data={rev.data} valueKey={t.key} seriesLabel={t.label} format={t.fmt} />
-            })()}
+            : <TrendLine data={rev.data} valueKey="revenue" seriesLabel="Revenue" format={mvFull} />}
         </div>
       </div>
 

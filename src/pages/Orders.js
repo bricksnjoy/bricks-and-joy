@@ -109,6 +109,16 @@ export default function Orders() {
 
   useEffect(() => { load() }, [])
 
+  // The dashboard's "New order" shortcut asks for this form to be open on arrival.
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem('bnj_new_order') === '1') {
+        sessionStorage.removeItem('bnj_new_order')
+        openAdd()
+      }
+    } catch { /* private mode */ }
+  }, []) // eslint-disable-line
+
   // Close kebab when clicking outside
   useEffect(() => {
     function handler(e) {
