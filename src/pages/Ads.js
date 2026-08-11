@@ -269,7 +269,7 @@ export default function Ads() {
       />
 
       <style>{`
-        .ads-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+        .ads-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-bottom: 16px; }
         .ads-stat { background: #fff; border: 1px solid #eee; border-radius: 14px; padding: 15px 17px; }
         .ads-lbl { font-size: 10.5px; font-weight: 700; letter-spacing: .7px; text-transform: uppercase; color: #a9a094; }
         .ads-val { font-size: 21px; font-weight: 800; color: #0d1b2a; letter-spacing: -.5px; margin-top: 7px; }
@@ -282,9 +282,20 @@ export default function Ads() {
         .ads-metrics span { font-size: 11.5px; color: #8a8278; }
         .ads-metrics b { color: #0d1b2a; }
         .ads-fields { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+        .ads-val { overflow-wrap: anywhere; }
         @media (max-width: 900px) {
-          .ads-stats { grid-template-columns: repeat(2, 1fr); }
           .ads-fields { grid-template-columns: repeat(2, 1fr); }
+        }
+        @media (max-width: 620px) {
+          .ads-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+          .ads-stat { padding: 13px 14px; }
+          .ads-val { font-size: 18px; }
+          .ads-card { padding: 15px 16px; border-radius: 14px; }
+          .ads-res { grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px; }
+          .ads-metrics { gap: 10px; }
+        }
+        @media (max-width: 420px) {
+          .ads-fields { grid-template-columns: minmax(0, 1fr); }
         }
       `}</style>
 
