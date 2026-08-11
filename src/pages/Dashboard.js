@@ -42,7 +42,7 @@ const dayLabel = d => d.toLocaleDateString('en-US', { month: 'short', day: 'nume
 const dayLong = d => d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
 
 // ── Revenue line chart — hover reads the exact day under the cursor ────────────
-function TrendLine({ data, valueKey, seriesLabel, format, height = 230 }) {
+function TrendLine({ data, valueKey, seriesLabel, format }) {
   const wrapRef = useRef(null)
   const [w, setW] = useState(800)
   const [hi, setHi] = useState(null)
@@ -55,6 +55,9 @@ function TrendLine({ data, valueKey, seriesLabel, format, height = 230 }) {
     return () => ro.disconnect()
   }, [])
 
+  // Shorter on a phone, so the chart and the cards under it share the screen
+  const height = w < 420 ? 165 : w < 700 ? 195 : 230
+  const small = w < 520
   const vals = data.map(d => Number(d[valueKey]) || 0)
   const top = axisCeil(Math.max(1, ...vals))
   const ticks = [1, 0.8, 0.6, 0.4, 0.2, 0].map(f => top * f)
@@ -64,26 +67,31 @@ function TrendLine({ data, valueKey, seriesLabel, format, height = 230 }) {
   const line = vals.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ')
   const area = `${line} L${x(n - 1).toFixed(1)},${height} L${x(0).toFixed(1)},${height} Z`
 
-  // Which day is under the pointer
-  const onMove = e => {
-    const r = e.currentTarget.getBoundingClientRect()
-    const px = e.clientX - r.left
-    setHi(Math.max(0, Math.min(n - 1, Math.round((px / r.width) * (n - 1)))))
+  // Which day is under the pointer — mouse on a desktop, finger on a phone
+  const pick = clientX => {
+    const el = wrapRef.current
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    setHi(Math.max(0, Math.min(n - 1, Math.round(((clientX - r.left) / r.width) * (n - 1)))))
   }
+  const onMove = e => pick(e.clientX)
+  const onTouch = e => { const t = e.touches && e.touches[0]; if (t) pick(t.clientX) }
   const d = hi != null ? data[hi] : null
-  // Roughly six dates along the bottom, however long the range is
-  const step = Math.max(1, Math.round(n / 6))
+  // As many dates along the bottom as the width can hold without them touching
+  const maxLabels = Math.max(2, Math.min(7, Math.floor(w / (small ? 66 : 90))))
+  const labelIdx = [...new Set(Array.from({ length: maxLabels }, (_, k) => Math.round((k / (maxLabels - 1)) * (n - 1))))]
   const gridId = `rvGrad-${valueKey}`
 
   return (
-    <div style={{ display: 'flex', gap: 12, fontFamily: UI }}>
-      <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height, fontSize: 11, color: '#b4b0a8', minWidth: 30, textAlign: 'right' }}>
+    <div style={{ display: 'flex', gap: small ? 7 : 12, fontFamily: UI }}>
+      <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height, fontSize: small ? 10 : 11, color: '#b4b0a8', minWidth: small ? 24 : 30, textAlign: 'right', flexShrink: 0 }}>
         {ticks.map((t, i) => <div key={i} style={{ height: 0, transform: 'translateY(-5px)' }}>{mvK(t)}</div>)}
       </div>
 
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div ref={wrapRef} style={{ position: 'relative', height }}
-          onMouseMove={onMove} onMouseLeave={() => setHi(null)}>
+        <div ref={wrapRef} style={{ position: 'relative', height, touchAction: 'pan-y' }}
+          onMouseMove={onMove} onMouseLeave={() => setHi(null)}
+          onTouchStart={onTouch} onTouchMove={onTouch} onTouchEnd={() => setHi(null)}>
           {/* dashed grid */}
           {ticks.map((t, i) => (
             <div key={i} style={{ position: 'absolute', left: 0, right: 0, top: (i / (ticks.length - 1)) * height, borderTop: '1px dashed #ece8e0' }} />
@@ -110,16 +118,17 @@ function TrendLine({ data, valueKey, seriesLabel, format, height = 230 }) {
           {d && (
             <div style={{
               position: 'absolute', left: x(hi), top: Math.max(4, y(vals[hi]) - 62),
-              transform: x(hi) > w * 0.62 ? 'translateX(calc(-100% - 14px))' : 'translateX(14px)',
+              // Flip to whichever side has room, so the card never leaves the chart
+              transform: x(hi) > w * 0.55 ? 'translateX(calc(-100% - 12px))' : 'translateX(12px)',
               background: '#fff', border: '1px solid #efeae1', borderRadius: 12,
-              boxShadow: '0 12px 32px rgba(30,20,10,0.14)', padding: '10px 13px',
-              whiteSpace: 'nowrap', pointerEvents: 'none', zIndex: 4,
+              boxShadow: '0 12px 32px rgba(30,20,10,0.14)', padding: small ? '8px 11px' : '10px 13px',
+              maxWidth: Math.max(120, w * 0.6), pointerEvents: 'none', zIndex: 4,
             }}>
-              <div style={{ fontSize: 12, color: '#8a8278', marginBottom: 6 }}>{dayLong(d.dt)}</div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-                <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#5c5750' }} />
+              <div style={{ fontSize: small ? 11 : 12, color: '#8a8278', marginBottom: 5, whiteSpace: 'nowrap' }}>{dayLong(d.dt)}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: small ? 12 : 13, whiteSpace: 'nowrap' }}>
+                <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#5c5750', flexShrink: 0 }} />
                 <span style={{ color: '#5c5750' }}>{seriesLabel}</span>
-                <b style={{ marginLeft: 14, color: '#0d1b2a' }}>{format(d[valueKey])}</b>
+                <b style={{ marginLeft: 10, color: '#0d1b2a' }}>{format(d[valueKey])}</b>
               </div>
             </div>
           )}
@@ -127,16 +136,18 @@ function TrendLine({ data, valueKey, seriesLabel, format, height = 230 }) {
 
         {/* dates, with the hovered one called out */}
         <div style={{ position: 'relative', height: 26, marginTop: 8 }}>
-          {data.map((p, i) => (i % step === 0 || i === n - 1) && hi !== i && (
-            <span key={i} style={{ position: 'absolute', left: x(i), transform: `translateX(${i === n - 1 ? '-100%' : i === 0 ? '0' : '-50%'})`, fontSize: 11.5, color: '#b4b0a8', whiteSpace: 'nowrap' }}>
-              {dayLabel(p.dt)}
+          {labelIdx.map(i => hi !== i && (
+            <span key={i} style={{ position: 'absolute', left: x(i), transform: `translateX(${i === n - 1 ? '-100%' : i === 0 ? '0' : '-50%'})`, fontSize: small ? 10.5 : 11.5, color: '#b4b0a8', whiteSpace: 'nowrap' }}>
+              {dayLabel(data[i].dt)}
             </span>
           ))}
           {d && (
             <span style={{
-              position: 'absolute', left: x(hi), transform: 'translateX(-50%)',
-              background: '#0d1b2a', color: '#fff', fontSize: 11.5, fontWeight: 600,
-              padding: '5px 12px', borderRadius: 99, whiteSpace: 'nowrap',
+              position: 'absolute',
+              // Kept inside the plot at either end rather than hanging off it
+              left: Math.min(Math.max(x(hi), 26), w - 26), transform: 'translateX(-50%)',
+              background: '#0d1b2a', color: '#fff', fontSize: small ? 10.5 : 11.5, fontWeight: 600,
+              padding: small ? '4px 10px' : '5px 12px', borderRadius: 99, whiteSpace: 'nowrap',
             }}>{dayLabel(d.dt)}</span>
           )}
         </div>
@@ -351,16 +362,25 @@ export default function Dashboard() {
         .dash-iconbtn:hover { border-color: #ddd; box-shadow: 0 3px 12px rgba(0,0,0,0.06); }
         .dash-iconbtn.on { background: #0d1b2a; border-color: #0d1b2a; }
         .dash-badge { position: absolute; top: -6px; right: -6px; min-width: 17px; height: 17px; padding: 0 4px; box-sizing: border-box; border-radius: 99px; background: #E24B4A; color: #fff; font-size: 10px; font-weight: 800; display: flex; align-items: center; justify-content: center; border: 2px solid #fff; font-family: ${UI}; }
-        .dash-newbtn { display: inline-flex; align-items: center; gap: 6px; background: #FFA500; color: #fff; border: none; border-radius: 10px; padding: 9px 16px; font-family: ${UI}; font-size: 13px; font-weight: 600; cursor: pointer; transition: all .15s; box-shadow: 0 4px 14px rgba(255,165,0,0.32); }
+        .dash-newbtn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; background: #FFA500; color: #fff; border: none; border-radius: 10px; padding: 9px 16px; font-family: ${UI}; font-size: 13px; font-weight: 600; cursor: pointer; transition: all .15s; box-shadow: 0 4px 14px rgba(255,165,0,0.32); white-space: nowrap; }
         .dash-newbtn:hover { background: #f09a00; transform: translateY(-1px); }
-        .rv-mini { font-family: ${UI}; display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 14px; }
-        .rv-minicard { background: #fff; border: 1px solid #ece7de; border-radius: 14px; padding: 14px 16px; display: flex; align-items: flex-start; gap: 10px; }
-        .rv-minival { font-size: 19px; font-weight: 600; color: #0d1b2a; letter-spacing: -0.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        /* Comfortable touch targets on a phone */
+        @media (max-width: 620px) {
+          .dash-iconbtn { width: 42px; height: 40px; }
+          .dash-newbtn { padding: 11px 16px; flex: 1; }
+        }
+        /* Stat cards fit themselves to the width rather than to a fixed count,
+           so a phone gets two across and a desktop four without special cases. */
+        .rv-mini { font-family: ${UI}; display: grid; grid-template-columns: repeat(auto-fit, minmax(215px, 1fr)); gap: 12px; margin-bottom: 14px; }
+        .rv-top4 { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+        .rv-minicard { background: #fff; border: 1px solid #ece7de; border-radius: 14px; padding: 14px 16px; display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
+        /* A number is never cut off — it shrinks and wraps before it does that */
+        .rv-minival { font-size: 19px; font-weight: 600; color: #0d1b2a; letter-spacing: -0.4px; line-height: 1.2; min-width: 0; overflow-wrap: anywhere; }
+        .rv-tlabel { min-width: 0; }
         @media (max-width: 900px) {
           .rv-tiles { grid-template-columns: repeat(2, 1fr); }
           .rv-tile:nth-child(3) { border-left: none; }
           .rv-tile:nth-child(n+3) { border-top: 1px solid #f2eee7; }
-          .rv-mini { grid-template-columns: repeat(2, 1fr); }
           .rv-tval { font-size: 21px; }
         }
         @media (max-width: 768px) {
@@ -368,6 +388,24 @@ export default function Dashboard() {
           .dash-grid { grid-template-columns: minmax(0,1fr) !important; }
           /* Let metric numbers wrap & shrink so they're never cut off */
           .dash-mval { font-size: 18px !important; white-space: normal !important; overflow: visible !important; text-overflow: clip !important; line-height: 1.15 !important; word-break: break-word; }
+        }
+        @media (max-width: 620px) {
+          .rv-mini { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+          .rv-top4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+          .rv-minicard { padding: 12px 13px; flex-direction: column; gap: 8px; }
+          /* The icon moves above the figure so the figure gets the full width */
+          .rv-minicard > span { order: -1; }
+          .rv-minival { font-size: 17px !important; }
+          .rv-tlabel { font-size: 11.5px; }
+          .rv-panel { border-radius: 14px; }
+          .rv-top { padding: 13px 14px; }
+          .rv-ranges { width: 100%; }
+          .rv-ranges button { flex: 1; padding: 8px 4px; font-size: 12px; }
+          .rv-tiles { grid-template-columns: repeat(2, minmax(0,1fr)); }
+          .rv-tile { padding: 12px 13px 14px; }
+        }
+        @media (max-width: 380px) {
+          .rv-mini, .rv-top4 { grid-template-columns: minmax(0, 1fr); }
         }
       `}</style>
 
@@ -397,12 +435,12 @@ export default function Dashboard() {
       </div>
 
       {/* Headline totals */}
-      <div className="rv-mini" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+      <div className="rv-mini rv-top4">
         {topCards.map((m, i) => (
           <div key={i} className="rv-minicard" style={{ animation: 'fadeSlideUp 0.3s ease both', animationDelay: `${i * 0.05}s` }}>
             <div style={{ minWidth: 0, flex: 1 }}>
               <div className="rv-tlabel" style={{ marginBottom: 7 }}>{m.label}</div>
-              <div className="rv-minival" style={{ fontSize: 22 }}>{m.value}</div>
+              <div className="rv-minival" style={{ fontSize: 21 }}>{m.value}</div>
             </div>
             <span style={{ background: m.bg, borderRadius: 10, padding: 8, display: 'flex', flexShrink: 0 }}>
               <m.icon size={15} color={m.color} />
