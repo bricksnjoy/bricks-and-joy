@@ -109,6 +109,16 @@ export default function Orders() {
 
   useEffect(() => { load() }, [])
 
+  // The dashboard's "New order" shortcut asks for this form to be open on arrival.
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem('bnj_new_order') === '1') {
+        sessionStorage.removeItem('bnj_new_order')
+        openAdd()
+      }
+    } catch { /* private mode */ }
+  }, []) // eslint-disable-line
+
   // Close kebab when clicking outside
   useEffect(() => {
     function handler(e) {
@@ -292,14 +302,16 @@ export default function Orders() {
   const addCharge = () => setForm(p => ({ ...p, charges: [...(p.charges || []), newCharge()] }))
   const removeCharge = i => setForm(p => ({ ...p, charges: (p.charges || []).filter((_, n) => n !== i) }))
 
-  // The cost lines worth acting on — named and priced
+  // The cost lines worth acting on. The amount is what makes a cost real — a
+  // line left unnamed still gets saved, under a plain label, rather than being
+  // dropped on save with nothing said.
   const liveCharges = () => (form.charges || [])
-    .map(c => ({ ...c, amount: parseFloat(c.amount) || 0, label: (c.label || '').trim() }))
-    .filter(c => c.amount > 0 && c.label)
+    .map(c => ({ ...c, amount: parseFloat(c.amount) || 0, label: (c.label || '').trim() || 'Extra cost' }))
+    .filter(c => c.amount > 0)
 
   const chargeTotals = (form.charges || []).reduce((t, c) => {
     const a = parseFloat(c.amount) || 0
-    if (!a || !(c.label || '').trim()) return t
+    if (!a) return t
     return c.covered ? { ...t, covered: t.covered + a } : { ...t, charged: t.charged + a }
   }, { charged: 0, covered: 0 })
 
@@ -1582,7 +1594,7 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
               const amt = parseFloat(c.amount) || 0
               return (
                 <div key={c.key} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
-                  <input value={c.label} placeholder="What is it for? e.g. Island delivery fee"
+                  <input value={c.label} placeholder="What is it for? e.g. Island delivery fee (optional)"
                     onChange={e => setCharge(i, { label: e.target.value })}
                     style={{ flex: '1 1 190px', minWidth: 0, padding: '8px 10px', border: '1px solid #eee0c8', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', background: '#fff', outline: 'none', boxSizing: 'border-box' }} />
                   <input type="number" min="0" step="0.01" value={c.amount} placeholder="0"

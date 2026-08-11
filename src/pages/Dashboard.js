@@ -1,12 +1,12 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { localToday, toLocalISO } from '../lib/dates'
 import { StockBadge, StatusBadge, Spinner } from '../components/UI'
 import {
   Package, ShoppingCart, Users, TrendingUp, TrendingDown,
-  AlertTriangle, CheckCircle, DollarSign, Zap, Calendar,
+  AlertTriangle, CheckCircle, DollarSign, Zap,
   ArrowUpRight, ArrowDownRight, Activity, Star, UserCheck,
-  Wallet, Truck, Sparkles, ChevronRight, Lightbulb
+  Wallet, Truck, Sparkles, ChevronRight, Lightbulb, Plus
 } from 'lucide-react'
 import { actionItems, generateInsights, restockPredictions } from '../lib/insights'
 import { loyaltyProfile } from '../lib/loyalty'
@@ -21,6 +21,130 @@ const SEV = {
 }
 const navTo = page => window.dispatchEvent(new CustomEvent('bnj-navigate', { detail: page }))
 
+// The revenue panel runs on Inter — tighter and more even in numbers than the
+// rest of the app's Poppins.
+const UI = "'Inter', -apple-system, 'Segoe UI', sans-serif"
+
+const RANGES = [
+  { key: '7d', label: '7 Days', days: 7 },
+  { key: '1m', label: '1 Month', days: 30 },
+  { key: '3m', label: '3 Months', days: 90 },
+  { key: '6m', label: '6 Months', days: 180 },
+]
+const mvK = n => {
+  const v = Math.round(Number(n) || 0)
+  if (Math.abs(v) >= 1000) { const k = v / 1000; return `${k % 1 === 0 ? k : k.toFixed(1)}k` }
+  return String(v)
+}
+const mvFull = n => `MVR ${Math.round(Number(n) || 0).toLocaleString('en-US')}`
+const axisCeil = v => { v = Number(v) || 0; if (v <= 0) return 10; const p = Math.pow(10, Math.floor(Math.log10(v))); const n = v / p; const m = n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10; return m * p }
+const dayLabel = d => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+const dayLong = d => d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+
+// ── Revenue line chart — hover reads the exact day under the cursor ────────────
+function TrendLine({ data, valueKey, seriesLabel, format, height = 230 }) {
+  const wrapRef = useRef(null)
+  const [w, setW] = useState(800)
+  const [hi, setHi] = useState(null)
+  useEffect(() => {
+    const el = wrapRef.current
+    if (!el) return
+    setW(el.clientWidth)
+    const ro = new ResizeObserver(e => setW(e[0].contentRect.width))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  const vals = data.map(d => Number(d[valueKey]) || 0)
+  const top = axisCeil(Math.max(1, ...vals))
+  const ticks = [1, 0.8, 0.6, 0.4, 0.2, 0].map(f => top * f)
+  const n = data.length
+  const x = i => (n <= 1 ? w / 2 : (i / (n - 1)) * w)
+  const y = v => height - (Math.max(0, v) / top) * height
+  const line = vals.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ')
+  const area = `${line} L${x(n - 1).toFixed(1)},${height} L${x(0).toFixed(1)},${height} Z`
+
+  // Which day is under the pointer
+  const onMove = e => {
+    const r = e.currentTarget.getBoundingClientRect()
+    const px = e.clientX - r.left
+    setHi(Math.max(0, Math.min(n - 1, Math.round((px / r.width) * (n - 1)))))
+  }
+  const d = hi != null ? data[hi] : null
+  // Roughly six dates along the bottom, however long the range is
+  const step = Math.max(1, Math.round(n / 6))
+  const gridId = `rvGrad-${valueKey}`
+
+  return (
+    <div style={{ display: 'flex', gap: 12, fontFamily: UI }}>
+      <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height, fontSize: 11, color: '#b4b0a8', minWidth: 30, textAlign: 'right' }}>
+        {ticks.map((t, i) => <div key={i} style={{ height: 0, transform: 'translateY(-5px)' }}>{mvK(t)}</div>)}
+      </div>
+
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div ref={wrapRef} style={{ position: 'relative', height }}
+          onMouseMove={onMove} onMouseLeave={() => setHi(null)}>
+          {/* dashed grid */}
+          {ticks.map((t, i) => (
+            <div key={i} style={{ position: 'absolute', left: 0, right: 0, top: (i / (ticks.length - 1)) * height, borderTop: '1px dashed #ece8e0' }} />
+          ))}
+
+          <svg width="100%" height={height} viewBox={`0 0 ${w} ${height}`} preserveAspectRatio="none" style={{ position: 'absolute', inset: 0, overflow: 'visible' }}>
+            <defs>
+              <linearGradient id={gridId} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#0d1b2a" stopOpacity="0.10" />
+                <stop offset="100%" stopColor="#0d1b2a" stopOpacity="0" />
+              </linearGradient>
+            </defs>
+            <path d={area} fill={`url(#${gridId})`} />
+            <path d={line} fill="none" stroke="#9d968c" strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round" />
+            {hi != null && (
+              <>
+                <line x1={x(hi)} y1={-6} x2={x(hi)} y2={height} stroke="#8a8278" strokeWidth="1" />
+                <circle cx={x(hi)} cy={y(vals[hi])} r="4.5" fill="#0d1b2a" stroke="#fff" strokeWidth="2" />
+              </>
+            )}
+          </svg>
+
+          {/* the day under the cursor */}
+          {d && (
+            <div style={{
+              position: 'absolute', left: x(hi), top: Math.max(4, y(vals[hi]) - 62),
+              transform: x(hi) > w * 0.62 ? 'translateX(calc(-100% - 14px))' : 'translateX(14px)',
+              background: '#fff', border: '1px solid #efeae1', borderRadius: 12,
+              boxShadow: '0 12px 32px rgba(30,20,10,0.14)', padding: '10px 13px',
+              whiteSpace: 'nowrap', pointerEvents: 'none', zIndex: 4,
+            }}>
+              <div style={{ fontSize: 12, color: '#8a8278', marginBottom: 6 }}>{dayLong(d.dt)}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+                <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#5c5750' }} />
+                <span style={{ color: '#5c5750' }}>{seriesLabel}</span>
+                <b style={{ marginLeft: 14, color: '#0d1b2a' }}>{format(d[valueKey])}</b>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* dates, with the hovered one called out */}
+        <div style={{ position: 'relative', height: 26, marginTop: 8 }}>
+          {data.map((p, i) => (i % step === 0 || i === n - 1) && hi !== i && (
+            <span key={i} style={{ position: 'absolute', left: x(i), transform: `translateX(${i === n - 1 ? '-100%' : i === 0 ? '0' : '-50%'})`, fontSize: 11.5, color: '#b4b0a8', whiteSpace: 'nowrap' }}>
+              {dayLabel(p.dt)}
+            </span>
+          ))}
+          {d && (
+            <span style={{
+              position: 'absolute', left: x(hi), transform: 'translateX(-50%)',
+              background: '#0d1b2a', color: '#fff', fontSize: 11.5, fontWeight: 600,
+              padding: '5px 12px', borderRadius: 99, whiteSpace: 'nowrap',
+            }}>{dayLabel(d.dt)}</span>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function Dashboard() {
   const [stats, setStats] = useState(null)
   const [lowStock, setLowStock] = useState([])
@@ -30,7 +154,28 @@ export default function Dashboard() {
   const [newCustomers30, setNewCustomers30] = useState([])
   const [actions, setActions] = useState([])
   const [insights, setInsights] = useState([])
+  const [daily, setDaily] = useState([])
+  const [range, setRange] = useState('1m')
   const [loading, setLoading] = useState(true)
+  // Needs attention and Smart insights sit behind the two header buttons; what
+  // has already been read is remembered so the badge only counts what is new.
+  const [showActions, setShowActions] = useState(false)
+  const [showInsights, setShowInsights] = useState(false)
+  const [seen, setSeen] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('bnj_dash_seen') || '{}') } catch { return {} }
+  })
+  function markSeen(kind, keys) {
+    const next = { ...seen, [kind]: keys }
+    setSeen(next)
+    try { localStorage.setItem('bnj_dash_seen', JSON.stringify(next)) } catch { /* private mode */ }
+  }
+  const newActions = actions.filter(a => !(seen.actions || []).includes(a.key)).length
+  const newInsights = insights.filter(i => !(seen.insights || []).includes(i.text)).length
+  // Shortcut to the Orders page's new-order form
+  function newOrder() {
+    try { sessionStorage.setItem('bnj_new_order', '1') } catch { /* private mode */ }
+    navTo('orders')
+  }
 
   useEffect(() => { loadDashboard() }, [])
 
@@ -65,6 +210,27 @@ export default function Dashboard() {
     const lastMonthSales = revenueOrders.filter(o => o.order_date?.startsWith(lastMonthStr)).reduce((s, o) => s + Number(o.total_price || 0), 0)
     const monthChange = lastMonthSales > 0 ? ((thisMonthSales - lastMonthSales) / lastMonthSales * 100).toFixed(0) : null
 
+    // One row per day for the last year, so the revenue panel can slice any
+    // range and read a single day under the cursor without going back to the DB.
+    const revByDay = {}
+    revenueOrders.forEach(o => {
+      const k = o.order_date
+      if (!k) return
+      if (!revByDay[k]) revByDay[k] = { revenue: 0, orders: 0 }
+      revByDay[k].revenue += Number(o.total_price || 0)
+      revByDay[k].orders += 1
+    })
+    const custByDay = {}
+    custs.forEach(c => { const k = (c.created_at || '').slice(0, 10); if (k) custByDay[k] = (custByDay[k] || 0) + 1 })
+    const dayRows = []
+    for (let i = 364; i >= 0; i--) {
+      const dt = new Date(); dt.setHours(0, 0, 0, 0); dt.setDate(dt.getDate() - i)
+      const k = toLocalISO(dt)
+      const e = revByDay[k] || { revenue: 0, orders: 0 }
+      dayRows.push({ date: k, dt, revenue: e.revenue, orders: e.orders, customers: custByDay[k] || 0, aov: e.orders ? e.revenue / e.orders : 0 })
+    }
+    setDaily(dayRows)
+
     // Best sellers — last 30 days delivered orders
     const since30 = new Date(); since30.setDate(since30.getDate() - 30)
     const since30Str = toLocalISO(since30)
@@ -93,12 +259,26 @@ export default function Dashboard() {
     setActions(actionItems({ orders: ords, products: prods, customers: custs, loyaltyProfiles }))
     setInsights(generateInsights({ orders: ords, products: prods, customers: custs, restock, loyaltyProfiles }))
 
-    setStats({ products: prods.length, totalStock: prods.reduce((s, p) => s + (p.stock_qty || 0), 0), customers: custs.length, activeOrders: ords.filter(o => o.status === 'pending' || o.status === 'transit').length, deliveredOrders: delivered.length, revenue, netProfit, pendingOrders: ords.filter(o => o.status === 'pending').length, todaySales, thisMonthSales, lastMonthSales, monthChange })
+    setStats({ products: prods.length, totalStock: prods.reduce((s, p) => s + (p.stock_qty || 0), 0), customers: custs.length, totalOrders: ords.length, activeOrders: ords.filter(o => o.status === 'pending' || o.status === 'transit').length, deliveredOrders: delivered.length, revenue, netProfit, pendingOrders: ords.filter(o => o.status === 'pending').length, todaySales, thisMonthSales, lastMonthSales, monthChange })
     setLowStock(prods.filter(p => p.stock_qty <= (p.low_stock_threshold ?? 10)).slice(0, 5))
     setRecentOrders(ords.slice(0, 6))
     setRecentCustomers(custs.slice(0, 4))
     setLoading(false)
   }
+
+  // The selected range, and the range before it for the comparison figures.
+  const rev = useMemo(() => {
+    const days = (RANGES.find(r => r.key === range) || RANGES[1]).days
+    const cur = daily.slice(-days)
+    const prev = daily.slice(-days * 2, -days)
+    const sum = (rows, k) => rows.reduce((s, d) => s + (Number(d[k]) || 0), 0)
+    const fold = rows => {
+      const revenue = sum(rows, 'revenue'), orders = sum(rows, 'orders')
+      return { revenue, orders, customers: sum(rows, 'customers'), aov: orders ? revenue / orders : 0 }
+    }
+    const c = fold(cur), p = fold(prev)
+    return { data: cur, days, total: c.revenue, delta: p.revenue > 0 ? ((c.revenue - p.revenue) / p.revenue) * 100 : null }
+  }, [daily, range])
 
   if (loading) return <Spinner />
 
@@ -106,13 +286,20 @@ export default function Dashboard() {
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
   const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
 
+  // The four headline totals
+  const topCards = [
+    { label: 'Total Revenue', value: mvFull(stats.revenue), icon: DollarSign, color: '#1D9E75', bg: '#E7F6EF' },
+    { label: 'Total Orders', value: stats.totalOrders.toLocaleString('en-US'), icon: ShoppingCart, color: '#FFA500', bg: '#FFF6E3' },
+    { label: 'Total Customers', value: stats.customers.toLocaleString('en-US'), icon: Users, color: '#7F77DD', bg: '#EEEDFE' },
+    { label: 'Units in Stock', value: stats.totalStock.toLocaleString('en-US'), icon: Activity, color: '#0F6E56', bg: '#E7F6EF' },
+  ]
+
+  // The figures the headline cards and the revenue panel don't already carry
   const metrics = [
-    { label: 'Total Revenue', value: `MVR ${stats.revenue.toFixed(2)}`, icon: DollarSign, color: '#1D9E75', bg: 'linear-gradient(135deg, #E1F5EE, #c8eed8)', accent: '#1D9E75' },
-    { label: 'Net Profit', value: `${stats.netProfit >= 0 ? '' : '-'}MVR ${Math.abs(stats.netProfit).toFixed(2)}`, icon: stats.netProfit >= 0 ? TrendingUp : TrendingDown, color: stats.netProfit >= 0 ? '#1D9E75' : '#E24B4A', bg: stats.netProfit >= 0 ? 'linear-gradient(135deg, #E1F5EE, #c8eed8)' : 'linear-gradient(135deg, #FCEBEB, #fad4d4)', accent: stats.netProfit >= 0 ? '#1D9E75' : '#E24B4A' },
-    { label: 'Active Orders', value: stats.activeOrders, icon: ShoppingCart, color: '#FFA500', bg: 'linear-gradient(135deg, #FFF8E7, #fce8b2)', accent: '#FFA500' },
-    { label: 'Products', value: stats.products, icon: Package, color: '#378ADD', bg: 'linear-gradient(135deg, #E6F1FB, #c5ddf5)', accent: '#378ADD' },
-    { label: 'Customers', value: stats.customers, icon: Users, color: '#7F77DD', bg: 'linear-gradient(135deg, #EEEDFE, #d8d5fb)', accent: '#7F77DD' },
-    { label: 'Units in Stock', value: stats.totalStock, icon: Activity, color: '#0F6E56', bg: 'linear-gradient(135deg, #E1F5EE, #c8eed8)', accent: '#0F6E56' },
+    { label: 'Net Profit', value: `${stats.netProfit >= 0 ? '' : '-'}MVR ${Math.abs(stats.netProfit).toFixed(0)}`, icon: stats.netProfit >= 0 ? TrendingUp : TrendingDown, color: stats.netProfit >= 0 ? '#1D9E75' : '#E24B4A', bg: stats.netProfit >= 0 ? '#E7F6EF' : '#FCEBEB' },
+    { label: "Today's Sales", value: `MVR ${stats.todaySales.toFixed(0)}`, icon: Zap, color: '#FFA500', bg: '#FFF6E3' },
+    { label: 'Active Orders', value: stats.activeOrders, icon: ShoppingCart, color: '#FFA500', bg: '#FFF6E3' },
+    { label: 'Products', value: stats.products, icon: Package, color: '#378ADD', bg: '#E6F1FB' },
   ]
 
   const statusGroups = [
@@ -143,6 +330,39 @@ export default function Dashboard() {
         .panel { background: #fff; border-radius: 16px; border: 1px solid #eee; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,0.03); }
         .panel-header { padding: 15px 18px 13px; border-bottom: 1px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center; }
         .stat-pill { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 99px; font-size: 11px; font-weight: 600; }
+
+        /* ── Revenue panel ─────────────────────────────────────────── */
+        .rv-panel { font-family: ${UI}; background: #fff; border: 1px solid #ece7de; border-radius: 16px; overflow: hidden; margin-bottom: 14px; }
+        .rv-top { padding: 14px 16px; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+        .rv-ranges { display: inline-flex; background: #f6f4f0; border-radius: 10px; padding: 3px; gap: 2px; }
+        .rv-ranges button { border: none; background: none; font-family: inherit; font-size: 13px; font-weight: 500; color: #7d766c; padding: 7px 15px; border-radius: 8px; cursor: pointer; transition: all .15s; white-space: nowrap; }
+        .rv-ranges button:hover { color: #0d1b2a; }
+        .rv-ranges button.on { background: #fff; color: #0d1b2a; font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,0.09); }
+        .rv-tiles { display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid #f2eee7; border-bottom: 1px solid #f2eee7; }
+        .rv-tile { text-align: left; font-family: inherit; background: none; border: none; border-left: 1px solid #f2eee7; padding: 15px 18px 17px; cursor: pointer; transition: background .15s; }
+        .rv-tile:first-child { border-left: none; }
+        .rv-tile:hover { background: #faf9f6; }
+        .rv-tile.on { background: #f6f4f0; }
+        .rv-tlabel { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: #8a8278; font-weight: 500; white-space: nowrap; }
+        .rv-trow { display: flex; align-items: center; gap: 10px; margin-top: 9px; flex-wrap: wrap; }
+        .rv-tval { font-size: 25px; font-weight: 600; color: #0d1b2a; letter-spacing: -0.8px; line-height: 1; }
+        .rv-chip { display: inline-flex; align-items: center; gap: 2px; font-size: 11.5px; font-weight: 600; padding: 3px 8px; border-radius: 99px; }
+        .dash-iconbtn { position: relative; background: #fff; border: 1px solid #eee; border-radius: 10px; width: 38px; height: 36px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all .15s; }
+        .dash-iconbtn:hover { border-color: #ddd; box-shadow: 0 3px 12px rgba(0,0,0,0.06); }
+        .dash-iconbtn.on { background: #0d1b2a; border-color: #0d1b2a; }
+        .dash-badge { position: absolute; top: -6px; right: -6px; min-width: 17px; height: 17px; padding: 0 4px; box-sizing: border-box; border-radius: 99px; background: #E24B4A; color: #fff; font-size: 10px; font-weight: 800; display: flex; align-items: center; justify-content: center; border: 2px solid #fff; font-family: ${UI}; }
+        .dash-newbtn { display: inline-flex; align-items: center; gap: 6px; background: #FFA500; color: #fff; border: none; border-radius: 10px; padding: 9px 16px; font-family: ${UI}; font-size: 13px; font-weight: 600; cursor: pointer; transition: all .15s; box-shadow: 0 4px 14px rgba(255,165,0,0.32); }
+        .dash-newbtn:hover { background: #f09a00; transform: translateY(-1px); }
+        .rv-mini { font-family: ${UI}; display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 14px; }
+        .rv-minicard { background: #fff; border: 1px solid #ece7de; border-radius: 14px; padding: 14px 16px; display: flex; align-items: flex-start; gap: 10px; }
+        .rv-minival { font-size: 19px; font-weight: 600; color: #0d1b2a; letter-spacing: -0.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        @media (max-width: 900px) {
+          .rv-tiles { grid-template-columns: repeat(2, 1fr); }
+          .rv-tile:nth-child(3) { border-left: none; }
+          .rv-tile:nth-child(n+3) { border-top: 1px solid #f2eee7; }
+          .rv-mini { grid-template-columns: repeat(2, 1fr); }
+          .rv-tval { font-size: 21px; }
+        }
         @media (max-width: 768px) {
           .dash-metrics { grid-template-columns: repeat(2, minmax(0,1fr)) !important; }
           .dash-grid { grid-template-columns: minmax(0,1fr) !important; }
@@ -154,22 +374,48 @@ export default function Dashboard() {
       {/* Header */}
       <div style={{ marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 10 }}>
         <div>
-          <h1 style={{ fontSize: 26, fontWeight: 800, margin: 0, color: '#0d1b2a', letterSpacing: '-0.6px' }}>{greeting} 👋</h1>
+          <h1 style={{ fontSize: 26, fontWeight: 800, margin: 0, color: '#0d1b2a', letterSpacing: '-0.6px' }}>{greeting}</h1>
           <p style={{ margin: '4px 0 0', color: '#bbb', fontSize: 12, fontWeight: 500 }}>{today}</p>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <div style={{ background: '#fff', border: '1px solid #eee', borderRadius: 10, padding: '8px 14px', fontSize: 12, fontWeight: 600, color: '#0d1b2a', display: 'flex', alignItems: 'center', gap: 6 }}>
             <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#1D9E75' }} />
             Live
           </div>
+          <button className={`dash-iconbtn${showActions ? ' on' : ''}`} title="Needs attention"
+            onClick={() => { const n = !showActions; setShowActions(n); if (n) markSeen('actions', actions.map(a => a.key)) }}>
+            <AlertTriangle size={16} color={showActions ? '#fff' : '#E24B4A'} />
+            {newActions > 0 && !showActions && <span className="dash-badge">{newActions}</span>}
+          </button>
+          <button className={`dash-iconbtn${showInsights ? ' on' : ''}`} title="Smart insights"
+            onClick={() => { const n = !showInsights; setShowInsights(n); if (n) markSeen('insights', insights.map(i => i.text)) }}>
+            <Sparkles size={16} color={showInsights ? '#fff' : '#7F77DD'} />
+            {newInsights > 0 && !showInsights && <span className="dash-badge">{newInsights}</span>}
+          </button>
+          <button className="dash-newbtn" onClick={newOrder}><Plus size={15} /> New order</button>
         </div>
       </div>
 
-      {/* Action center + AI insights */}
-      {(actions.length > 0 || insights.length > 0) && (
-        <div className="grid-collapse" style={{ display: 'grid', gridTemplateColumns: actions.length ? '1fr 1fr' : '1fr', gap: 14, marginBottom: 16 }}>
+      {/* Headline totals */}
+      <div className="rv-mini" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+        {topCards.map((m, i) => (
+          <div key={i} className="rv-minicard" style={{ animation: 'fadeSlideUp 0.3s ease both', animationDelay: `${i * 0.05}s` }}>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div className="rv-tlabel" style={{ marginBottom: 7 }}>{m.label}</div>
+              <div className="rv-minival" style={{ fontSize: 22 }}>{m.value}</div>
+            </div>
+            <span style={{ background: m.bg, borderRadius: 10, padding: 8, display: 'flex', flexShrink: 0 }}>
+              <m.icon size={15} color={m.color} />
+            </span>
+          </div>
+        ))}
+      </div>
+
+      {/* Action center + AI insights — opened from the two header buttons */}
+      {((showActions && actions.length > 0) || (showInsights && insights.length > 0)) && (
+        <div className="grid-collapse" style={{ display: 'grid', gridTemplateColumns: (showActions && actions.length && showInsights && insights.length) ? '1fr 1fr' : '1fr', gap: 14, marginBottom: 16 }}>
           {/* Needs attention */}
-          {actions.length > 0 && (
+          {showActions && actions.length > 0 && (
             <div className="panel" style={{ animation: 'fadeSlideUp 0.3s ease both' }}>
               <div className="panel-header">
                 <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
@@ -202,7 +448,7 @@ export default function Dashboard() {
           )}
 
           {/* AI insights */}
-          {insights.length > 0 && (
+          {showInsights && insights.length > 0 && (
             <div className="panel" style={{ animation: 'fadeSlideUp 0.3s ease both', animationDelay: '0.05s' }}>
               <div className="panel-header">
                 <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
@@ -227,76 +473,46 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Metric cards */}
-      <div className="dash-metrics">
-        {metrics.map((m, i) => (
-          <div key={i} className="metric-card" style={{ '--accent': m.accent, animation: `fadeSlideUp 0.3s ease both`, animationDelay: `${i * 0.05}s` }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 10, color: '#bbb', textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 8, fontWeight: 700 }}>{m.label}</div>
-                <div className="dash-mval" style={{ fontSize: 24, fontWeight: 800, color: '#0d1b2a', letterSpacing: '-0.8px', lineHeight: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.value}</div>
-              </div>
-              <div style={{ background: m.bg, borderRadius: 12, padding: 10, flexShrink: 0, marginLeft: 10 }}>
-                <m.icon size={17} color={m.color} />
-              </div>
-            </div>
+      {/* ── Revenue ─────────────────────────────────────────────────────── */}
+      <div className="rv-panel">
+        <div className="rv-top">
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 13, color: '#8a8278', fontWeight: 500 }}>Revenue</span>
+            <span style={{ fontSize: 24, fontWeight: 600, color: '#0d1b2a', letterSpacing: '-0.7px' }}>{mvFull(rev.total)}</span>
+            {rev.delta != null && (
+              <span className="rv-chip" style={{ background: rev.delta >= 0 ? '#E7F6EF' : '#FCEBEB', color: rev.delta >= 0 ? '#1D8A5B' : '#D0453F' }}>
+                {rev.delta >= 0 ? <ArrowUpRight size={11} /> : <ArrowDownRight size={11} />}
+                {Math.abs(rev.delta).toFixed(1)}%
+              </span>
+            )}
           </div>
-        ))}
+          <div className="rv-ranges">
+            {RANGES.map(r => (
+              <button key={r.key} className={range === r.key ? 'on' : ''} onClick={() => setRange(r.key)}>{r.label}</button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ padding: '4px 22px 16px' }}>
+          {rev.data.length === 0
+            ? <div style={{ padding: '70px 0', textAlign: 'center', color: '#c4bcb0', fontSize: 13, fontFamily: UI }}>No data for this period yet</div>
+            : <TrendLine data={rev.data} valueKey="revenue" seriesLabel="Revenue" format={mvFull} />}
+        </div>
       </div>
 
-      {/* Today + This month hero row */}
-      <div className="grid-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
-        {/* Today's sales — featured */}
-        <div style={{
-          borderRadius: 16, padding: '22px 24px', position: 'relative', overflow: 'hidden',
-          background: 'linear-gradient(135deg, #0d1b2a 0%, #1a2f44 100%)',
-          boxShadow: '0 6px 24px rgba(13,27,42,0.18)',
-          animation: 'fadeSlideUp 0.35s ease both', animationDelay: '0.3s',
-        }}>
-          <div style={{ position: 'absolute', right: -20, top: -20, width: 120, height: 120, borderRadius: '50%', background: 'rgba(255,165,0,0.07)' }} />
-          <div style={{ position: 'absolute', right: 20, bottom: -30, width: 80, height: 80, borderRadius: '50%', background: 'rgba(255,165,0,0.05)' }} />
-          <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 12 }}>
-            <div style={{ background: 'rgba(255,165,0,0.15)', borderRadius: 8, padding: 6, display: 'flex' }}>
-              <Zap size={13} color="#FFA500" />
+      {/* Everything the revenue panel doesn't already cover */}
+      <div className="rv-mini">
+        {metrics.map((m, i) => (
+          <div key={i} className="rv-minicard" style={{ animation: 'fadeSlideUp 0.3s ease both', animationDelay: `${0.05 + i * 0.04}s` }}>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div className="rv-tlabel" style={{ marginBottom: 7 }}>{m.label}</div>
+              <div className="rv-minival">{m.value}</div>
             </div>
-            <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.8px' }}>Today's Sales</span>
+            <span style={{ background: m.bg, borderRadius: 10, padding: 8, display: 'flex', flexShrink: 0 }}>
+              <m.icon size={15} color={m.color} />
+            </span>
           </div>
-          <div style={{ fontSize: 30, fontWeight: 800, color: stats.todaySales > 0 ? '#FFA500' : 'rgba(255,255,255,0.3)', letterSpacing: '-1px', lineHeight: 1 }}>
-            MVR {stats.todaySales.toFixed(2)}
-          </div>
-          <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', marginTop: 8, fontWeight: 500 }}>
-            {stats.todaySales > 0 ? 'Great day so far!' : 'No sales recorded yet'}
-          </div>
-        </div>
-
-        {/* This month */}
-        <div style={{
-          borderRadius: 16, padding: '22px 24px', position: 'relative', overflow: 'hidden',
-          background: '#fff', border: '1px solid #eee',
-          animation: 'fadeSlideUp 0.35s ease both', animationDelay: '0.36s',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 12 }}>
-            <div style={{ background: '#E6F1FB', borderRadius: 8, padding: 6, display: 'flex' }}>
-              <Calendar size={13} color="#378ADD" />
-            </div>
-            <span style={{ fontSize: 11, color: '#bbb', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.8px' }}>This Month</span>
-          </div>
-          <div style={{ fontSize: 30, fontWeight: 800, color: '#0d1b2a', letterSpacing: '-1px', lineHeight: 1 }}>
-            MVR {(stats.thisMonthSales || 0).toFixed(2)}
-          </div>
-          {stats.monthChange !== null ? (
-            <div style={{ marginTop: 10, display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 99, background: Number(stats.monthChange) >= 0 ? '#E1F5EE' : '#FCEBEB' }}>
-              {Number(stats.monthChange) >= 0
-                ? <ArrowUpRight size={13} color="#1D9E75" />
-                : <ArrowDownRight size={13} color="#E24B4A" />}
-              <span style={{ fontSize: 12, fontWeight: 700, color: Number(stats.monthChange) >= 0 ? '#1D9E75' : '#E24B4A' }}>
-                {Math.abs(stats.monthChange)}% vs last month
-              </span>
-            </div>
-          ) : (
-            <div style={{ fontSize: 12, color: '#ccc', marginTop: 8 }}>No previous month data</div>
-          )}
-        </div>
+        ))}
       </div>
 
       {/* Activity grid */}
