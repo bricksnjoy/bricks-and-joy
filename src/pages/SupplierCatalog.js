@@ -527,6 +527,12 @@ export default function SupplierCatalog() {
       weight: form.weight?.trim() || null,
       dimensions: form.dimensions?.trim() || null,
       cost_price: form.cost_price === '' || form.cost_price == null ? null : (parseFloat(form.cost_price) || 0),
+      // The form's cost is entered in MVR. Keep the USD link only while the cost is
+      // unchanged (so a rate change still re-prices an imported product); a manual
+      // change to the cost makes it MVR-native and no longer rate-driven.
+      cost_usd: (editItem && String(form.cost_price ?? '') === String(editItem.cost_price ?? ''))
+        ? (editItem.cost_usd ?? null)
+        : null,
       sell_price: form.sell_price === '' || form.sell_price == null ? null : (parseFloat(form.sell_price) || 0),
       unit: form.unit || 'piece',
       notes: form.notes.trim() || null,
@@ -854,7 +860,7 @@ export default function SupplierCatalog() {
         'Sizes': r.sizes || '',
         'Weight': r.weight || '',
         'Dimensions': r.dimensions || '',
-        'Cost Price (USD)': toUsd(r.cost_price),
+        'Cost Price (USD)': (r.cost_usd != null && r.cost_usd !== '') ? Number(r.cost_usd) : toUsd(r.cost_price),
         'Sell Price (MVR)': r.sell_price ?? '',
         'Unit': r.unit || '',
         'Description': r.description || '',
@@ -1070,6 +1076,8 @@ export default function SupplierCatalog() {
       weight: r.weight || null,
       dimensions: r.dimensions || null,
       cost_price: r.cost_price ? parseFloat(r.cost_price) : null,
+      // Original USD cost (blank for MVR columns) — lets a later rate change re-price it
+      cost_usd: r.cost_usd ? parseFloat(r.cost_usd) : null,
       sell_price: r.sell_price ? parseFloat(r.sell_price) : null,
       unit: r.unit || 'piece',
       description: r.description || null,
@@ -1736,7 +1744,7 @@ export default function SupplierCatalog() {
                           return (
                           <td key={k} style={{ padding:'7px 10px', background: isChanged ? '#fff3df' : 'transparent', borderRadius: isChanged ? 6 : 0 }}
                             title={isChanged ? `Was: ${normVal(row._old?.[k]) || '(empty)'}` : undefined}>
-                            <input value={row[k]||''} onChange={e => setImportRows(rows => rows.map((r,j) => j===i ? {...r,[k]:e.target.value} : r))}
+                            <input value={row[k]||''} onChange={e => setImportRows(rows => rows.map((r,j) => j===i ? {...r,[k]:e.target.value, ...(k==='cost_price' ? {cost_usd:''} : {})} : r))}
                               style={{ width: k==='product_name'?140:80, border:'none', background:'transparent', fontSize:12, fontFamily:'inherit', outline:'none', color:'#0d1b2a', fontWeight: isChanged ? 700 : 400 }} />
                             {k==='cost_price' && row.cost_usd && (
                               <div style={{ fontSize:10, color:'#8aa', whiteSpace:'nowrap' }}>${row.cost_usd} USD</div>

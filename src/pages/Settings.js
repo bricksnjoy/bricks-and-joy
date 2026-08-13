@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { Building2, DollarSign, Package, Save, RotateCcw, X, Monitor, ShoppingCart, MessageSquare, ChevronDown, Mail, Send } from 'lucide-react'
 import { getSettings, saveSettings, DEFAULT_SETTINGS } from '../lib/settings'
 import { supabase } from '../lib/supabase'
+import { reconvertCatalogToRate } from '../lib/usdRate'
 import { useToast, Toasts } from '../components/UI'
 
 const CHANNELS = ['Retail store', 'Online', 'Wholesale', 'Pop-up / Market', 'Instagram', 'Phone']
@@ -173,10 +174,32 @@ export default function Settings({ onClose }) {
   const f = k => e => set(k, e.target.value)
   const fb = k => e => set(k, e.target.checked)
 
-  function handleSave() {
+  async function handleSave() {
+    const prev = getSettings()
+    const oldRate = Number(prev.usdRate) || 0
+    const newRate = Number(form.usdRate) || 0
+    const rateChanged = newRate > 0 && newRate !== oldRate
+
+    let reprice = false
+    if (rateChanged) {
+      reprice = window.confirm(
+        `Dollar rate changed from ${oldRate} to ${newRate} MVR per USD.\n\n` +
+        `Re-price every USD-imported catalog product to the new rate now?\n\n` +
+        `(Products entered directly in MVR are not touched. Existing Cost Analysis ` +
+        `drafts keep their own locked rate.)`
+      )
+    }
+
     saveSettings(form)
     setDirty(false)
     toast.success('Settings saved!')
+
+    if (reprice) {
+      const n = await reconvertCatalogToRate(newRate)
+      if (n === -1) toast.error('Could not re-price — run the cost_usd migration first (integrations/analysis-usd-rate.sql).')
+      else if (n > 0) toast.success(`Re-priced ${n} USD product${n === 1 ? '' : 's'} to ${newRate} MVR/USD.`)
+      else toast.success('No USD-priced products to re-price.')
+    }
   }
 
   function handleReset() {

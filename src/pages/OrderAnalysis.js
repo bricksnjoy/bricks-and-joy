@@ -261,12 +261,26 @@ export default function OrderAnalysis() {
     // never flows back to the catalog. Planned sell price and quantity are left
     // exactly as they were set. Converted analyses are history and never touched.
     try {
-      const { data: aRow } = await supabase.from('order_analyses').select('status').eq('id', id).maybeSingle()
+      const { data: aRow } = await supabase.from('order_analyses').select('status, usd_rate').eq('id', id).maybeSingle()
       if (aRow && aRow.status !== 'converted') {
+        // This draft's own locked rate (falls back to the Settings rate).
+        const draftRate = num(aRow?.usd_rate) || (getSettings().usdRate || 15.42)
         const ids = [...new Set(list.map(i => i.supplier_product_id).filter(Boolean))]
         if (ids.length) {
-          const { data: sps } = await supabase.from('supplier_products').select('id, cost_price').in('id', ids)
-          const costOf = new Map((sps || []).map(s => [s.id, s.cost_price == null ? 0 : Number(s.cost_price)]))
+          // Pull the dollar cost too so a USD-priced product uses THIS draft's rate,
+          // not whatever the catalog's MVR was converted at. Fall back gracefully if
+          // the cost_usd column isn't there yet.
+          let sps = null
+          const r1 = await supabase.from('supplier_products').select('id, cost_price, cost_usd').in('id', ids)
+          if (r1.error) sps = (await supabase.from('supplier_products').select('id, cost_price').in('id', ids)).data
+          else sps = r1.data
+          const costOf = new Map((sps || []).map(s => {
+            const usd = s.cost_usd == null || s.cost_usd === '' ? null : Number(s.cost_usd)
+            const target = (usd != null && isFinite(usd))
+              ? Math.round(usd * draftRate * 100) / 100
+              : (s.cost_price == null ? 0 : Number(s.cost_price))
+            return [s.id, target]
+          }))
           const changed = []
           list = list.map(it => {
             if (it.supplier_product_id != null && costOf.has(it.supplier_product_id) && Number(it.unit_cost) !== costOf.get(it.supplier_product_id)) {
@@ -441,10 +455,17 @@ export default function OrderAnalysis() {
 
   async function patchAnalysis(patch) {
     if (!open) return
-    setAnalyses(prev => prev.map(a => (a.id === open.id ? { ...a, ...patch } : a)))
+    const id = open.id
+    setAnalyses(prev => prev.map(a => (a.id === id ? { ...a, ...patch } : a)))
     const { error } = await supabase.from('order_analyses')
-      .update({ ...patch, updated_at: new Date().toISOString() }).eq('id', open.id)
-    if (error) toast.error('Could not save: ' + error.message)
+      .update({ ...patch, updated_at: new Date().toISOString() }).eq('id', id)
+    if (error) { toast.error('Could not save: ' + error.message); return }
+    // Changing this batch's dollar rate re-prices its USD-linked lines to the new
+    // rate; loadItems recomputes each catalog line from cost_usd × the draft rate.
+    if ('usd_rate' in patch) {
+      await loadItems(id)
+      toast.success(`Batch re-priced at ${num(patch.usd_rate) || getSettings().usdRate} MVR/USD`)
+    }
   }
 
   async function deleteAnalysis(a) {
