@@ -835,6 +835,14 @@ export default function SupplierCatalog() {
     if (!rows.length) { toast.error('No products to export'); return }
     // Expand any custom fields into their own columns so they round-trip too.
     const customKeys = [...new Set(rows.flatMap(r => (r.custom_fields ? Object.keys(r.custom_fields) : [])))]
+    // Costs are stored in MVR but the sheet is written in USD to match the import
+    // template — convert back so the file round-trips (edit → re-upload → MVR again).
+    const usdRate = Number(getSettings().usdRate) || 0
+    const toUsd = mvr => {
+      const n = mvr === '' || mvr == null ? NaN : Number(mvr)
+      if (isNaN(n) || usdRate <= 0) return mvr ?? ''
+      return Math.round((n / usdRate) * 100) / 100
+    }
     const data = rows.map(r => {
       const row = {
         'Product Name': r.product_name || '',
@@ -846,7 +854,7 @@ export default function SupplierCatalog() {
         'Sizes': r.sizes || '',
         'Weight': r.weight || '',
         'Dimensions': r.dimensions || '',
-        'Cost Price (MVR)': r.cost_price ?? '',
+        'Cost Price (USD)': toUsd(r.cost_price),
         'Sell Price (MVR)': r.sell_price ?? '',
         'Unit': r.unit || '',
         'Description': r.description || '',
