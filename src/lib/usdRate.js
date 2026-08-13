@@ -4,33 +4,37 @@ const round2 = n => Math.round(n * 100) / 100
 const round4 = n => Math.round(n * 10000) / 10000
 
 /**
- * Re-price every USD-based catalog product to a new MVR rate.
+ * Re-price the whole catalog to a new MVR rate, live.
  *
- * Supplier costs are quoted in USD. When a product is imported in dollars we keep
- * the original figure in `cost_usd`, and its MVR `cost_price` is always that
- * dollars figure times the current rate. So when the rate changes we recompute
- * `cost_price = cost_usd × rate` for every such product. Products entered
- * directly in MVR carry no `cost_usd` and are left exactly as they are.
+ * Every product's MVR cost is `dollars × rate`. The dollar figure comes from
+ * `cost_usd` when it's recorded; otherwise it's derived from the rate the catalog
+ * was priced at until now (`cost_price ÷ oldRate`). Either way the dollars are
+ * written back to `cost_usd`, so from then on the amount is on record and future
+ * rate changes are exact.
  *
- * @param {number} newRate MVR per 1 USD
+ * @param {number} newRate MVR per 1 USD to switch to
+ * @param {number} oldRate MVR per 1 USD the catalog was priced at until now
  * @returns {Promise<number>} how many products were repriced, or -1 if the
  *   `cost_usd` column isn't set up yet (nothing to do until the migration runs).
  */
-export async function reconvertCatalogToRate(newRate) {
+export async function reconvertCatalogToRate(newRate, oldRate) {
   const rate = Number(newRate)
+  const old = Number(oldRate)
   if (!rate || rate <= 0) return 0
   const { data, error } = await supabase
     .from('supplier_products')
-    .select('id, cost_usd')
-    .not('cost_usd', 'is', null)
+    .select('id, cost_price, cost_usd')
   if (error) return -1
   let n = 0
   for (const r of (data || [])) {
-    const usd = Number(r.cost_usd)
+    const recorded = (r.cost_usd != null && r.cost_usd !== '') ? Number(r.cost_usd) : NaN
+    const cp = (r.cost_price == null || r.cost_price === '') ? NaN : Number(r.cost_price)
+    // Recorded dollars win; otherwise back them out of the rate priced at until now.
+    const usd = isFinite(recorded) ? recorded : (isFinite(cp) && old > 0 ? round4(cp / old) : NaN)
     if (!isFinite(usd)) continue
     const { error: e } = await supabase
       .from('supplier_products')
-      .update({ cost_price: round2(usd * rate) })
+      .update({ cost_usd: usd, cost_price: round2(usd * rate) })
       .eq('id', r.id)
     if (!e) n++
   }

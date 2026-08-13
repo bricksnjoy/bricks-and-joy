@@ -265,6 +265,8 @@ export default function OrderAnalysis() {
       if (aRow && aRow.status !== 'converted') {
         // This draft's own locked rate (falls back to the Settings rate).
         const draftRate = num(aRow?.usd_rate) || (getSettings().usdRate || 15.42)
+        // The rate the catalog's MVR costs are priced at. Dollars = MVR ÷ this.
+        const settingsRate = num(getSettings().usdRate) || 15.42
         const ids = [...new Set(list.map(i => i.supplier_product_id).filter(Boolean))]
         if (ids.length) {
           // Pull the dollar cost too so a USD-priced product uses THIS draft's rate,
@@ -275,10 +277,12 @@ export default function OrderAnalysis() {
           if (r1.error) sps = (await supabase.from('supplier_products').select('id, cost_price').in('id', ids)).data
           else sps = r1.data
           const costOf = new Map((sps || []).map(s => {
-            const usd = s.cost_usd == null || s.cost_usd === '' ? null : Number(s.cost_usd)
-            const target = (usd != null && isFinite(usd))
-              ? Math.round(usd * draftRate * 100) / 100
-              : (s.cost_price == null ? 0 : Number(s.cost_price))
+            const recorded = s.cost_usd == null || s.cost_usd === '' ? NaN : Number(s.cost_usd)
+            const cp = s.cost_price == null || s.cost_price === '' ? NaN : Number(s.cost_price)
+            // Dollars: the recorded figure, else backed out of the Settings rate.
+            const usd = isFinite(recorded) ? recorded : (isFinite(cp) && settingsRate > 0 ? cp / settingsRate : NaN)
+            // Priced for THIS batch at its own locked rate.
+            const target = isFinite(usd) ? Math.round(usd * draftRate * 100) / 100 : (isFinite(cp) ? cp : 0)
             return [s.id, target]
           }))
           const changed = []

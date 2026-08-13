@@ -205,9 +205,10 @@ export default function Settings({ onClose }) {
     if (rateChanged) {
       reprice = window.confirm(
         `Dollar rate changed from ${oldRate} to ${newRate} MVR per USD.\n\n` +
-        `Re-price every USD-imported catalog product to the new rate now?\n\n` +
-        `(Products entered directly in MVR are not touched. Existing Cost Analysis ` +
-        `drafts keep their own locked rate.)`
+        `Re-price the whole catalog to the new rate now? Each product's dollar cost ` +
+        `stays the same and its MVR updates (× ${newRate}).\n\n` +
+        `Existing Cost Analysis drafts keep their own locked rate.\n\n` +
+        `Only do this if the catalog is currently priced at ${oldRate} MVR/USD.`
       )
     }
 
@@ -216,10 +217,10 @@ export default function Settings({ onClose }) {
     toast.success('Settings saved!')
 
     if (reprice) {
-      const n = await reconvertCatalogToRate(newRate)
+      const n = await reconvertCatalogToRate(newRate, oldRate)
       if (n === -1) toast.error('Could not re-price — run the cost_usd migration first (integrations/analysis-usd-rate.sql).')
-      else if (n > 0) toast.success(`Re-priced ${n} USD product${n === 1 ? '' : 's'} to ${newRate} MVR/USD.`)
-      else toast.info('No products carry a dollar cost yet — use “Re-price existing catalog” below to set them once.')
+      else if (n > 0) toast.success(`Re-priced ${n} product${n === 1 ? '' : 's'} to ${newRate} MVR/USD.`)
+      else toast.info('Nothing to re-price yet.')
     }
   }
 
