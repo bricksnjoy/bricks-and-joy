@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { Building2, DollarSign, Package, Save, RotateCcw, X, Monitor, ShoppingCart, MessageSquare, ChevronDown, Mail, Send } from 'lucide-react'
 import { getSettings, saveSettings, DEFAULT_SETTINGS } from '../lib/settings'
 import { supabase } from '../lib/supabase'
-import { reconvertCatalogToRate } from '../lib/usdRate'
+import { reconvertCatalogToRate, backfillCatalogUsd } from '../lib/usdRate'
 import { useToast, Toasts } from '../components/UI'
 
 const CHANNELS = ['Retail store', 'Online', 'Wholesale', 'Pop-up / Market', 'Instagram', 'Phone']
@@ -168,7 +168,28 @@ function MonthlyReportSettings({ toast }) {
 export default function Settings({ onClose }) {
   const [form, setForm] = useState(() => getSettings())
   const [dirty, setDirty] = useState(false)
+  const [repriceBasis, setRepriceBasis] = useState('')
+  const [repricing, setRepricing] = useState(false)
   const toast = useToast()
+
+  async function handleReprice() {
+    const target = Number(form.usdRate) || 0
+    const basis = Number(repriceBasis) || 0
+    if (basis <= 0) { toast.error('Enter the rate your catalog is currently priced at.'); return }
+    if (target <= 0) { toast.error('Set a dollar rate above first.'); return }
+    if (!window.confirm(
+      `Re-price the whole catalog from ${basis} to ${target} MVR per USD?\n\n` +
+      `Each product's dollar cost is set to (current MVR ÷ ${basis}), then its MVR cost ` +
+      `becomes that × ${target}. Products already carrying a dollar cost keep it. ` +
+      `This affects the catalog only — existing analysis drafts keep their own rate.`
+    )) return
+    setRepricing(true)
+    const res = await backfillCatalogUsd(basis, target)
+    setRepricing(false)
+    if (res.error === 'no-column') toast.error('Run integrations/analysis-usd-rate.sql first (it adds cost_usd).')
+    else if (res.error) toast.error('Enter valid rates.')
+    else { toast.success(`Re-priced ${res.count} product${res.count === 1 ? '' : 's'} — dollar costs are now set.`); setRepriceBasis('') }
+  }
 
   const set = (k, v) => { setForm(p => ({ ...p, [k]: v })); setDirty(true) }
   const f = k => e => set(k, e.target.value)
@@ -198,7 +219,7 @@ export default function Settings({ onClose }) {
       const n = await reconvertCatalogToRate(newRate)
       if (n === -1) toast.error('Could not re-price — run the cost_usd migration first (integrations/analysis-usd-rate.sql).')
       else if (n > 0) toast.success(`Re-priced ${n} USD product${n === 1 ? '' : 's'} to ${newRate} MVR/USD.`)
-      else toast.success('No USD-priced products to re-price.')
+      else toast.info('No products carry a dollar cost yet — use “Re-price existing catalog” below to set them once.')
     }
   }
 
@@ -299,13 +320,30 @@ export default function Settings({ onClose }) {
               <Field label="TIN (Taxpayer Identification Number)" half hint="Fills your MIRA tax forms automatically">
                 <TInput value={form.tin} onChange={f('tin')} placeholder="e.g. 1001234GST567" maxLength={20} />
               </Field>
-              <Field label="Dollar rate (MVR per USD)" half hint="Supplier costs in USD become MVR on import">
+              <Field label="Dollar rate (MVR per USD)" half hint="Supplier costs in USD become MVR on import. Changing this offers to re-price USD products.">
                 <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                   <span style={{ fontSize: 13, color: '#aaa', flexShrink: 0 }}>1 USD =</span>
                   <TInput value={form.usdRate} onChange={e => set('usdRate', parseFloat(e.target.value) || 0)} type="number" min="0" step="0.01" placeholder="15.42" />
                   <span style={{ fontSize: 13, color: '#aaa', flexShrink: 0 }}>MVR</span>
                 </div>
               </Field>
+              <div style={{ gridColumn: 'span 2', background: '#fff', border: '1px solid #f0e6d0', borderRadius: 9, padding: '12px 14px' }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#0d1b2a', marginBottom: 3 }}>Re-price existing catalog</div>
+                <div style={{ fontSize: 11.5, color: '#999', marginBottom: 10, lineHeight: 1.5 }}>
+                  One-time fix for products added before dollar costs existed. Enter the rate the catalog is priced at now, and each product's dollar cost gets set and its MVR cost switched to your current rate ({Number(form.usdRate) || 0} MVR/USD). After this, changing the rate above re-prices everything automatically.
+                </div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 12, color: '#888', flexShrink: 0 }}>Priced at now</span>
+                  <div style={{ width: 120 }}>
+                    <TInput value={repriceBasis} onChange={e => setRepriceBasis(e.target.value)} type="number" min="0" step="0.01" placeholder="e.g. 15.42" />
+                  </div>
+                  <span style={{ fontSize: 12, color: '#888', flexShrink: 0 }}>MVR/USD</span>
+                  <button onClick={handleReprice} disabled={repricing}
+                    style={{ padding: '9px 16px', borderRadius: 9, border: 'none', background: repricing ? '#f0c060' : '#FFA500', color: '#fff', fontWeight: 700, fontSize: 12.5, fontFamily: 'inherit', cursor: repricing ? 'default' : 'pointer', whiteSpace: 'nowrap' }}>
+                    {repricing ? 'Re-pricing…' : `Re-price to ${Number(form.usdRate) || 0}`}
+                  </button>
+                </div>
+              </div>
               {form.taxRate > 0 && (
                 <div style={{ gridColumn: 'span 2', background: '#f0f7ff', border: '1px solid #dbeafe', borderRadius: 9, padding: '10px 14px', fontSize: 12, color: '#1e4d8c' }}>
                   Example: {form.currency} 100 → {form.taxIncluded
