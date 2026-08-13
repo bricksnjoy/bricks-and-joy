@@ -273,8 +273,15 @@ export default function Settings({ onClose }) {
               <Field label="Tax included in price?" half>
                 <Toggle checked={form.taxIncluded} onChange={fb('taxIncluded')} label={form.taxIncluded ? 'Tax-inclusive' : 'Add on top'} />
               </Field>
-              <Field label="TIN (Taxpayer Identification Number)" hint="Fills your MIRA tax forms automatically">
+              <Field label="TIN (Taxpayer Identification Number)" half hint="Fills your MIRA tax forms automatically">
                 <TInput value={form.tin} onChange={f('tin')} placeholder="e.g. 1001234GST567" maxLength={20} />
+              </Field>
+              <Field label="Dollar rate (MVR per USD)" half hint="Supplier costs in USD become MVR on import">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                  <span style={{ fontSize: 13, color: '#aaa', flexShrink: 0 }}>1 USD =</span>
+                  <TInput value={form.usdRate} onChange={e => set('usdRate', parseFloat(e.target.value) || 0)} type="number" min="0" step="0.01" placeholder="15.42" />
+                  <span style={{ fontSize: 13, color: '#aaa', flexShrink: 0 }}>MVR</span>
+                </div>
               </Field>
               {form.taxRate > 0 && (
                 <div style={{ gridColumn: 'span 2', background: '#f0f7ff', border: '1px solid #dbeafe', borderRadius: 9, padding: '10px 14px', fontSize: 12, color: '#1e4d8c' }}>

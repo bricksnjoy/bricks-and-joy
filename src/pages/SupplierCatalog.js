@@ -2,6 +2,7 @@ import React, { useDeferredValue, useEffect, useMemo, useState, useRef } from 'r
 import { supabase } from '../lib/supabase'
 import { uploadImage, PHOTO, savingLabel } from '../lib/uploadImage'
 import { localToday } from '../lib/dates'
+import { getSettings } from '../lib/settings'
 import { logAudit } from '../lib/audit'
 import { prepare, similarityPrepared } from '../lib/nameMatch'
 import { compressImage, worthCompressing, storagePathFromUrl, isStorageUrl, isDataUrl, isHttpUrl, humanBytes } from '../lib/imageCompress'
@@ -43,7 +44,7 @@ function ShowMore({ shown, total, onMore }) {
 // set is imported into the product's custom_fields under its original name.
 const KNOWN_IMPORT_HEADERS = new Set([
   'product name','product','name','item','item name','product title','title',
-  'cost price (mvr)','cost price','cost','buying price','purchase price','unit cost','buy price','our price','supplier price',
+  'cost price (usd)','cost price (mvr)','cost price','cost','buying price','purchase price','unit cost','buy price','our price','supplier price',
   'sell price (mvr)','sell price','delivery price','selling price','sale price','retail price','unit price','price','mrp','rate',
   'amount','value',
   'image url','image','photo url','photo','picture url','picture','img url','img',
@@ -882,6 +883,10 @@ export default function SupplierCatalog() {
       return
     }
 
+    // Supplier costs are quoted in USD in the template; convert to MVR on import
+    // using the rate saved in Settings so inventory always stores/shows MVR.
+    const usdRate = Number(getSettings().usdRate) || 0
+
     const buf = await file.arrayBuffer()
 
     const wb = XLSX.read(buf, { type: 'array' })
@@ -965,7 +970,25 @@ export default function SupplierCatalog() {
         return ''
       }
       const productName = get('product name','product','name','item','item name','product title','title')
-      const cost = get('cost price (mvr)','cost price','cost','buying price','purchase price','unit cost','buy price','our price','supplier price')
+      // getWithKey returns [value, matchedHeader] so we can tell a USD column from
+      // an MVR one and only convert the dollars.
+      const getWithKey = (...names) => {
+        for (const n of names) {
+          const k = Object.keys(row).find(k => k.toLowerCase().trim() === n)
+          if (k && row[k] !== '' && row[k] !== undefined) return [String(row[k]).trim(), n]
+        }
+        return ['', '']
+      }
+      const [costRaw, costHeader] = getWithKey('cost price (usd)','cost price (mvr)','cost price','cost','buying price','purchase price','unit cost','buy price','our price','supplier price')
+      // Costs are quoted in USD (the template and supplier sheets), so convert to
+      // MVR using the Settings rate. But a column explicitly labelled MVR — e.g. a
+      // catalog export re-imported — is already MVR and must NOT be converted.
+      const costIsMvr = /mvr/.test(costHeader)
+      const costUsdNum = costRaw ? parseFloat(costRaw) : NaN
+      const doConvert = !costIsMvr && !isNaN(costUsdNum) && usdRate > 0
+      const cost = doConvert
+        ? String(Math.round(costUsdNum * usdRate * 100) / 100)
+        : costRaw
       const sell = get('sell price (mvr)','sell price','delivery price','selling price','sale price','retail price','unit price','price','mrp','rate')
       const onlyPrice = get('amount','value')
       // Image URL column takes priority (guaranteed correct match); fallback to embedded image by row
@@ -991,6 +1014,7 @@ export default function SupplierCatalog() {
         weight: get('weight','wt'),
         dimensions: get('dimensions','dimension','size (cm)','measurements'),
         cost_price: cost || '',
+        cost_usd: doConvert ? costRaw : '',
         sell_price: sell || onlyPrice || '',
         unit: get('unit','uom','unit of measure','sold per') || 'piece',
         description: get('description','desc','details','about'),
@@ -1140,9 +1164,10 @@ export default function SupplierCatalog() {
   }
 
   function downloadTemplate() {
+    const rate = (Number(getSettings().usdRate) || 0).toFixed(2)
     const headers = [
       'Product Name',
-      'Cost Price (MVR)',
+      'Cost Price (USD)',
       'Sell Price (MVR)',
       'Category',
       'Brand',
@@ -1158,9 +1183,9 @@ export default function SupplierCatalog() {
       'Image URL',
     ]
     const examples = [
-      ['LEGO Classic Bricks', '120.00', '350.00', 'Building & Blocks', 'LEGO', 'All ages', '300', 'Medium', '500g', '30×20×10cm', 'set', 'Creative building set', 'popular, new', 'Best seller', 'https://example.com/image.jpg'],
-      ['Hot Wheels Car', '45.00', '150.00', 'Vehicles & RC', 'Hot Wheels', '3–5', '', '', '120g', '', 'piece', 'Die-cast toy car', 'sale', '', ''],
-      ['Barbie Doll', '80.00', '220.00', 'Dolls & Plush', 'Mattel', '6–8', '', 'One size', '', '', 'piece', '', 'popular', 'Popular item', ''],
+      ['LEGO Classic Bricks', '8.00', '350.00', 'Building & Blocks', 'LEGO', 'All ages', '300', 'Medium', '500g', '30×20×10cm', 'set', 'Creative building set', 'popular, new', 'Best seller', 'https://example.com/image.jpg'],
+      ['Hot Wheels Car', '3.00', '150.00', 'Vehicles & RC', 'Hot Wheels', '3–5', '', '', '120g', '', 'piece', 'Die-cast toy car', 'sale', '', ''],
+      ['Barbie Doll', '5.00', '220.00', 'Dolls & Plush', 'Mattel', '6–8', '', 'One size', '', '', 'piece', '', 'popular', 'Popular item', ''],
     ]
     const ws = XLSX.utils.aoa_to_sheet([headers, ...examples])
     // Column widths
@@ -1174,8 +1199,8 @@ export default function SupplierCatalog() {
       [''],
       ['COLUMNS:'],
       ['Product Name', 'Required. Full product name.'],
-      ['Cost Price (MVR)', 'What you PAY the supplier.'],
-      ['Sell Price (MVR)', 'What you CHARGE customers (the "Delivery price" in your sheet).'],
+      ['Cost Price (USD)', `What you PAY the supplier, in US DOLLARS. It is converted to MVR on import at the rate in Settings (currently 1 USD = ${rate} MVR).`],
+      ['Sell Price (MVR)', 'What you CHARGE customers, in MVR (the "Delivery price" in your sheet).'],
       ['Category', 'e.g. Vehicles & RC, Dolls & Plush, Building & Blocks'],
       ['Brand', 'e.g. LEGO, Mattel, Hot Wheels'],
       ['Age Range', '0–2 / 3–5 / 6–8 / 9–12 / 12+ / All ages'],
@@ -1659,6 +1684,11 @@ export default function SupplierCatalog() {
                   </div>
                 )
               })()}
+              {importRows.some(r => r.cost_usd) && (
+                <div style={{ fontSize:12, color:'#1e4d8c', background:'#f0f7ff', border:'1px solid #dbeafe', borderRadius:9, padding:'9px 13px', marginBottom:12 }}>
+                  Cost prices were read as <strong>USD</strong> and converted to <strong>MVR</strong> at 1 USD = {(Number(getSettings().usdRate) || 0).toFixed(2)} MVR (from Settings). The Cost column below shows MVR.
+                </div>
+              )}
               <div style={{ maxHeight:340, overflow:'auto', border:'1px solid #f0f0f0', borderRadius:10, marginBottom:16 }}>
                 <table style={{ fontSize:12, borderCollapse:'collapse', minWidth:1100 }}>
                   <thead>
@@ -1700,6 +1730,9 @@ export default function SupplierCatalog() {
                             title={isChanged ? `Was: ${normVal(row._old?.[k]) || '(empty)'}` : undefined}>
                             <input value={row[k]||''} onChange={e => setImportRows(rows => rows.map((r,j) => j===i ? {...r,[k]:e.target.value} : r))}
                               style={{ width: k==='product_name'?140:80, border:'none', background:'transparent', fontSize:12, fontFamily:'inherit', outline:'none', color:'#0d1b2a', fontWeight: isChanged ? 700 : 400 }} />
+                            {k==='cost_price' && row.cost_usd && (
+                              <div style={{ fontSize:10, color:'#8aa', whiteSpace:'nowrap' }}>${row.cost_usd} USD</div>
+                            )}
                             {isChanged && row._old && (
                               <div style={{ fontSize:10, color:'#c9a', textDecoration:'line-through', whiteSpace:'nowrap', maxWidth:140, overflow:'hidden', textOverflow:'ellipsis' }}>
                                 {normVal(row._old[k]) || '(empty)'}

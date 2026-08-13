@@ -16,6 +16,7 @@ export const DEFAULT_SETTINGS = {
   taxRate: 0,
   taxIncluded: false,
   tin: '',   // Taxpayer Identification Number — used to fill MIRA tax forms
+  usdRate: 15.42,   // MVR per 1 USD — supplier costs are quoted in USD, converted to MVR on import
 
   // Inventory
   lowStockThreshold: 10,

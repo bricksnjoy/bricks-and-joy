@@ -205,7 +205,7 @@ export default function OrderAnalysis() {
   const [itemsLoading, setItemsLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [newModal, setNewModal] = useState(false)
-  const [newForm, setNewForm] = useState({ name: '', supplier_id: '', supplier_name: '', target_margin: 40 })
+  const [newForm, setNewForm] = useState({ name: '', supplier_id: '', supplier_name: '', target_margin: 40, usd_rate: getSettings().usdRate || 15.42 })
   const [pickModal, setPickModal] = useState(null) // 'catalog' | 'inventory'
   const [pickSearch, setPickSearch] = useState('')
   const [pickVendor, setPickVendor] = useState('all')
@@ -425,6 +425,7 @@ export default function OrderAnalysis() {
       supplier_name: supplier?.name || '',
       status: 'draft',
       target_margin: num(newForm.target_margin) || 40,
+      usd_rate: num(newForm.usd_rate) || (getSettings().usdRate || 15.42),
       extra_costs: [],
     }
     setSaving(true)
@@ -484,7 +485,7 @@ export default function OrderAnalysis() {
     setSaving(true)
     const { data, error } = await insertStrip('order_analyses', {
       name: `${a.name} (copy)`, supplier_id: a.supplier_id, supplier_name: a.supplier_name,
-      status: 'draft', target_margin: a.target_margin, extra_costs: a.extra_costs || [], notes: a.notes,
+      status: 'draft', target_margin: a.target_margin, usd_rate: a.usd_rate, extra_costs: a.extra_costs || [], notes: a.notes,
     }, true)
     if (error || !data?.[0]) { setSaving(false); toast.error('Failed to copy'); return }
     const copy = data[0]
@@ -1006,6 +1007,7 @@ export default function OrderAnalysis() {
   if (open) {
     const converted = open.status === 'converted'
     const target = num(open.target_margin) || 40
+    const batchRate = num(open.usd_rate) || (getSettings().usdRate || 15.42)
     const alreadyIn = new Set(items.map(i => i.supplier_product_id || i.product_id).filter(Boolean))
 
     // ── Picker: filtered, then grouped under the vendor each product comes from ──
@@ -1143,7 +1145,7 @@ export default function OrderAnalysis() {
         {/* Headline numbers */}
         <div className="grid-collapse" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 18 }}>
           {[
-            { label: 'Total cost', value: mv0(totals.landed), sub: `${mv0(totals.goods)} goods + ${mv0(totals.extras)} extra costs`, color: '#0d1b2a' },
+            { label: 'Total cost', value: mv0(totals.landed), sub: `${mv0(totals.goods)} goods + ${mv0(totals.extras)} extra costs · ≈ $${batchRate > 0 ? (totals.landed / batchRate).toFixed(0) : '—'} USD @ ${batchRate}`, color: '#0d1b2a' },
             { label: 'If sold all', value: mv0(totals.revenue), sub: `${totals.qty} units across ${groups.length} order${groups.length === 1 ? '' : 's'}`, color: '#378ADD' },
             { label: 'Total profit', value: mv0(totals.profit), sub: `${totals.lines} product${totals.lines === 1 ? '' : 's'}`, color: totals.profit >= 0 ? '#1D9E75' : '#E24B4A' },
             { label: 'Total margin', value: pct(totals.margin), sub: `${pct(totals.roi)} return · target ${target}%`, color: totals.margin >= target ? '#1D9E75' : totals.margin >= 0 ? '#e6940a' : '#E24B4A' },
@@ -1173,6 +1175,12 @@ export default function OrderAnalysis() {
               </div>
               <Input label="Target margin %" type="number" defaultValue={target}
                 onBlur={e => patchAnalysis({ target_margin: num(e.target.value) || 40 })} />
+              <Input label="Dollar rate for this batch (MVR per USD)" type="number" step="0.01"
+                defaultValue={open.usd_rate ?? (getSettings().usdRate || 15.42)}
+                onBlur={e => patchAnalysis({ usd_rate: num(e.target.value) || (getSettings().usdRate || 15.42) })} />
+              <div style={{ fontSize: 11, color: '#bbb', marginTop: -4, lineHeight: 1.5 }}>
+                Locks the USD→MVR rate for this order so it stays fixed even if the Settings rate changes later.
+              </div>
               <Input label="Notes" defaultValue={open.notes || ''} placeholder="Why this order, what to watch…"
                 onBlur={e => patchAnalysis({ notes: e.target.value })} />
             </div>
@@ -1634,7 +1642,7 @@ export default function OrderAnalysis() {
       <PageHeader
         title="Order Analysis"
         subtitle="Work out the numbers before you commit — nothing here reaches accounting until you create the batch order"
-        action={<Button onClick={() => { setNewForm({ name: '', supplier_id: '', supplier_name: '', target_margin: 40 }); setNewModal(true) }}><Plus size={15} /> New analysis</Button>}
+        action={<Button onClick={() => { setNewForm({ name: '', supplier_id: '', supplier_name: '', target_margin: 40, usd_rate: getSettings().usdRate || 15.42 }); setNewModal(true) }}><Plus size={15} /> New analysis</Button>}
       />
 
       <Card style={{ marginBottom: 20, background: '#fbfaf8', border: '1px solid #f0ece6' }}>
@@ -1702,6 +1710,11 @@ export default function OrderAnalysis() {
               onChange={e => setNewForm(f => ({ ...f, target_margin: e.target.value }))} />
             <div style={{ fontSize: 11.5, color: '#aaa', lineHeight: 1.5 }}>
               <Percent size={11} style={{ verticalAlign: -1 }} /> Anything below this margin gets flagged so you can re-price or skip it.
+            </div>
+            <Input label="Dollar rate for this batch (MVR per USD)" type="number" step="0.01" value={newForm.usd_rate}
+              onChange={e => setNewForm(f => ({ ...f, usd_rate: e.target.value }))} />
+            <div style={{ fontSize: 11.5, color: '#aaa', lineHeight: 1.5 }}>
+              Defaults to your Settings rate. Locks the USD→MVR rate for this batch.
             </div>
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
