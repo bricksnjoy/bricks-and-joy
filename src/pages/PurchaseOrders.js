@@ -45,7 +45,7 @@ export default function PurchaseOrders() {
   const [batchModal, setBatchModal] = useState(false)
   const [supplierModal, setSupplierModal] = useState(false)
   const [payModal, setPayModal] = useState(null) // PO object being paid
-  const [payForm, setPayForm] = useState({ amount: '', payment_date: localToday(), payment_method: 'Bank Transfer', reference: '', notes: '', slips: [] })
+  const [payForm, setPayForm] = useState({ amount: '', payment_date: localToday(), payment_method: 'Bank Transfer', references: [''], notes: '', slips: [] })
   const [paymentsTab, setPaymentsTab] = useState(false)
   const [viewSlips, setViewSlips] = useState(null) // { slips: [...], title } for fullscreen viewer
   const [viewTab, setViewTab] = useState('ongoing') // 'ongoing' | 'history'
@@ -425,7 +425,7 @@ export default function PurchaseOrders() {
     const anchor = group.rows.find(r => r.cost_type !== 'extra') || group.rows[0]
     const paid = paidForGroup(group)
     const outstanding = Math.max(0, group.total - paid)
-    setPayForm({ amount: outstanding > 0 ? outstanding.toFixed(2) : '', payment_date: localToday(), payment_method: 'Bank Transfer', reference: '', notes: '', slips: [] })
+    setPayForm({ amount: outstanding > 0 ? outstanding.toFixed(2) : '', payment_date: localToday(), payment_method: 'Bank Transfer', references: [''], notes: '', slips: [] })
     setPayModal({ ...anchor, total_cost: group.total, _groupTotal: group.total, _groupPaid: paid, _groupIds: group.rows.map(r => r.id) })
   }
 
@@ -460,23 +460,33 @@ export default function PurchaseOrders() {
     const slips = (await uploadImages(files, { prefix: 'po-slip', preset: SLIP }))
       .filter(r => r.url).map(r => ({ name: r.name, type: r.type, url: r.url }))
     setPayForm(p => ({ ...p, slips: [...(p.slips || []), ...slips] }))
-    // Read the receipt so the amount, date and reference don't have to be typed
-    const image = files.find(f => (f.type || '').startsWith('image/'))
-    if (image) scanPaySlip(image)
+    // Read EVERY receipt image, so several transfers each contribute their own
+    // reference (and the amount/date fill in from the first when still blank).
+    files.filter(f => (f.type || '').startsWith('image/')).forEach(img => scanPaySlip(img))
+  }
+
+  // Adds a reference to a list without duplicates or blanks.
+  const mergeRef = (list, ref) => {
+    const r = (ref || '').trim()
+    const clean = (list || []).filter(x => (x || '').trim())
+    if (r && !clean.some(x => x.trim() === r)) clean.push(r)
+    return clean.length ? clean : ['']
   }
 
   // Fills the payment form from a transfer slip, remembering what it replaced
-  // so a misread can be undone whole.
+  // so a misread can be undone whole. Each slip's reference is added to the list;
+  // amount and date only fill when still blank, so extra slips never overwrite them.
   function scanPaySlip(source) {
     return slip.scan(source, found => {
       let before
       setPayForm(p => {
-        before = { amount: p.amount, payment_date: p.payment_date, reference: p.reference }
+        before = { amount: p.amount, payment_date: p.payment_date, references: p.references }
+        const amountBlank = p.amount === '' || p.amount == null
         return {
           ...p,
-          amount: found.amount != null ? String(found.amount) : p.amount,
+          amount: amountBlank && found.amount != null ? String(found.amount) : p.amount,
           payment_date: found.date || p.payment_date,
-          reference: found.reference || p.reference,
+          references: mergeRef(p.references, found.reference),
         }
       })
       return before
@@ -486,6 +496,7 @@ export default function PurchaseOrders() {
   async function recordPayment() {
     if (!payForm.amount || Number(payForm.amount) <= 0) { toast.error('Enter a valid amount'); return }
     if (await blockedByLock(payForm.payment_date, { action: 'record this payment' })) return
+    const refList = (payForm.references || []).map(s => (s || '').trim()).filter(Boolean)
     const row = {
       purchase_order_id: payModal.id,
       supplier_id: payModal.supplier_id || null,
@@ -493,7 +504,10 @@ export default function PurchaseOrders() {
       amount: parseFloat(payForm.amount),
       payment_date: payForm.payment_date,
       payment_method: payForm.payment_method,
-      reference: payForm.reference || null,
+      // Joined text keeps existing search / reconciliation matching working;
+      // the array preserves each reference on its own for editing and display.
+      reference: refList.join(', ') || null,
+      payment_references: refList.length ? refList : null,
       notes: payForm.notes || null,
       batch_no: payModal.batch_no || null,
       ...(payForm.slips && payForm.slips.length ? { slips: payForm.slips } : {}),
@@ -503,7 +517,7 @@ export default function PurchaseOrders() {
     if (error) { toast.error('Failed to record payment: ' + error.message); return }
     const recorded = parseFloat(payForm.amount)
     logAudit('payment', 'supplier_payment', `MVR ${recorded.toFixed(2)} to ${payModal.supplier_name || 'supplier'}`,
-      { amount: recorded, payment_date: payForm.payment_date, reference: payForm.reference || null })
+      { amount: recorded, payment_date: payForm.payment_date, reference: refList.join(', ') || null })
     toast.success(`Payment of MVR ${recorded.toFixed(2)} recorded`)
     // Reload data then update the modal's paid/outstanding values so user can add another
     const [p, pay] = await Promise.all([
@@ -518,18 +532,22 @@ export default function PurchaseOrders() {
     const newGroupPaid = freshPay.filter(x => payModal._groupIds?.includes(x.purchase_order_id) || x.purchase_order_id === payModal.id).reduce((s, x) => s + Number(x.amount), 0)
     const newOutstanding = Math.max(0, payModal._groupTotal - newGroupPaid)
     setPayModal(prev => ({ ...prev, _groupPaid: newGroupPaid }))
-    setPayForm({ amount: newOutstanding > 0 ? newOutstanding.toFixed(2) : '', payment_date: localToday(), payment_method: payForm.payment_method, reference: '', notes: '', slips: [] })
+    setPayForm({ amount: newOutstanding > 0 ? newOutstanding.toFixed(2) : '', payment_date: localToday(), payment_method: payForm.payment_method, references: [''], notes: '', slips: [] })
   }
 
   function switchView(v) { setListView(v); localStorage.setItem('po_list_view', v) }
 
   function openEditPayment(payment) {
     slip.clear()
+    // Prefer the stored array; fall back to splitting the joined text of older rows.
+    const refs = Array.isArray(payment.payment_references) && payment.payment_references.length
+      ? payment.payment_references
+      : (payment.reference ? String(payment.reference).split(',').map(s => s.trim()).filter(Boolean) : [])
     setEditPayForm({
       amount: String(payment.amount ?? ''),
       payment_date: payment.payment_date || localToday(),
       payment_method: payment.payment_method || 'Bank Transfer',
-      reference: payment.reference || '',
+      references: refs.length ? refs : [''],
       notes: payment.notes || '',
       slips: Array.isArray(payment.slips) ? payment.slips : [],
       newCosts: [],
@@ -546,22 +564,22 @@ export default function PurchaseOrders() {
     const slips = (await uploadImages(files, { prefix: 'po-slip', preset: SLIP }))
       .filter(r => r.url).map(r => ({ name: r.name, type: r.type, url: r.url }))
     setEditPayForm(p => ({ ...p, slips: [...(p.slips || []), ...slips] }))
-    const image = files.find(f => (f.type || '').startsWith('image/'))
-    if (image) scanEditSlip(image)
+    files.filter(f => (f.type || '').startsWith('image/')).forEach(img => scanEditSlip(img))
   }
 
   // Same read, applied to the edit form — also used to read a slip that was
-  // attached long before this could read anything.
+  // attached long before this could read anything. Each slip's reference is added.
   function scanEditSlip(source) {
     return slip.scan(source, found => {
       let before
       setEditPayForm(p => {
-        before = { amount: p.amount, payment_date: p.payment_date, reference: p.reference }
+        before = { amount: p.amount, payment_date: p.payment_date, references: p.references }
+        const amountBlank = p.amount === '' || p.amount == null
         return {
           ...p,
-          amount: found.amount != null ? String(found.amount) : p.amount,
+          amount: amountBlank && found.amount != null ? String(found.amount) : p.amount,
           payment_date: found.date || p.payment_date,
-          reference: found.reference || p.reference,
+          references: mergeRef(p.references, found.reference),
         }
       })
       return before
@@ -596,11 +614,13 @@ export default function PurchaseOrders() {
     }
 
     // Update the payment record itself
+    const editRefList = (editPayForm.references || []).map(s => (s || '').trim()).filter(Boolean)
     const base = {
       amount: parseFloat(editPayForm.amount),
       payment_date: editPayForm.payment_date,
       payment_method: editPayForm.payment_method,
-      reference: editPayForm.reference || null,
+      reference: editRefList.join(', ') || null,
+      payment_references: editRefList.length ? editRefList : null,
       notes: editPayForm.notes || null,
     }
     // Only send slips when they actually changed — re-sending large base64
@@ -609,9 +629,14 @@ export default function PurchaseOrders() {
     const payload = slipsChanged ? { ...base, slips: editPayForm.slips || [] } : base
 
     let res = await supabase.from('supplier_payments').update(payload).eq('id', editPayModal.id)
-    // The slips column may not exist yet — retry without it so the rest still saves
-    if (res.error && /column .* does not exist|could not find/i.test(res.error.message || '') && payload.slips) {
-      res = await supabase.from('supplier_payments').update(base).eq('id', editPayModal.id)
+    // The slips / references columns may not exist yet — drop whichever is missing
+    // and retry so the rest of the payment still saves.
+    while (res.error && /column .* does not exist|could not find/i.test(res.error.message || '')) {
+      const m = (res.error.message || '').match(/column ["']?(\w+)/i) || (res.error.message || '').match(/'(\w+)' column/i)
+      const col = m && m[1]
+      if (!col || !(col in payload)) break
+      delete payload[col]
+      res = await supabase.from('supplier_payments').update(payload).eq('id', editPayModal.id)
     }
     setSaving(false)
     if (res.error) { toast.error('Failed to update payment: ' + res.error.message); return }
@@ -1476,7 +1501,27 @@ export default function PurchaseOrders() {
           </FormRow>
           <Select label="Payment method" value={payForm.payment_method} onChange={e => setPayForm(p => ({ ...p, payment_method: e.target.value }))}
             options={['Bank Transfer', 'Cash', 'Cheque', 'Online Transfer', 'Other']} style={{ marginBottom: 14 }} />
-          <Input label="Reference / Transaction ID" value={payForm.reference} onChange={e => setPayForm(p => ({ ...p, reference: e.target.value }))} placeholder="TXN-12345 (optional)" style={{ marginBottom: 14 }} />
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#888', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 6 }}>Reference / Transaction ID</label>
+            {(payForm.references && payForm.references.length ? payForm.references : ['']).map((ref, i) => (
+              <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'center' }}>
+                <input value={ref}
+                  onChange={e => setPayForm(p => { const rs = [...(p.references && p.references.length ? p.references : [''])]; rs[i] = e.target.value; return { ...p, references: rs } })}
+                  placeholder={i === 0 ? 'TXN-12345 (optional)' : 'Another reference'}
+                  style={{ flex: 1, padding: '9px 12px', border: '1px solid #e6e6e6', borderRadius: 9, fontSize: 14, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
+                {(payForm.references || []).length > 1 && (
+                  <button onClick={() => setPayForm(p => { const rs = p.references.filter((_, j) => j !== i); return { ...p, references: rs.length ? rs : [''] } })}
+                    title="Remove reference" style={{ width: 30, height: 30, borderRadius: 8, border: '1px solid #eee', background: '#fafafa', color: '#c62828', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <X size={13} />
+                  </button>
+                )}
+              </div>
+            ))}
+            <button onClick={() => setPayForm(p => ({ ...p, references: [...(p.references && p.references.length ? p.references : ['']), ''] }))}
+              style={{ background: 'none', border: 'none', color: '#FFA500', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', padding: '2px 0', fontFamily: 'inherit', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <Plus size={13} /> Add another reference
+            </button>
+          </div>
           <SlipNote ocr={slip.ocr} onDismiss={slip.clear}
             onUndo={() => slip.undo(before => setPayForm(p => ({ ...p, ...before })))} />
           <Input label="Notes" value={payForm.notes} onChange={e => setPayForm(p => ({ ...p, notes: e.target.value }))} placeholder="Optional notes" style={{ marginBottom: 14 }} />
@@ -1544,7 +1589,27 @@ export default function PurchaseOrders() {
           </FormRow>
           <Select label="Payment method" value={editPayForm.payment_method} onChange={e => setEditPayForm(p => ({ ...p, payment_method: e.target.value }))}
             options={['Bank Transfer', 'Cash', 'Cheque', 'Online Transfer', 'Other']} style={{ marginBottom: 14 }} />
-          <Input label="Reference / Transaction ID" value={editPayForm.reference} onChange={e => setEditPayForm(p => ({ ...p, reference: e.target.value }))} placeholder="TXN-12345 (optional)" style={{ marginBottom: 14 }} />
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#888', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 6 }}>Reference / Transaction ID</label>
+            {(editPayForm.references && editPayForm.references.length ? editPayForm.references : ['']).map((ref, i) => (
+              <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'center' }}>
+                <input value={ref}
+                  onChange={e => setEditPayForm(p => { const rs = [...(p.references && p.references.length ? p.references : [''])]; rs[i] = e.target.value; return { ...p, references: rs } })}
+                  placeholder={i === 0 ? 'TXN-12345 (optional)' : 'Another reference'}
+                  style={{ flex: 1, padding: '9px 12px', border: '1px solid #e6e6e6', borderRadius: 9, fontSize: 14, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
+                {(editPayForm.references || []).length > 1 && (
+                  <button onClick={() => setEditPayForm(p => { const rs = p.references.filter((_, j) => j !== i); return { ...p, references: rs.length ? rs : [''] } })}
+                    title="Remove reference" style={{ width: 30, height: 30, borderRadius: 8, border: '1px solid #eee', background: '#fafafa', color: '#c62828', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <X size={13} />
+                  </button>
+                )}
+              </div>
+            ))}
+            <button onClick={() => setEditPayForm(p => ({ ...p, references: [...(p.references && p.references.length ? p.references : ['']), ''] }))}
+              style={{ background: 'none', border: 'none', color: '#FFA500', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', padding: '2px 0', fontFamily: 'inherit', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <Plus size={13} /> Add another reference
+            </button>
+          </div>
           <Input label="Notes" value={editPayForm.notes} onChange={e => setEditPayForm(p => ({ ...p, notes: e.target.value }))} placeholder="Optional notes" style={{ marginBottom: 14 }} />
 
           <SlipNote ocr={slip.ocr} onDismiss={slip.clear}
