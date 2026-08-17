@@ -1757,17 +1757,43 @@ function AnalysisCard({ a, onOpen, onDelete }) {
   const [stats, setStats] = useState(null)
   useEffect(() => {
     let live = true
-    supabase.from('order_analysis_items').select('qty, unit_cost, sell_price').eq('analysis_id', a.id).then(({ data }) => {
+    ;(async () => {
+      const { data } = await supabase.from('order_analysis_items')
+        .select('qty, unit_cost, sell_price, supplier_product_id').eq('analysis_id', a.id)
       if (!live) return
       const rows = data || []
+      // Draft lines mirror the catalog at THIS batch's dollar rate — the exact same
+      // derivation the open view uses — so the card and the detail always agree.
+      // Converted analyses keep the prices they were ordered at.
+      let costOf = null
+      if (a.status !== 'converted') {
+        const ids = [...new Set(rows.map(r => r.supplier_product_id).filter(Boolean))]
+        if (ids.length) {
+          const settingsRate = num(getSettings().usdRate) || 15.42
+          const draftRate = num(a.usd_rate) || settingsRate
+          let sps = null
+          const r1 = await supabase.from('supplier_products').select('id, cost_price, cost_usd').in('id', ids)
+          if (r1.error) sps = (await supabase.from('supplier_products').select('id, cost_price').in('id', ids)).data
+          else sps = r1.data
+          if (!live) return
+          costOf = new Map((sps || []).map(s => {
+            const recorded = s.cost_usd == null || s.cost_usd === '' ? NaN : Number(s.cost_usd)
+            const cp = s.cost_price == null || s.cost_price === '' ? NaN : Number(s.cost_price)
+            const usd = isFinite(recorded) ? recorded : (isFinite(cp) && settingsRate > 0 ? cp / settingsRate : NaN)
+            return [s.id, isFinite(usd) ? Math.round(usd * draftRate * 100) / 100 : (isFinite(cp) ? cp : 0)]
+          }))
+        }
+      }
+      const unitOf = r => (costOf && r.supplier_product_id != null && costOf.has(r.supplier_product_id))
+        ? costOf.get(r.supplier_product_id) : num(r.unit_cost)
       const extras = (a.extra_costs || []).reduce((s, c) => s + num(c.amount), 0)
-      const goods = rows.reduce((s, r) => s + num(r.qty) * num(r.unit_cost), 0)
+      const goods = rows.reduce((s, r) => s + num(r.qty) * unitOf(r), 0)
       const revenue = rows.reduce((s, r) => s + num(r.qty) * num(r.sell_price), 0)
       const landed = goods + extras
       setStats({ lines: rows.length, landed, revenue, profit: revenue - landed, margin: revenue > 0 ? ((revenue - landed) / revenue) * 100 : 0 })
-    })
+    })()
     return () => { live = false }
-  }, [a.id, a.extra_costs])
+  }, [a.id, a.extra_costs, a.usd_rate, a.status])
 
   const converted = a.status === 'converted'
   return (
