@@ -2,7 +2,7 @@
   "short_name": "Bricks & Joy",
   "name": "Bricks & Joy Business Manager",
   "description": "Toy company inventory, orders, customers and financials",
-  "start_url": "/",
+  "start_url": "/backoffice",
   "display": "standalone",
   "theme_color": "#1a1a2e",
   "background_color": "#f8f7f4",
