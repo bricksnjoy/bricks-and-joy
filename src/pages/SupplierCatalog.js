@@ -562,17 +562,18 @@ export default function SupplierCatalog() {
     setSaving(false)
     if (error) { toast.error('Failed to save: ' + error.message); return }
 
-    // Keep open order analyses in step with the catalog. An edit to a catalog
-    // product's cost or details flows into every draft analysis whose lines
-    // reference it, so a price change here shows up in the analysis maths too.
-    // Converted analyses are history and keep the prices they were ordered at.
+    // Keep open order analyses in step with the catalog — one way only. An edit to
+    // a catalog product's cost or details flows into every draft analysis whose
+    // lines reference it; nothing an analysis does ever flows back here. Converted
+    // analyses are history and keep the prices they were ordered at.
     if (editItem) {
       try {
-        const { data: openA } = await supabase.from('order_analyses').select('id, status')
-        const openIds = (openA || []).filter(a => a.status !== 'converted').map(a => a.id)
-        if (openIds.length) {
+        const { data: openA } = await supabase.from('order_analyses').select('id, status, usd_rate')
+        const openDrafts = (openA || []).filter(a => a.status !== 'converted')
+        if (openDrafts.length) {
+          const openIds = openDrafts.map(a => a.id)
+          // Details flow straight through to every draft line.
           const syncPatch = {
-            unit_cost: payload.cost_price == null ? 0 : payload.cost_price,
             product_name: payload.product_name, sku: payload.sku,
             category: payload.category, brand: payload.brand,
             sizes: payload.sizes, image_url: payload.image_url,
@@ -584,6 +585,17 @@ export default function SupplierCatalog() {
             if (!col || !(col in syncPatch)) break
             delete syncPatch[col]
             sErr = (await supabase.from('order_analysis_items').update(syncPatch).eq('supplier_product_id', editItem.id).in('analysis_id', openIds)).error
+          }
+          // Cost flows in at each draft's OWN dollar rate — a draft keeps the rate it
+          // was priced at, so the same product lands at a different MVR per batch.
+          const settingsRate = Number(getSettings().usdRate) || 15.42
+          const cp = payload.cost_price == null ? NaN : Number(payload.cost_price)
+          const recorded = (payload.cost_usd == null || payload.cost_usd === '') ? NaN : Number(payload.cost_usd)
+          const dollars = isFinite(recorded) ? recorded : (isFinite(cp) && settingsRate > 0 ? cp / settingsRate : NaN)
+          for (const a of openDrafts) {
+            const draftRate = Number(a.usd_rate) || settingsRate
+            const unit = isFinite(dollars) ? Math.round(dollars * draftRate * 100) / 100 : (isFinite(cp) ? cp : 0)
+            await supabase.from('order_analysis_items').update({ unit_cost: unit }).eq('supplier_product_id', editItem.id).eq('analysis_id', a.id)
           }
         }
       } catch { /* best-effort — a sync hiccup must never block the catalog save */ }
