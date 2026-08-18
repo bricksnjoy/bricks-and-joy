@@ -1254,38 +1254,36 @@ export default function OrderAnalysis() {
 
         {/* Suggested restocks — what your own shelves say you should be buying */}
         {!converted && recommendations.length > 0 && (
-          <Card style={{ marginBottom: 18, background: '#fffdf8', border: '1px solid #f4e7cd' }}>
-            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
-              <div>
-                <div style={{ fontSize: 12.5, fontWeight: 700, color: '#0d1b2a', display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <AlertTriangle size={14} color="#e6940a" /> {recommendations.length} product{recommendations.length > 1 ? 's' : ''} you should probably reorder
-                </div>
-                <div style={{ fontSize: 11.5, color: '#a9a094', marginTop: 3 }}>
-                  Out of stock, past the reorder point, or running low — quantities cover the {LEAD_DAYS}-day wait plus {COVER_DAYS} days after arrival.
-                </div>
+          <Card style={{ marginBottom: 18, background: '#fffdf8', border: '1px solid #f4e7cd', padding: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#0d1b2a', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <AlertTriangle size={13} color="#e6940a" /> {recommendations.length} to reorder
               </div>
-              <div style={{ display: 'flex', gap: 8 }}>
+              <div style={{ display: 'flex', gap: 6 }}>
                 <Button size="sm" variant="ghost" onClick={() => openPicker('inventory', { needsOnly: true })}>Browse all</Button>
                 <Button size="sm" onClick={() => addProducts(recommendations.slice(0, 12).map(r => r.product))} disabled={saving}>
                   <Plus size={13} /> Add {Math.min(recommendations.length, 12)}
                 </Button>
               </div>
             </div>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              {recommendations.slice(0, 10).map(r => (
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {recommendations.slice(0, 10).map(r => {
+                const uColor = r.urgency === 'out' ? '#E24B4A' : r.urgency === 'now' ? '#e6940a' : '#e9b949'
+                return (
                 <button key={r.product.id} onClick={() => addProducts([r.product])} disabled={saving}
-                  title={`${r.stock} in stock · sells ${r.perMonth.toFixed(1)}/month · suggest ordering ${r.qty}`}
-                  style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px 7px 8px', borderRadius: 99, border: '1px solid #f0e4cd', background: '#fff', cursor: 'pointer', fontFamily: 'inherit' }}>
-                  <span style={{ width: 24, height: 24, borderRadius: '50%', overflow: 'hidden', background: '#f7f5f2', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  title={`${r.urgency === 'out' ? 'Out of stock' : r.urgency === 'now' ? 'Order now' : 'Low'} · ${r.stock} in stock · sells ${r.perMonth.toFixed(1)}/month · suggest ordering ${r.qty}`}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 9px 3px 4px', borderRadius: 99, border: '1px solid #f0e4cd', background: '#fff', cursor: 'pointer', fontFamily: 'inherit' }}>
+                  <span style={{ width: 18, height: 18, borderRadius: '50%', overflow: 'hidden', background: '#f7f5f2', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, position: 'relative' }}>
                     {r.product.photo_url
                       ? <img src={r.product.photo_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                      : <Package size={11} color="#d5cfc6" />}
+                      : <Package size={9} color="#d5cfc6" />}
+                    <span style={{ position: 'absolute', right: -1, bottom: -1, width: 7, height: 7, borderRadius: '50%', background: uColor, border: '1.5px solid #fff' }} />
                   </span>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: '#0d1b2a', maxWidth: 170, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.product.name}</span>
-                  <Badge color={NEED[r.urgency].color}>{r.urgency === 'out' ? 'Out' : r.urgency === 'now' ? 'Order now' : 'Low'}</Badge>
-                  <span style={{ fontSize: 11.5, fontWeight: 700, color: '#FFA500' }}>+{r.qty}</span>
+                  <span style={{ fontSize: 11.5, fontWeight: 600, color: '#0d1b2a', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.product.name}</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#FFA500' }}>+{r.qty}</span>
                 </button>
-              ))}
+                )
+              })}
             </div>
           </Card>
         )}
