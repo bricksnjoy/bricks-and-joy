@@ -59,6 +59,10 @@ export default function PurchaseOrders() {
   const [batchForm, setBatchForm] = useState({ supplier_id: '', supplier_name: '', order_date: localToday(), expected_date: '', items: [], extraCosts: [] })
   const [supplierForm, setSupplierForm] = useState({ name: '', contact_name: '', email: '', phone: '', address: '' })
   const [saving, setSaving] = useState(false)
+  // Restock banner stays closed once shut, remembered across visits.
+  const [restockOpen, setRestockOpen] = useState(() => localStorage.getItem('po_restock_open') === '1')
+  const closeRestock = () => { setRestockOpen(false); localStorage.setItem('po_restock_open', '0') }
+  const openRestock = () => { setRestockOpen(true); localStorage.setItem('po_restock_open', '1') }
   const [supplierCatalog, setSupplierCatalog] = useState([])
   const [itemSearch, setItemSearch] = useState({})
   const [focusedRow, setFocusedRow] = useState(null)
@@ -867,7 +871,23 @@ export default function PurchaseOrders() {
   const batchItemsTotal = batchForm.items.reduce((s, i) => s + (parseFloat(i.qty || 0) * parseFloat(i.unit_cost || 0)), 0)
   const batchCostsTotal = (batchForm.extraCosts || []).reduce((s, c) => s + parseFloat(c.amount || 0), 0)
   const batchTotal = batchItemsTotal + batchCostsTotal
-  const lowStockProducts = products.filter(p => p.stock_qty <= (p.low_stock_threshold ?? 10))
+  // Products already on an open batch order (pending/ordered) are on their way,
+  // so they drop out of the restock alert until that order is received/cancelled.
+  const onOrder = (() => {
+    const ids = new Set(), names = new Set()
+    pos.forEach(p => {
+      if (p.cost_type === 'extra') return
+      if (p.status !== 'pending' && p.status !== 'ordered') return
+      if (p.product_id) ids.add(p.product_id)
+      if (p.product_name) names.add((p.product_name || '').toLowerCase().trim())
+    })
+    return { ids, names }
+  })()
+  const lowStockProducts = products.filter(p =>
+    p.stock_qty <= (p.low_stock_threshold ?? 10)
+    && !onOrder.ids.has(p.id)
+    && !onOrder.names.has((p.name || '').toLowerCase().trim())
+  )
 
   // Group line items that belong to the same batch order
   const poGroups = (() => {
@@ -1102,7 +1122,7 @@ export default function PurchaseOrders() {
       />
 
       {/* Low stock suggestion banner */}
-      {lowStockProducts.length > 0 && (
+      {lowStockProducts.length > 0 && (restockOpen ? (
         <div style={{ background: '#FFF8E1', border: '1px solid #FAEEDA', borderRadius: 12, padding: '14px 18px', marginBottom: 20, display: 'flex', gap: 14, alignItems: 'center' }}>
           <div style={{ background: '#FBE6BE', borderRadius: 10, padding: 9, flexShrink: 0, display: 'flex' }}>
             <AlertTriangle size={18} color="#f57f17" />
@@ -1117,8 +1137,21 @@ export default function PurchaseOrders() {
             </div>
           </div>
           <Button onClick={openBatchAdd}>Create batch order</Button>
+          <button onClick={closeRestock} title="Hide — stays closed"
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#a16d0a', padding: 4, display: 'flex', flexShrink: 0 }}>
+            <X size={16} />
+          </button>
         </div>
-      )}
+      ) : (
+        <button onClick={openRestock} title="Show which products need restocking"
+          style={{ width: '100%', textAlign: 'left', background: '#FFF8E1', border: '1px solid #FAEEDA', borderRadius: 12, padding: '10px 14px', marginBottom: 20, display: 'flex', gap: 10, alignItems: 'center', cursor: 'pointer', fontFamily: 'inherit' }}>
+          <AlertTriangle size={15} color="#f57f17" style={{ flexShrink: 0 }} />
+          <span style={{ fontSize: 12.5, fontWeight: 600, color: '#854F0B' }}>
+            {lowStockProducts.length} {lowStockProducts.length === 1 ? 'product needs' : 'products need'} restocking
+          </span>
+          <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 600, color: '#f57f17' }}>Show</span>
+        </button>
+      ))}
 
       {/* Suppliers chips — click to filter the list by supplier */}
       {suppliers.length > 0 && (

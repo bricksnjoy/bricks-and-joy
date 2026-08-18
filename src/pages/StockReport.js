@@ -13,6 +13,7 @@ const LEADS = [{ d: 45, label: '45 days' }, { d: 60, label: '60 days' }, { d: 90
 export default function StockReport() {
   const [orders, setOrders] = useState([])
   const [products, setProducts] = useState([])
+  const [onOrderPOs, setOnOrderPOs] = useState([])   // open batch orders — their products aren't "to reorder"
   const [loading, setLoading] = useState(true)
   const [periodDays, setPeriodDays] = useState(30)
   const [coverDays, setCoverDays] = useState(30)
@@ -27,12 +28,15 @@ export default function StockReport() {
   useEffect(() => { load() }, [])
   async function load() {
     setLoading(true)
-    const [o, p] = await Promise.all([
+    const [o, p, po] = await Promise.all([
       supabase.from('orders').select('product_id, product_name, qty, unit_price, total_price, status, order_date'),
       supabase.from('products').select('id, name, sku, cost_price, sell_price, stock_qty, discontinued, low_stock_threshold, category, brand, photo_url, supplier_id'),
+      // Open batch orders (pending/ordered): their products are already on the way.
+      supabase.from('purchase_orders').select('product_id, product_name, status, cost_type'),
     ])
     setOrders(o.data || [])
     setProducts(p.data || [])
+    setOnOrderPOs((po.data || []).filter(r => r.cost_type !== 'extra' && (r.status === 'pending' || r.status === 'ordered')))
     setLoading(false)
   }
 
@@ -46,6 +50,17 @@ export default function StockReport() {
     if (!active.length) return 0
     return active.reduce((s, p) => s + Number(p.cost_price), 0) / active.length
   }, [products])
+
+  // Products already on an open batch order — kept off the reorder list until
+  // that order is received or cancelled, matched by id and by name.
+  const onOrder = useMemo(() => {
+    const ids = new Set(), names = new Set()
+    onOrderPOs.forEach(r => {
+      if (r.product_id) ids.add(r.product_id)
+      if (r.product_name) names.add((r.product_name || '').toLowerCase().trim())
+    })
+    return { ids, names }
+  }, [onOrderPOs])
 
   // Per-product sales + reorder analysis over the selected period
   const rows = useMemo(() => {
@@ -70,8 +85,10 @@ export default function StockReport() {
       const safety = Math.ceil(leadDemand * 0.2)                // 20% buffer for demand swings
       const reorderPoint = Math.ceil(leadDemand + safety)       // reorder when stock drops to here
       // Order enough to cover the lead time (while it ships) PLUS the cover period after arrival, minus stock in hand
-      const reorderQty = dailyRate > 0 ? Math.max(0, Math.ceil(dailyRate * (leadDays + coverDays) - stock)) : 0
-      const reorderNow = dailyRate > 0 && stock <= reorderPoint // it's time to place the order
+      // Already on an open batch order? Then it's handled — nothing to reorder now.
+      const alreadyOnOrder = onOrder.ids.has(id) || onOrder.names.has((p.name || '').toLowerCase().trim())
+      const reorderQty = alreadyOnOrder ? 0 : (dailyRate > 0 ? Math.max(0, Math.ceil(dailyRate * (leadDays + coverDays) - stock)) : 0)
+      const reorderNow = !alreadyOnOrder && dailyRate > 0 && stock <= reorderPoint // it's time to place the order
       const stockoutRisk = dailyRate > 0 && daysCover < leadDays // will run out before a new order can arrive
       const unitCost = Number(p.cost_price || 0)
       return {
@@ -84,7 +101,7 @@ export default function StockReport() {
         discontinued: p.discontinued,
       }
     }).filter(r => !r.discontinued).sort((a, b) => (b.reorderNow - a.reorderNow) || (b.units - a.units))
-  }, [orders, prodById, periodDays, coverDays, leadDays])
+  }, [orders, prodById, periodDays, coverDays, leadDays, onOrder])
 
   const summary = useMemo(() => ({
     unitsSold: rows.reduce((s, r) => s + r.units, 0),
