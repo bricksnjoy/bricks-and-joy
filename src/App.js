@@ -192,9 +192,28 @@ export default function App() {
     return () => window.removeEventListener('bnj-navigate', handler)
   }, [])
 
+  // The menu layout is shared across devices. localStorage gives an instant first
+  // paint; once signed in we pull the saved layout from Supabase and it wins.
+  useEffect(() => {
+    if (!session) return
+    let live = true
+    supabase.from('app_settings').select('value').eq('key', 'nav_order').maybeSingle()
+      .then(({ data, error }) => {
+        if (!live || error || !data || !data.value) return
+        const fromDb = normalizeNav(data.value)
+        setNav(fromDb)
+        try { localStorage.setItem(NAV_KEY, JSON.stringify(fromDb)) } catch {}
+      })
+    return () => { live = false }
+  }, [session])
+
   function persist(next) {
     setNav(next)
     try { localStorage.setItem(NAV_KEY, JSON.stringify(next)) } catch {}
+    // Sync to every device — best-effort; the local copy already took effect.
+    supabase.from('app_settings')
+      .upsert({ key: 'nav_order', value: next, updated_at: new Date().toISOString() })
+      .then(() => {}, () => {})
   }
 
   if (loading) return (

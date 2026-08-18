@@ -20,7 +20,7 @@ const GUIDES = [
       { text: 'The left side menu is how you move between sections. On a phone, tap the ☰ menu icon at the top-left to open it.' },
       { text: 'The Dashboard is your home screen — today’s sales, this month’s total, revenue, profit, active orders, stock levels and recent orders at a glance.' },
       { text: 'Tap the three-dots (⋯) next to "Sign out" at the bottom of the menu for extra options: this How-to guide and "Reorganize menu".' },
-      { text: 'Use "Reorganize menu" to drag sections and pages into the order you like. Press "Done organizing" when finished.', tip: 'Your menu layout is saved on this device, so it stays the way you set it.' },
+      { text: 'Use "Reorganize menu" to drag sections and pages into the order you like. Press "Done organizing" when finished.', tip: 'Your menu layout is saved to your account, so it stays the same on every device you sign in on.' },
       { text: 'Open this guide any time from the three-dots menu, and use the search box at the top to jump straight to a task.' },
     ],
   },
