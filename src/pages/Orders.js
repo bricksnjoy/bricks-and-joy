@@ -675,46 +675,66 @@ export default function Orders() {
     setSaving(false); toast.success('Return processed, stock restored!'); setReturnModal(null); load()
   }
 
+  // Every row of an order — the products bought together on one invoice, plus its
+  // charge lines. An invoice moves, cancels and deletes as a single order.
+  function invoiceRows(order) {
+    if (!order) return []
+    if (!order.invoice_number) return [order]
+    const key = `${order.customer_id || ''}|${order.invoice_number}`
+    const rows = orders.filter(x => `${x.customer_id || ''}|${x.invoice_number || ''}` === key)
+    return rows.length ? rows : [order]
+  }
+
   async function updateStatus(id, newStatus) {
     const order = orders.find(o => o.id === id)
     if (!order) return
-    const held = holdsStock(order)                                   // holding stock now?
-    const want = stockAtDispatch ? consumesStock(newStatus) : (newStatus !== 'cancelled')  // should it after?
-    const patch = { status: newStatus, ...(stockAtDispatch ? { stock_deducted: want } : {}) }
-    let { error } = await supabase.from('orders').update(patch).eq('id', id)
-    while (error && dropMissingCol(error, patch)) { error = (await supabase.from('orders').update(patch).eq('id', id)).error }
-    // Move stock only when the holding state actually changes — take it out when
-    // dispatched, put it back if it comes off dispatch or is cancelled.
-    if (order.product_id && want !== held) {
-      const { data: prod } = await supabase.from('products').select('stock_qty, name, low_stock_threshold').eq('id', order.product_id).single()
-      if (prod) {
-        const qty = Number(order.qty) || 0
-        const newStock = (Number(prod.stock_qty) || 0) + (want ? -qty : qty)
-        await supabase.from('products').update({ stock_qty: newStock }).eq('id', order.product_id)
-        if (want) {
-          const { lowStockThreshold } = getSettings()
-          if (newStock <= 0) toast.error(`⚠️ ${prod.name} OUT OF STOCK!`)
-          else if (newStock <= (prod.low_stock_threshold ?? lowStockThreshold ?? 10)) toast.info(`${prod.name} −${qty} · ${newStock} left`)
-          else toast.info(`${prod.name} −${qty} from stock (dispatched)`)
-        } else {
-          toast.info(`Stock restored: ${prod.name} +${qty}`)
+    const rows = invoiceRows(order)
+    const want = stockAtDispatch ? consumesStock(newStatus) : (newStatus !== 'cancelled')  // should it hold stock after?
+    for (const row of rows) {
+      const held = holdsStock(row)                                   // holding stock now?
+      const patch = { status: newStatus, ...(stockAtDispatch ? { stock_deducted: want } : {}) }
+      let { error } = await supabase.from('orders').update(patch).eq('id', row.id)
+      while (error && dropMissingCol(error, patch)) { error = (await supabase.from('orders').update(patch).eq('id', row.id)).error }
+      // Move stock only when the holding state actually changes — take it out when
+      // dispatched, put it back if it comes off dispatch or is cancelled.
+      if (row.product_id && want !== held) {
+        const { data: prod } = await supabase.from('products').select('stock_qty, name, low_stock_threshold').eq('id', row.product_id).single()
+        if (prod) {
+          const qty = Number(row.qty) || 0
+          const newStock = (Number(prod.stock_qty) || 0) + (want ? -qty : qty)
+          await supabase.from('products').update({ stock_qty: newStock }).eq('id', row.product_id)
+          if (want) {
+            const { lowStockThreshold } = getSettings()
+            if (newStock <= 0) toast.error(`⚠️ ${prod.name} OUT OF STOCK!`)
+            else if (newStock <= (prod.low_stock_threshold ?? lowStockThreshold ?? 10)) toast.info(`${prod.name} −${qty} · ${newStock} left`)
+            else toast.info(`${prod.name} −${qty} from stock (dispatched)`)
+          } else {
+            toast.info(`Stock restored: ${prod.name} +${qty}`)
+          }
         }
       }
     }
-    logAudit(newStatus === 'cancelled' ? 'cancel' : 'update', 'order', `${order?.invoice_number || id} — ${order?.customer_name || ''}`, { status: newStatus })
+    logAudit(newStatus === 'cancelled' ? 'cancel' : 'update', 'order', `${order?.invoice_number || id} — ${order?.customer_name || ''}`, { status: newStatus, items: rows.length })
     load()
   }
 
   async function del(id) {
-    if (!window.confirm('Delete this order? Stock will be restored.')) return
     const order = orders.find(o => o.id === id)
-    if (order && holdsStock(order) && order.product_id) {
-      const { data: prod } = await supabase.from('products').select('stock_qty').eq('id', order.product_id).single()
-      if (prod) await supabase.from('products').update({ stock_qty: (Number(prod.stock_qty) || 0) + (Number(order.qty) || 0) }).eq('id', order.product_id)
+    const rows = invoiceRows(order)
+    const many = rows.length > 1
+    if (!window.confirm(many
+      ? `Delete this order and all ${rows.length} of its lines? Stock will be restored.`
+      : 'Delete this order? Stock will be restored.')) return
+    for (const row of rows) {
+      if (holdsStock(row) && row.product_id) {
+        const { data: prod } = await supabase.from('products').select('stock_qty').eq('id', row.product_id).single()
+        if (prod) await supabase.from('products').update({ stock_qty: (Number(prod.stock_qty) || 0) + (Number(row.qty) || 0) }).eq('id', row.product_id)
+      }
+      await supabase.from('orders').delete().eq('id', row.id)
     }
-    await supabase.from('orders').delete().eq('id', id)
-    logAudit('delete', 'order', `${order?.invoice_number || id} — ${order?.customer_name || ''} (${order?.product_name} ×${order?.qty})`, { total: Number(order?.total_price || 0) })
-    toast.success('Deleted'); load()
+    logAudit('delete', 'order', `${order?.invoice_number || id} — ${order?.customer_name || ''}`,
+      { total: rows.reduce((s, r) => s + Number(r.total_price || 0), 0), items: rows.length })
+    toast.success(many ? `Deleted (${rows.length} lines)` : 'Deleted'); load()
   }
 
   // Whole numbers show without decimals (MVR 385); cents keep 2 (MVR 1,015.50)
@@ -932,8 +952,28 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
     return sibs.length === 0 || sibs[0].id === o.id
   }
   const hasProductSibling = o => orders.some(x => !isChargeRow(x) && invKey(x) === invKey(o))
-  const displayOrders = (filter === 'all' ? orders : orders.filter(o => o.status === filter))
-    .filter(o => !(isChargeRow(o) && o.invoice_number && hasProductSibling(o)))
+  // Every product row of one invoice — the products the customer bought together.
+  const productSiblings = o => o.invoice_number
+    ? orders.filter(x => !isChargeRow(x) && invKey(x) === invKey(o))
+    : [o]
+  // What the customer pays for the whole invoice: every product plus its charges.
+  const invoiceTotal = o => [...productSiblings(o), ...chargesFor(o)]
+    .reduce((s, r) => s + Number(r.total_price || 0), 0)
+  const displayOrders = (() => {
+    const visible = (filter === 'all' ? orders : orders.filter(o => o.status === filter))
+      .filter(o => !(isChargeRow(o) && o.invoice_number && hasProductSibling(o)))
+    // One card per invoice: the later products of a multi-item order are shown
+    // inside the first card, not as separate orders. Deduped within what's
+    // visible, so a status filter still shows the rows it matched.
+    const seen = new Set()
+    return visible.filter(o => {
+      if (isChargeRow(o) || !o.invoice_number) return true
+      const k = invKey(o)
+      if (seen.has(k)) return false
+      seen.add(k)
+      return true
+    })
+  })()
   const filteredOrders = displayOrders
   const totalRevenue = orders.filter(o => o.status !== 'cancelled' && (o.status === 'delivered' || o.payment_status === 'paid')).reduce((s, o) => s + Number(o.total_price || 0), 0)
   const unpaidTotal = orders.filter(o => (o.payment_status || 'unpaid') === 'unpaid' && o.status !== 'cancelled').reduce((s, o) => s + Number(o.total_price || 0), 0)
@@ -968,8 +1008,11 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
     }},
     { key: 'product_name', label: 'Product', render: r => (
       <div>
-        <div style={{ fontWeight: 500, color: '#333', fontSize: 13 }}>{r.product_name}</div>
-        <div style={{ fontSize: 11, color: '#bbb' }}>× {r.qty}</div>
+        {(isChargeLine(r) ? [r] : productSiblings(r)).map(it => (
+          <div key={it.id} style={{ fontWeight: 500, color: '#333', fontSize: 13 }}>
+            {it.product_name} <span style={{ fontSize: 11, color: '#bbb' }}>× {it.qty}</span>
+          </div>
+        ))}
         {isFirstOfInvoice(r) && chargesFor(r).map(c => (
           <div key={c.id} style={{ fontSize: 11, color: '#8a6d1b', marginTop: 2 }}>
             {chargeLabel(c)} · MVR {Number(c.total_price || 0).toFixed(2)}
@@ -977,12 +1020,19 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
         ))}
       </div>
     )},
-    { key: 'total_price', label: 'Total', render: r => (
-      <div>
-        <div style={{ fontWeight: 700, color: '#0d1b2a', fontSize: 13 }}>MVR {Number(r.total_price || 0).toFixed(2)}</div>
-        {r.discount > 0 && <div style={{ fontSize: 10, color: '#1D9E75', fontWeight: 600 }}>-MVR {Number(r.discount).toFixed(2)} off</div>}
-      </div>
-    )},
+    { key: 'total_price', label: 'Total', render: r => {
+      const items = isChargeLine(r) ? [r] : productSiblings(r)
+      const disc = items.reduce((s, x) => s + Number(x.discount || 0), 0)
+      return (
+        <div>
+          <div style={{ fontWeight: 700, color: '#0d1b2a', fontSize: 13 }}>
+            MVR {(isChargeLine(r) ? Number(r.total_price || 0) : invoiceTotal(r)).toFixed(2)}
+          </div>
+          {items.length > 1 && <div style={{ fontSize: 10, color: '#bbb' }}>{items.length} items together</div>}
+          {disc > 0 && <div style={{ fontSize: 10, color: '#1D9E75', fontWeight: 600 }}>-MVR {disc.toFixed(2)} off</div>}
+        </div>
+      )
+    }},
     { key: 'payment', label: 'Payment', render: r => (
       <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
         <Badge color={(r.payment_status || 'unpaid') === 'paid' ? 'green' : (r.payment_status || 'unpaid') === 'partial' ? 'amber' : 'red'}>
@@ -1191,14 +1241,35 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
                       </div>
                     </div>
 
-                    {/* Product (relevant — bigger) */}
-                    <div className="ord-prod" style={{ fontSize: 16, color: '#333', fontWeight: 600 }}>{o.product_name} <span style={{ color: '#aaa', fontWeight: 500 }}>× {o.qty}</span></div>
+                    {/* Products — every item bought on this invoice, in one order */}
+                    {(() => {
+                      const items = isChargeLine(o) ? [o] : productSiblings(o)
+                      return (
+                        <div className="ord-prod" style={{ fontSize: 16, color: '#333', fontWeight: 600 }}>
+                          {items.map((it, i) => (
+                            <div key={it.id} style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: i ? 2 : 0 }}>
+                              {items.length > 1 && <span style={{ color: '#ccc', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{i + 1}.</span>}
+                              <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.product_name}</span>
+                              <span style={{ color: '#aaa', fontWeight: 500, flexShrink: 0 }}>× {it.qty}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )
+                    })()}
 
-                    {/* Price (relevant — bigger) */}
-                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
-                      <span className="ord-price" style={{ fontWeight: 800, fontSize: 19, color: '#0d1b2a' }}>MVR {Number(o.total_price || 0).toFixed(2)}</span>
-                      {o.discount > 0 && <span style={{ fontSize: 11, color: '#1D9E75', fontWeight: 600 }}>-MVR {Number(o.discount).toFixed(2)}</span>}
-                    </div>
+                    {/* Price — one total for everything on the invoice */}
+                    {(() => {
+                      const items = isChargeLine(o) ? [o] : productSiblings(o)
+                      const total = isChargeLine(o) ? Number(o.total_price || 0) : invoiceTotal(o)
+                      const disc = items.reduce((s, r) => s + Number(r.discount || 0), 0)
+                      return (
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+                          <span className="ord-price" style={{ fontWeight: 800, fontSize: 19, color: '#0d1b2a' }}>MVR {total.toFixed(2)}</span>
+                          {items.length > 1 && <span style={{ fontSize: 11.5, color: '#aaa', fontWeight: 600 }}>{items.length} items · paid together</span>}
+                          {disc > 0 && <span style={{ fontSize: 11, color: '#1D9E75', fontWeight: 600 }}>-MVR {disc.toFixed(2)}</span>}
+                        </div>
+                      )
+                    })()}
 
                     {/* Charge lines of the same invoice — small, grouped under the order */}
                     {isFirstOfInvoice(o) && chargesFor(o).map(c => (
@@ -1355,7 +1426,16 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
       {payModal && (
         <Modal title={`Record payment — ${payModal.invoice_number || payModal.customer_name}`} onClose={() => setPayModal(null)} width={480}>
           <div style={{ background: '#f8f7f4', borderRadius: 10, padding: '12px 16px', marginBottom: 16, display: 'flex', justifyContent: 'space-between' }}>
-            <div><div style={{ fontSize: 12, color: '#aaa' }}>Order total</div><div style={{ fontSize: 20, fontWeight: 800, color: '#0d1b2a' }}>MVR {Number(payModal.total_price || 0).toFixed(2)}</div></div>
+            <div>
+              <div style={{ fontSize: 12, color: '#aaa' }}>Order total</div>
+              {/* The whole invoice — every product and charge is paid together */}
+              <div style={{ fontSize: 20, fontWeight: 800, color: '#0d1b2a' }}>MVR {invoiceTotal(payModal).toFixed(2)}</div>
+              {invoiceRows(payModal).filter(r => !isChargeLine(r)).length > 1 && (
+                <div style={{ fontSize: 11.5, color: '#aaa', marginTop: 2 }}>
+                  {invoiceRows(payModal).filter(r => !isChargeLine(r)).length} products, paid together
+                </div>
+              )}
+            </div>
             <div><div style={{ fontSize: 12, color: '#aaa' }}>Customer</div><div style={{ fontSize: 14, fontWeight: 600 }}>{payModal.customer_name || 'Walk-in'}</div></div>
           </div>
           <FormRow>
