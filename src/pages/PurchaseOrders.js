@@ -1158,18 +1158,18 @@ export default function PurchaseOrders() {
         <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
           {suppliers.map(s => {
             const main = s.contact_name || s.name
+            // Only show the company name when it actually differs from the contact —
+            // avoids "jagger dick · jagger dick". Phone lives in the tooltip, not the chip.
+            const sub = (s.contact_name && s.name && s.name.trim().toLowerCase() !== s.contact_name.trim().toLowerCase()) ? s.name : ''
             const active = supplierFilter === s.id
             return (
             <button key={s.id} onClick={() => setSupplierFilter(active ? null : s.id)}
-              title={active ? 'Clear filter' : `Show only ${main}'s orders`}
-              style={{ background: active ? '#FFF3D6' : '#fff', border: `1px solid ${active ? '#FFA500' : '#eee'}`, borderRadius: 99, padding: '5px 14px 5px 7px', fontSize: 12, color: '#555', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s' }}>
+              title={active ? 'Clear filter' : `Show only ${main}'s orders${sub ? ` · ${sub}` : ''}${s.phone ? ` · ${s.phone}` : ''}`}
+              style={{ background: active ? '#FFF3D6' : '#fff', border: `1px solid ${active ? '#FFA500' : '#eee'}`, borderRadius: 99, padding: '5px 12px 5px 6px', fontSize: 12, color: '#555', display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s', maxWidth: '100%', minWidth: 0 }}>
               <Avatar name={main} size={22} />
-              <div style={{ textAlign: 'left' }}>
-                <span style={{ fontWeight: 600, color: '#0d1b2a' }}>{main}</span>
-                {s.contact_name && <span style={{ color: '#aaa', marginLeft: 5 }}>{s.name}</span>}
-              </div>
-              {s.phone && <span style={{ color: '#aaa' }}>· {s.phone}</span>}
-              {active && <X size={13} color="#FFA500" />}
+              <span style={{ fontWeight: 600, color: '#0d1b2a', whiteSpace: 'nowrap', flexShrink: 0 }}>{main}</span>
+              {sub && <span style={{ color: '#aaa', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{sub}</span>}
+              {active && <X size={13} color="#FFA500" style={{ flexShrink: 0 }} />}
             </button>
             )
           })}
