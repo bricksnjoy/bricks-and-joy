@@ -743,7 +743,11 @@ export default function Orders() {
   // invoice grand total. Emoji charge rows become short plain-text labels
   // (emoji would force expensive Unicode SMS encoding).
   function invoiceSummary(o) {
-    const siblings = o.invoice_number ? orders.filter(x => x.invoice_number === o.invoice_number) : [o]
+    // Matched on customer + invoice, like everywhere else, so two customers can
+    // never have their lines mixed into one message.
+    const siblings = o.invoice_number
+      ? orders.filter(x => x.invoice_number === o.invoice_number && (x.customer_id || '') === (o.customer_id || ''))
+      : [o]
     const items = siblings.length ? siblings : [o]
     const nameOf = r => isChargeLine(r) ? chargeLabel(r) : `${r.product_name} x${r.qty}`
     return { items, list: items.map(nameOf).join(', '), total: items.reduce((s, r) => s + Number(r.total_price || 0), 0) }
@@ -791,13 +795,16 @@ export default function Orders() {
     const when = o.delivery_date && fmtTime(o.delivery_time)
       ? `${o.delivery_date} at ${fmtTime(o.delivery_time)}`
       : o.delivery_date || fmtTime(o.delivery_time) || ''
+    // Every product on the invoice and the amount for the whole order — the
+    // driver is delivering all of it and collects one total.
+    const { items, list, total } = invoiceSummary(o)
     return [
       `Delivery - Brick's & Joy`,
-      `Item: ${o.product_name} x ${o.qty}`,
+      `${items.length > 1 ? 'Items' : 'Item'}: ${list}`,
       `Name: ${o.customer_name || 'Walk-in'}${phone ? ` - ${phone}` : ''}`,
       cust?.address ? `Address: ${cust.address}${cust.landmark ? `, ${cust.landmark}` : ''}` : null,
       when ? `When: ${when}` : null,
-      `Total: MVR ${Number(o.total_price || 0).toFixed(2)} (${pay})`,
+      `Total: MVR ${Number(total || 0).toFixed(2)} (${pay})`,
       cust?.notes ? `Drop: ${cust.notes}` : null,
     ].filter(Boolean).join('\n')
   }
