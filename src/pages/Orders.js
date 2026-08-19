@@ -959,21 +959,25 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
   // What the customer pays for the whole invoice: every product plus its charges.
   const invoiceTotal = o => [...productSiblings(o), ...chargesFor(o)]
     .reduce((s, r) => s + Number(r.total_price || 0), 0)
-  const displayOrders = (() => {
-    const visible = (filter === 'all' ? orders : orders.filter(o => o.status === filter))
-      .filter(o => !(isChargeRow(o) && o.invoice_number && hasProductSibling(o)))
-    // One card per invoice: the later products of a multi-item order are shown
-    // inside the first card, not as separate orders. Deduped within what's
-    // visible, so a status filter still shows the rows it matched.
+  // Collapse raw rows into the orders actually shown: charge lines fold into their
+  // invoice, and the products of one invoice count once. Used by both the list and
+  // the tab counts, so the numbers always match what's on screen.
+  const groupRows = rows => {
     const seen = new Set()
-    return visible.filter(o => {
-      if (isChargeRow(o) || !o.invoice_number) return true
-      const k = invKey(o)
-      if (seen.has(k)) return false
-      seen.add(k)
-      return true
-    })
-  })()
+    return rows
+      .filter(o => !(isChargeRow(o) && o.invoice_number && hasProductSibling(o)))
+      .filter(o => {
+        if (isChargeRow(o) || !o.invoice_number) return true
+        const k = invKey(o)
+        if (seen.has(k)) return false
+        seen.add(k)
+        return true
+      })
+  }
+  const countFor = status => groupRows(status === 'all' ? orders : orders.filter(o => o.status === status)).length
+  // One card per invoice: the later products of a multi-item order are shown
+  // inside the first card, not as separate orders.
+  const displayOrders = groupRows(filter === 'all' ? orders : orders.filter(o => o.status === filter))
   const filteredOrders = displayOrders
   const totalRevenue = orders.filter(o => o.status !== 'cancelled' && (o.status === 'delivered' || o.payment_status === 'paid')).reduce((s, o) => s + Number(o.total_price || 0), 0)
   const unpaidTotal = orders.filter(o => (o.payment_status || 'unpaid') === 'unpaid' && o.status !== 'cancelled').reduce((s, o) => s + Number(o.total_price || 0), 0)
@@ -1147,12 +1151,12 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
             {/* Status filters */}
             <div className="ord-filters" style={{ display: 'flex', background: '#f5f5f5', borderRadius: 10, padding: 3, gap: 2 }}>
               {[
-                { key: 'review', label: 'Under review', count: orders.filter(o => o.status === 'review').length },
-                { key: 'created', label: 'Created', count: orders.filter(o => o.status === 'created').length },
-                { key: 'transit', label: 'Dispatched', count: orders.filter(o => o.status === 'transit').length },
-                { key: 'delivered', label: 'Delivered', count: orders.filter(o => o.status === 'delivered').length },
-                { key: 'cancelled', label: 'Cancelled', count: orders.filter(o => o.status === 'cancelled').length },
-                { key: 'all', label: 'All', count: orders.length },
+                { key: 'review', label: 'Under review', count: countFor('review') },
+                { key: 'created', label: 'Created', count: countFor('created') },
+                { key: 'transit', label: 'Dispatched', count: countFor('transit') },
+                { key: 'delivered', label: 'Delivered', count: countFor('delivered') },
+                { key: 'cancelled', label: 'Cancelled', count: countFor('cancelled') },
+                { key: 'all', label: 'All', count: countFor('all') },
               ].map(s => (
                 <button key={s.key} onClick={() => setFilter(s.key)} style={{
                   padding: '6px 13px', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'inherit',
