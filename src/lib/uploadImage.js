@@ -3,9 +3,13 @@
 // Slips, receipts, product photos and event pictures were each uploaded by their
 // own copy of the same code, all of it sending the file exactly as it came off
 // the phone — 2–4 MB for a picture nobody ever views larger than a phone screen.
-// That fills the free 1 GB of storage in about a year of ordinary trading.
+// A year of ordinary trading ran to gigabytes of it.
 //
-// Everything now goes through here and is re-drawn smaller first. Two presets,
+// They all land in Cloudflare R2 now, by way of our own API. Shrinking them
+// first still matters: storage is cheap but the shop is in the Maldives and the
+// people uploading are on phones, so a tenth of the bytes is a tenth of the wait.
+//
+// Everything goes through here and is re-drawn smaller first. Two presets,
 // because they are not the same job:
 //
 //   SLIP  — a bank slip is read, not admired. What matters is that the reference
@@ -48,10 +52,14 @@ export async function uploadImage(file, { prefix = 'file', preset = PHOTO } = {}
   }
 
   const name = `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}.${ext}`
-  const { error } = await supabase.storage.from('uploads').upload(name, body, { upsert: true, contentType })
+  const { data, error } = await supabase.storage.from('uploads').upload(name, body, { upsert: true, contentType })
   if (!error) {
-    const { data } = supabase.storage.from('uploads').getPublicUrl(name)
-    return { url: data.publicUrl, name: file.name, type: contentType || file.type || '', before, after: body.size }
+    // Use the name storage actually filed it under, not the one we asked for.
+    // A shopper uploading a payment slip at checkout isn't signed in, and the
+    // server renames those so they cannot land on top of a product photo.
+    const key = data?.path || name
+    const url = data?.publicUrl || supabase.storage.from('uploads').getPublicUrl(key).data.publicUrl
+    return { url, name: file.name, type: contentType || file.type || '', before, after: body.size }
   }
 
   const url = await new Promise(res => {

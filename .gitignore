@@ -1,6 +1,15 @@
-node_modules  
-.env 
-.vercel
-.env*
-.claude/
+node_modules
 /build
+
+# Secrets. server/.env holds the database password and every API key.
+.env
+.env.local
+.env.*.local
+server/.env
+# ...but the templates are meant to be committed.
+!.env.example
+!server/.env.example
+
+.claude/
+*.log
+.DS_Store

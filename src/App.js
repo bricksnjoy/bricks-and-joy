@@ -227,6 +227,12 @@ export default function App() {
   )
   if (!session) return <Login />
 
+  // A shop account is not a back-office account. The API refuses every
+  // back-office table to a customer anyway, so without this check they would
+  // get the whole sidebar and nothing but errors behind it.
+  const role = session.user?.role || session.user?.user_metadata?.role
+  if (role && role !== 'staff') return <Login notStaff email={session.user?.email} />
+
   function navigate(id) {
     if (editMode) return
     setPage(id)
