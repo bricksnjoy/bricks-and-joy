@@ -23,6 +23,7 @@ pool.on('error', err => console.error('[db] idle client error:', err.message))
 let schemaCache = {
   tables: new Map(),      // name -> Set(column)
   generated: new Map(),   // name -> Set(column) the database computes itself
+  jsonCols: new Map(),    // name -> Set(column) of type json/jsonb
   pks: new Map(),         // name -> [column]
   fks: new Map(),         // "child->parent" -> { childCol, parentCol }
   loadedAt: 0,
@@ -30,16 +31,29 @@ let schemaCache = {
 
 async function loadSchema() {
   const cols = await pool.query(`
-    select table_name, column_name, is_generated, identity_generation
+    select table_name, column_name, is_generated, identity_generation, data_type
       from information_schema.columns
      where table_schema = 'public'
      order by table_name, ordinal_position`)
 
   const tables = new Map()
   const generated = new Map()
+  const jsonCols = new Map()
   for (const r of cols.rows) {
-    if (!tables.has(r.table_name)) { tables.set(r.table_name, new Set()); generated.set(r.table_name, new Set()) }
+    if (!tables.has(r.table_name)) {
+      tables.set(r.table_name, new Set())
+      generated.set(r.table_name, new Set())
+      jsonCols.set(r.table_name, new Set())
+    }
     tables.get(r.table_name).add(r.column_name)
+    // A jsonb column will not take a bare string: 'hello' is not JSON, only
+    // '"hello"' is. Objects and arrays get encoded on their way out by
+    // accident of being objects, but a plain string or number stored in a
+    // jsonb column has to be encoded deliberately — so we need to know which
+    // columns those are.
+    if (r.data_type === 'jsonb' || r.data_type === 'json') {
+      jsonCols.get(r.table_name).add(r.column_name)
+    }
     // total_price and total_cost are computed by the database. Postgres rejects
     // any attempt to write them, so they are stripped from write payloads.
     if (r.is_generated === 'ALWAYS' || r.identity_generation === 'ALWAYS') {
@@ -83,7 +97,7 @@ async function loadSchema() {
     if (!fks.has(key)) fks.set(key, { childCol: r.child_col, parentCol: r.parent_col })
   }
 
-  schemaCache = { tables, generated, pks, fks, loadedAt: Date.now() }
+  schemaCache = { tables, generated, jsonCols, pks, fks, loadedAt: Date.now() }
   console.log(`[db] schema loaded: ${tables.size} tables/views`)
   return schemaCache
 }
@@ -107,7 +121,23 @@ function foreignKey(child, parent) {
 }
 
 const generatedOf = name => schemaCache.generated.get(name) || new Set()
+const jsonColumnsOf = name => schemaCache.jsonCols.get(name) || new Set()
 const primaryKeyOf = name => schemaCache.pks.get(name) || []
+
+/**
+ * Prepare one value for its column.
+ *
+ * Everything bound for a json/jsonb column is encoded, whatever its shape.
+ * Without this, `{ value: ['a','b'] }` works (an array happens to encode) but
+ * `{ value: '2026-01-01' }` fails with "invalid input syntax for type json",
+ * because a bare string is not a JSON document. Both go to the same column.
+ */
+function encodeFor(table, column, v) {
+  if (v === undefined || v === null) return null
+  if (jsonColumnsOf(table).has(column)) return JSON.stringify(v)
+  if (typeof v === 'object') return JSON.stringify(v)
+  return v
+}
 
 // Quote an identifier we have already proved is real. Belt and braces: even a
 // verified name goes through quoting, so a column called "order" cannot
@@ -133,5 +163,6 @@ async function withTransaction(fn) {
 
 module.exports = {
   pool, query, withTransaction, loadSchema, schema,
-  hasTable, hasColumn, columnsOf, generatedOf, primaryKeyOf, foreignKey, quote,
+  hasTable, hasColumn, columnsOf, generatedOf, jsonColumnsOf, primaryKeyOf,
+  foreignKey, quote, encodeFor,
 }

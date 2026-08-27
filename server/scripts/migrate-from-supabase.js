@@ -129,8 +129,11 @@ async function insertRows(table, rows) {
     const params = []
     const tuples = chunk.map(row =>
       '(' + usable.map(c => {
-        const v = row[c]
-        params.push(v !== null && typeof v === 'object' ? JSON.stringify(v) : v ?? null)
+        // Schema-aware: a jsonb column needs its value encoded even when that
+        // value is a plain string. app_settings.value holds both an array (the
+        // sidebar order) and a bare date string (the reconciliation start), and
+        // only the array survives being passed through as-is.
+        params.push(db.encodeFor(table, c, row[c]))
         return `$${params.length}`
       }).join(', ') + ')'
     ).join(', ')

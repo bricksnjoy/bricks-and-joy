@@ -209,11 +209,10 @@ function prepareRows(table, values, locked) {
   return { rows: cleaned, keys }
 }
 
-function jsonSafe(v) {
-  // pg sends objects and arrays as JSON for jsonb columns, but an array
-  // destined for a jsonb column would otherwise be read as a Postgres array.
-  return (v !== null && typeof v === 'object') ? JSON.stringify(v) : v
-}
+// Encoding a value for its column is schema-aware — see db.encodeFor. It has to
+// be: the reconciliation page stores a plain date string in app_settings.value,
+// which is jsonb, and a bare string is not a JSON document.
+const jsonSafe = (table, col, v) => db.encodeFor(table, col, v)
 
 // ── the compiler ────────────────────────────────────────────────────────────
 /**
@@ -255,7 +254,7 @@ function compile(q, opts = {}) {
     const tuples = rows.map(row =>
       '(' + keys.map(k => {
         if (!(k in row)) return 'default'
-        params.push(jsonSafe(row[k]))
+        params.push(jsonSafe(table, k, row[k]))
         return `$${params.length}`
       }).join(', ') + ')'
     ).join(', ')
@@ -281,7 +280,7 @@ function compile(q, opts = {}) {
     const row = rows[0]
 
     const sets = keys.map(k => {
-      params.push(jsonSafe(row[k]))
+      params.push(jsonSafe(table, k, row[k]))
       return `${db.quote(k)} = $${params.length}`
     }).join(', ')
 
