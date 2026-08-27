@@ -56,8 +56,12 @@ apt-get update -qq
 apt-get install -y -qq curl git ufw postgresql postgresql-contrib ca-certificates >/dev/null
 ok "base packages, PostgreSQL $(psql --version | awk '{print $3}')"
 
-if ! command -v node >/dev/null || [ "$(node -v | cut -c2- | cut -d. -f1)" -lt 20 ]; then
-  curl -fsSL https://deb.nodesource.com/setup_20.x | bash - >/dev/null 2>&1
+# Node 22, not 20. Node 20 left maintenance in April 2026, so it stops getting
+# security fixes; and the AWS SDK this depends on for R2 requires 22 or newer
+# from January 2027. 22 is supported to April 2027 and is what react-scripts is
+# happiest on — 24 is newer but this build toolchain predates it.
+if ! command -v node >/dev/null || [ "$(node -v | cut -c2- | cut -d. -f1)" -lt 22 ]; then
+  curl -fsSL https://deb.nodesource.com/setup_22.x | bash - >/dev/null 2>&1
   apt-get install -y -qq nodejs >/dev/null
   ok "Node $(node -v)"
 else
