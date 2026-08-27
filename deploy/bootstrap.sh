@@ -77,7 +77,30 @@ else
   skip "Caddy $(caddy version | head -1 | awk '{print $1}')"
 fi
 
-# ── 2. firewall ─────────────────────────────────────────────────────────────
+# ── 2. swap ─────────────────────────────────────────────────────────────────
+step "Swap"
+
+# Hostinger's images ship without any, and the one genuinely memory-hungry
+# thing here is building the front end: webpack and its minifier workers peak
+# somewhere between 1.5 and 3 GB, depending on how many cores they can spread
+# across. That fits in 8 GB with room to spare — but with no swap at all, a
+# spike has nowhere to go and the kernel starts killing processes, and what it
+# picks might be PostgreSQL. Two gigabytes of insurance costs nothing.
+if [ "$(swapon --show --noheadings | wc -l)" -gt 0 ]; then
+  skip "swap already configured ($(free -h | awk '/Swap:/{print $2}'))"
+else
+  fallocate -l 2G /swapfile 2>/dev/null || dd if=/dev/zero of=/swapfile bs=1M count=2048 status=none
+  chmod 600 /swapfile
+  mkswap /swapfile >/dev/null
+  swapon /swapfile
+  grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+  # Only reach for it under real pressure; this is a safety net, not storage.
+  sysctl -qw vm.swappiness=10
+  grep -q '^vm.swappiness' /etc/sysctl.conf || echo 'vm.swappiness=10' >> /etc/sysctl.conf
+  ok "2 GB swap file, swappiness 10"
+fi
+
+# ── 3. firewall ─────────────────────────────────────────────────────────────
 step "Firewall"
 
 # SSH is allowed before the firewall comes up, so this cannot lock you out.
@@ -91,7 +114,7 @@ else
 fi
 ok "SSH, 80 and 443 open — everything else closed (PostgreSQL included)"
 
-# ── 3. the app's user ───────────────────────────────────────────────────────
+# ── 4. the app's user ───────────────────────────────────────────────────────
 step "Account for the app"
 
 if id "$APP_USER" >/dev/null 2>&1; then
@@ -101,7 +124,7 @@ else
   ok "user $APP_USER (no login shell of its own)"
 fi
 
-# ── 4. database ─────────────────────────────────────────────────────────────
+# ── 5. database ─────────────────────────────────────────────────────────────
 step "Database"
 
 db_exists() { sudo -u postgres psql -tAc "select 1 from pg_database where datname='$DB_NAME'" | grep -q 1; }
@@ -132,7 +155,7 @@ fi
 
 DATABASE_URL="postgres://$DB_USER:$DB_PASS@127.0.0.1:5432/$DB_NAME"
 
-# ── 5. the code ─────────────────────────────────────────────────────────────
+# ── 6. the code ─────────────────────────────────────────────────────────────
 step "Dependencies"
 
 chown -R "$APP_USER:$APP_USER" "$APP_DIR"
@@ -149,7 +172,7 @@ sudo -u "$APP_USER" psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -f db/schema.sql
 TABLES=$(sudo -u "$APP_USER" psql "$DATABASE_URL" -tAc "select count(*) from information_schema.tables where table_schema='public'")
 ok "$TABLES tables and views"
 
-# ── 6. configuration ────────────────────────────────────────────────────────
+# ── 7. configuration ────────────────────────────────────────────────────────
 step "Configuration"
 
 ENV_FILE="$APP_DIR/server/.env"
@@ -186,7 +209,7 @@ else
   skip ".env"
 fi
 
-# ── 7. service files ────────────────────────────────────────────────────────
+# ── 8. service files ────────────────────────────────────────────────────────
 step "Service files"
 
 cp deploy/bricksnjoy-api.service /etc/systemd/system/
@@ -227,10 +250,13 @@ $bold  What is left for you$off
   3. Then build and start:
 
        cd $APP_DIR
-       sudo -u $APP_USER npm run build
+       nice -n 19 sudo -u $APP_USER npm run build
        systemctl enable --now bricksnjoy-api
        systemctl reload caddy
        curl -s localhost:4000/api/health
+
+     The build takes about three minutes on two cores and uses both of them.
+     nice keeps it out of the way of anything else on the machine.
 
      A reply of {"ok":true,...} means the server side is finished, and you can
      go on to step 6 — moving the data across.

@@ -30,8 +30,14 @@ npm ci --no-audit --no-fund --silent
 step "Building the site"
 # Into a scratch directory first. A failed build must not leave a half-written
 # build/ behind, because that is what visitors are being served.
+#
+# Run it at the lowest priority we can give it. This box has two cores and the
+# build will happily use both for a couple of minutes; nice and ionice mean the
+# API keeps getting the processor and the disk whenever it wants them, so the
+# shop stays responsive to anyone using it while a deploy is going out. It
+# costs the build a little time and nobody is watching it.
 rm -rf build.new
-BUILD_PATH=build.new CI=1 npx react-scripts build
+nice -n 19 ionice -c 3 env BUILD_PATH=build.new CI=1 npx react-scripts build
 rm -rf build.old
 [ -d build ] && mv build build.old
 mv build.new build
