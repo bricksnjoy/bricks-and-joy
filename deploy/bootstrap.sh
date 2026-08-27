@@ -225,13 +225,7 @@ if [ -f /etc/caddy/Caddyfile ] && ! grep -q "$SITE" /etc/caddy/Caddyfile; then
   printf '  %ssaved the old one as /etc/caddy/Caddyfile.before-bricksandjoy%s\n' "$dim" "$off"
 fi
 cp deploy/Caddyfile /etc/caddy/Caddyfile
-
-# The Caddyfile writes an access log here. Caddy runs as its own user and will
-# not create the directory itself: without this the config loads fine under
-# `caddy validate` — which never opens the file — and then fails at reload with
-# "permission denied", which reads like a config error and is not one.
-install -d -o caddy -g caddy -m 755 /var/log/caddy
-ok "Caddy config installed, /var/log/caddy ready (reloaded in step 5)"
+ok "Caddy config installed (reloaded in step 5, once the domain is ready)"
 
 # ── done ────────────────────────────────────────────────────────────────────
 cat <<DONE

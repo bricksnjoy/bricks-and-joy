@@ -52,11 +52,19 @@ bricksandjoy.com, www.bricksandjoy.com {
 		}
 	}
 
+	# Access logs go to the system journal, alongside everything else Caddy has
+	# to say, so one command shows the lot:
+	#
+	#   journalctl -u caddy -f
+	#
+	# Not a file under /var/log. Caddy runs sandboxed by its own systemd unit
+	# and cannot write there even when the directory exists and is owned by the
+	# caddy user — and the failure mode is not a missing log, it is a web server
+	# that refuses to start at all. `caddy validate` does not catch it either,
+	# because validating a config never opens the log file. The journal rotates
+	# on its own and needs no permissions of ours.
 	log {
-		output file /var/log/caddy/bricksandjoy.log {
-			roll_size 20MB
-			roll_keep 10
-		}
+		output stderr
 	}
 }
 
