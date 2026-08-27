@@ -231,10 +231,14 @@ async function migrateFiles() {
 // Every picture's address is stored in the database. Once the files are in R2
 // those addresses are wrong, so each one is rewritten in place — the object
 // name is kept, so only the part before it changes.
+// Listing a column that holds no Supabase addresses costs nothing — the update
+// is guarded by a LIKE on the old prefix, so it simply matches no rows. Being
+// generous here is far cheaper than missing one and leaving a set of pictures
+// pointing at a project that is about to be deleted.
 const URL_COLUMNS = {
-  products:          ['photo_url', 'images'],
+  products:          ['photo_url', 'images', 'video_url'],
   supplier_products: ['image_url'],
-  purchase_orders:   ['image_url'],
+  purchase_orders:   ['image_url', 'slip_url'],
   supplier_payments: ['slips'],
   orders:            ['transfer_slip_url'],
   expenses:          ['slips'],
