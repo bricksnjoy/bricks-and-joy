@@ -85,6 +85,8 @@ create table if not exists suppliers (
   phone text,
   address text,
   notes text,
+  payment_terms text,                -- "Net 30" etc. — shown as the Terms badge on Vendors
+  currency text default 'MVR',       -- what this supplier invoices in
   is_overseas boolean default false,
   created_at timestamptz default now()
 );
@@ -197,6 +199,7 @@ create table if not exists purchase_orders (
   batch_no text,
   cost_type text,                    -- 'extra' = freight/duty/fees, not goods
   image_url text,
+  slip_url text,                     -- the payment slip shown on a batch order
   stock_added boolean default false,
   created_at timestamptz default now(),
   created_by uuid references app_users(id) on delete set null
@@ -242,6 +245,12 @@ create table if not exists supplier_products (
   notes text,
   custom_fields jsonb,
   is_favorite boolean default false,
+  -- Three fields typed in against catalog lines over the years. Nothing in the
+  -- app reads them today, but they are somebody's work and the move is not the
+  -- place to quietly throw them away.
+  product_id uuid,                   -- the inventory product this line became
+  supplier_sku text,                 -- the supplier's own code for it
+  moq numeric,                       -- minimum order quantity
   cost_price numeric,
   -- the supplier's price as it was actually quoted, in dollars. A later change
   -- to the dollar rate re-prices cost_price from this; rows entered directly in
@@ -706,3 +715,15 @@ alter table suppliers         add column if not exists is_overseas boolean defau
 alter table loans             add column if not exists lenders jsonb default '[]'::jsonb;
 alter table products          add column if not exists variant_group text;
 alter table products          add column if not exists variant_label text;
+
+-- Columns that were added straight to the live database over the years and
+-- never written down anywhere. The move off Supabase found them by comparing
+-- the two databases row by row; without these six, `payment_terms` would have
+-- vanished from every vendor and `slip_url` would have taken the payment slip
+-- off every batch order.
+alter table suppliers         add column if not exists payment_terms text;
+alter table suppliers         add column if not exists currency text default 'MVR';
+alter table purchase_orders   add column if not exists slip_url text;
+alter table supplier_products add column if not exists product_id uuid;
+alter table supplier_products add column if not exists supplier_sku text;
+alter table supplier_products add column if not exists moq numeric;
