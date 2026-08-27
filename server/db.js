@@ -8,7 +8,31 @@
 // `select id, name from orders` from user input is to refuse any identifier
 // that is not a real column of a real table. That check lives here.
 
-const { Pool } = require('pg')
+const { Pool, types } = require('pg')
+
+// ── speaking the same dialect PostgREST did ─────────────────────────────────
+// The front end was written against Supabase, and every page reads dates as
+// plain 'YYYY-MM-DD' strings: `o.order_date === todayStr`, `.startsWith('2026-08')`,
+// and the date used directly as a key when grouping a chart.
+//
+// node-postgres does something more helpful and, here, wrong: it turns a DATE
+// into a JavaScript Date at *local* midnight. Serialised to JSON on a server
+// set to Indian/Maldives that becomes "2026-08-26T19:00:00.000Z" — the day
+// before, wearing a timestamp. Exact-date matches then never match and charts
+// group by a key nothing else uses, which is subtle enough to look like the
+// data failed to migrate rather than like a type conversion.
+//
+// So DATE is handed back untouched, exactly as it comes off the wire.
+types.setTypeParser(1082, v => v)          // date
+
+// Same reasoning for the numeric types. PostgREST sends them as JSON numbers;
+// node-postgres sends strings, to protect a precision this shop's money does
+// not have. Everything downstream already assumes numbers.
+types.setTypeParser(1700, v => (v === null ? null : parseFloat(v)))   // numeric
+types.setTypeParser(20,   v => (v === null ? null : parseInt(v, 10))) // bigint
+
+// Timestamps are left alone: pg parses them to Date, which serialises to the
+// same ISO string PostgREST produced, and every caller passes them to new Date().
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
