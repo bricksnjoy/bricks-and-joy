@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Button, Spinner, useToast, Toasts, Modal } from '../components/UI'
 import { Upload, CheckCircle, AlertTriangle, X, Trash2, Plus, FileSpreadsheet, Eye, EyeOff, RefreshCw, Scale, Lock, History, MoreHorizontal } from 'lucide-react'
 import { getSettings } from '../lib/settings'
+import { netOf } from '../lib/money'
 import { getLock, setLock } from '../lib/periodLock'
 import { loadBooksStart, saveBooksStart as persistBooksStart, loadSettled, addSettled, removeSettled, readLocalStart, readLocalSettled } from '../lib/reconStore'
 
@@ -231,12 +232,13 @@ export default function Reconciliation() {
   // (expenses + supplier payments + loan repayments)
   const bookIn = useMemo(() => [
     ...orders
-      .filter(o => (o.payment_status === 'paid' || o.payment_status === 'partial') && Number(o.total_price) > 0)
+      .filter(o => (o.payment_status === 'paid' || o.payment_status === 'partial') && netOf(o) > 0)
       .filter(o => !isCashSettled(o))
       .map(o => ({
         id: 'order:' + o.id, kind: 'order',
         date: new Date(o.paid_at || o.order_date),
-        amount: Number(o.total_price), ref: o.transfer_reference || '',
+        // The discount comes off here or the bank will never agree with us.
+        amount: netOf(o), ref: o.transfer_reference || '',
         label: `${o.customer_name || 'Order'}${o.invoice_number ? ' · ' + o.invoice_number : ''}`,
         method: o.payment_method || '',
       })),
