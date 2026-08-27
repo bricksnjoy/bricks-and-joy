@@ -58,6 +58,10 @@ const TABLE_ORDER = [
 // audit_log had two different id types depending on which setup file built the
 // database first. Nothing points at an audit row, so its ids are simply left to
 // be generated fresh rather than trying to reconcile the two.
+//
+// The cost of that is there is no key to conflict on, so a second run would
+// insert every row again. These tables are therefore skipped once they hold
+// anything — see insertRows.
 const REGENERATE_ID = new Set(['audit_log'])
 
 const log = (...a) => console.log(...a)
@@ -116,6 +120,17 @@ async function insertRows(table, rows) {
   const dropped = [...new Set(rows.flatMap(Object.keys))].filter(c => !columns.has(c))
   if (dropped.length) warn(`${table}: ignoring columns not in the new schema: ${dropped.join(', ')}`)
   if (!usable.length) return { inserted: 0, skipped: rows.length }
+
+  // Rows keep their original ids, so "insert what isn't already there" is just
+  // an on-conflict clause. Tables whose ids are regenerated have no such key,
+  // so a re-run would duplicate everything — skip them once they hold rows.
+  if (regenerate) {
+    const { rows: [{ n }] } = await db.query(`select count(*)::int as n from ${db.quote(table)}`)
+    if (n > 0) {
+      warn(`${table}: already holds ${n} rows and has no key to match on — skipped so a re-run cannot duplicate it`)
+      return { inserted: 0, skipped: rows.length }
+    }
+  }
 
   const conflictTarget = db.primaryKeyOf(table)
   const onConflict = conflictTarget.length && !regenerate
