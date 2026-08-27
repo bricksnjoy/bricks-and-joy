@@ -40,15 +40,38 @@ app.set('trust proxy', 1)
 app.disable('x-powered-by')
 
 // ── who may call the API from a browser ─────────────────────────────────────
-// Same-origin in production, because the API and the site are served together.
-// The list only matters for `npm start` on a laptop, where React runs on :3000.
-const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:3000')
-  .split(',').map(s => s.trim()).filter(Boolean)
+// The site and the API are served from the same origin in production, which
+// makes it tempting to think this list does not matter. It does: a browser
+// sends an Origin header on same-origin POSTs as well as cross-origin ones, so
+// leaving the site's own address off the list refuses every sign-in with
+// "Origin https://… is not allowed" — from our own server, about our own page.
+//
+// So the site's address is derived from PUBLIC_SITE_URL rather than having to
+// be listed again by hand, and CORS_ORIGINS is only for the extras: a laptop
+// running React on :3000, or a staging hostname.
+const allowedOrigins = new Set(
+  (process.env.CORS_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean)
+)
+
+const siteUrl = (process.env.PUBLIC_SITE_URL || '').replace(/\/+$/, '')
+if (siteUrl) {
+  allowedOrigins.add(siteUrl)
+  // www and the bare domain are the same site to a customer, and Caddy redirects
+  // one to the other — but the redirect happens after the browser has already
+  // decided whether the request was allowed.
+  try {
+    const u = new URL(siteUrl)
+    const bare = u.hostname.replace(/^www\./, '')
+    allowedOrigins.add(`${u.protocol}//${bare}`)
+    allowedOrigins.add(`${u.protocol}//www.${bare}`)
+  } catch { /* PUBLIC_SITE_URL isn't a URL — the plain string above still counts */ }
+}
+if (!allowedOrigins.size) allowedOrigins.add('http://localhost:3000')
 
 app.use('/api', cors({
   origin(origin, cb) {
-    if (!origin) return cb(null, true)                 // curl, health checks, same-origin
-    if (allowedOrigins.includes(origin)) return cb(null, true)
+    if (!origin) return cb(null, true)                 // curl, health checks, server-to-server
+    if (allowedOrigins.has(origin)) return cb(null, true)
     cb(new Error(`Origin ${origin} is not allowed`))
   },
   credentials: true,
