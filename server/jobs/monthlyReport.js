@@ -49,7 +49,7 @@ async function buildReport(body = {}) {
   const incSales = cfg.include_sales !== false
 
   const [ordersRes, expensesRes, productsRes] = await Promise.all([
-    db.query('select id, order_date, status, qty, product_id, product_name, total_price, payment_status, customer_name from orders'),
+    db.query('select id, order_date, status, qty, product_id, product_name, total_price, discount, payment_status, customer_name from orders'),
     db.query('select expense_date, category, amount from expenses'),
     db.query('select id, name, cost_price, stock_qty, discontinued, low_stock_threshold from products'),
   ])
@@ -59,17 +59,21 @@ async function buildReport(body = {}) {
   P.forEach(p => { costById[p.id] = Number(p.cost_price || 0) })
 
   const asDay = d => (d instanceof Date ? ymd(d) : String(d || ''))
+  // total_price is qty x unit_price, before any discount. What the shop actually
+  // took is that less the discount — the same definition as src/lib/money.js,
+  // so the emailed report agrees with what the Financial Reports page shows.
+  const netSale = o => Math.max(0, Number(o.total_price || 0) - Number(o.discount || 0))
   const inMonth = d => { const s = asDay(d); return s && s >= start && s <= end }
   const deliveredMonth = O.filter(o => o.status === 'delivered' && inMonth(o.order_date))
 
   // ── Financial summary ──
-  const revenue = deliveredMonth.reduce((s, o) => s + Number(o.total_price || 0), 0)
+  const revenue = deliveredMonth.reduce((s, o) => s + netSale(o), 0)
   const cogs = deliveredMonth.reduce((s, o) => s + (costById[o.product_id] || 0) * Number(o.qty || 0), 0)
   const gross = revenue - cogs
   const expSum = E.filter(e => inMonth(e.expense_date)).reduce((s, e) => s + Number(e.amount || 0), 0)
   const net = gross - expSum
   const ar = O.filter(o => o.payment_status === 'unpaid' || o.payment_status === 'partial')
-    .reduce((s, o) => s + Number(o.total_price || 0), 0)
+    .reduce((s, o) => s + netSale(o), 0)
 
   // ── Budget vs actual — only if a budgets table has been set up ──
   let budgetRows = []
@@ -113,7 +117,7 @@ async function buildReport(body = {}) {
   const orderCount = O.filter(o => inMonth(o.order_date)).length
   const byKey = (rows, key) => {
     const m = {}
-    rows.forEach(o => { const k = o[key] || '—'; m[k] = (m[k] || 0) + Number(o.total_price || 0) })
+    rows.forEach(o => { const k = o[key] || '—'; m[k] = (m[k] || 0) + netSale(o) })
     return Object.entries(m).sort((a, b) => b[1] - a[1]).slice(0, 5)
   }
   const topProducts = byKey(deliveredMonth, 'product_name')
