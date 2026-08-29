@@ -1,0 +1,91 @@
+# Deploy to the VPS, from a button or an API call.
+#
+# The server pulls, builds, applies any schema change and restarts itself — the
+# same deploy/deploy.sh you would run by hand over SSH. This just saves the
+# hand.
+#
+# It never runs on its own. Deploying is deliberate: `workflow_dispatch` means
+# somebody (or something with a token) asked for it, so a merge cannot put the
+# shop's till through a build by accident.
+#
+# Setting it up is three steps and lives in DEPLOY.md under "Deploying from
+# GitHub". The short version: a key whose only power is to run deploy.sh.
+
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "deploy" to confirm'
+        required: true
+        default: ''
+
+concurrency:
+  # Two deploys at once would have one npm ci writing under the other's build.
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check the confirmation
+        if: inputs.confirm != 'deploy'
+        run: |
+          echo "::error::Type 'deploy' in the confirm box to run this."
+          exit 1
+
+      - name: Deploy
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          SSH_HOST: ${{ secrets.DEPLOY_HOST }}
+          SSH_USER: ${{ secrets.DEPLOY_USER }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${SSH_KEY:-}" ] || [ -z "${SSH_HOST:-}" ]; then
+            echo "::error::DEPLOY_SSH_KEY and DEPLOY_HOST are not set — see DEPLOY.md"
+            exit 1
+          fi
+
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+          # The host key is pinned from a secret rather than trusted on first
+          # use. Without it, anything that could answer on that address could
+          # take the connection — and this connection deploys a shop.
+          if [ -n "${KNOWN_HOSTS:-}" ]; then
+            printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          else
+            echo "::error::DEPLOY_KNOWN_HOSTS is not set. Run: ssh-keyscan $SSH_HOST"
+            exit 1
+          fi
+          chmod 600 ~/.ssh/known_hosts
+
+          # No command is sent. The key is registered on the server with a
+          # forced command, so this connection can do exactly one thing: run
+          # deploy.sh. If this workflow — or the token that triggered it — were
+          # ever misused, that is the whole of what it could do.
+          ssh -i ~/.ssh/deploy_key \
+              -o StrictHostKeyChecking=yes \
+              -o PasswordAuthentication=no \
+              -o ConnectTimeout=20 \
+              "${SSH_USER:-root}@$SSH_HOST"
+
+      - name: Confirm the site is answering
+        run: |
+          for i in $(seq 1 20); do
+            if curl -fsS --max-time 5 "https://bricksandjoy.com/api/health" | grep -q '"ok":true'; then
+              echo "Healthy after ${i}0s"
+              curl -s "https://bricksandjoy.com/api/health"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::The site did not come back healthy. Check: journalctl -u bricksnjoy-api -n 50"
+          exit 1

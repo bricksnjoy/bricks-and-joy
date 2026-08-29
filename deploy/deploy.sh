@@ -12,9 +12,19 @@ set -euo pipefail
 
 APP_DIR="${APP_DIR:-/srv/bricksandjoy}"
 SERVICE="${SERVICE:-bricksnjoy-api}"
-BRANCH="${BRANCH:-main}"
 
 cd "$APP_DIR"
+
+# Deploy whichever branch the server is already tracking, rather than assuming
+# main. Hardcoding main meant a deploy would silently move the shop onto a
+# different branch — which matters right now, while the work lives on
+# claude/supplier-favorites-sync-fni8t1 and main is still the old Vercel code.
+# Set BRANCH explicitly to move it on purpose.
+BRANCH="${BRANCH:-$(git rev-parse --abbrev-ref HEAD)}"
+if [ "$BRANCH" = "HEAD" ]; then
+	echo "The checkout is not on a branch. Set BRANCH=... to say what to deploy."
+	exit 1
+fi
 
 step() { printf '\n\033[1m▸ %s\033[0m\n' "$1"; }
 

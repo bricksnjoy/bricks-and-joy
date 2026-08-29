@@ -299,7 +299,45 @@ cd /srv/bricksandjoy && ./deploy/deploy.sh
 ```
 
 Pull, build, apply any schema change, restart, and confirm it came back. If the
-build fails the old one keeps serving and nothing is restarted.
+build fails the old one keeps serving and nothing is restarted. It deploys
+whichever branch the server is already on; `BRANCH=main ./deploy/deploy.sh`
+moves it deliberately.
+
+**Deploying from GitHub instead**
+
+There is a Deploy workflow — Actions → Deploy → Run workflow, type `deploy`.
+Useful when you are not at a terminal, and it lets anyone you trust with the
+repository ship a fix without handing them a login to the server.
+
+Three steps to set it up. On the VPS:
+
+```bash
+ssh-keygen -t ed25519 -f /root/.ssh/github_deploy -N "" -C "github-actions"
+```
+
+Then register the public half so it can do exactly one thing — and nothing else:
+
+```bash
+printf 'command="/srv/bricksandjoy/deploy/deploy.sh",no-port-forwarding,no-agent-forwarding,no-X11-forwarding,no-pty %s\n' \
+  "$(cat /root/.ssh/github_deploy.pub)" >> /root/.ssh/authorized_keys
+```
+
+That `command=` prefix is the whole security story. A key registered this way
+cannot open a shell, read a file or run anything else: whatever is asked for, the
+server runs deploy.sh and hangs up. If GitHub were ever compromised, the worst
+available is a deploy of your own code.
+
+Then in GitHub → Settings → Secrets and variables → Actions, add four:
+
+| Secret | Value |
+|---|---|
+| `DEPLOY_SSH_KEY` | `cat /root/.ssh/github_deploy` — the whole private key, including the BEGIN and END lines |
+| `DEPLOY_HOST` | `72.62.66.114` |
+| `DEPLOY_USER` | `root` |
+| `DEPLOY_KNOWN_HOSTS` | `ssh-keyscan 72.62.66.114` — pins the server's identity so the connection cannot be intercepted |
+
+The workflow finishes by polling `/api/health` until the site answers, so a
+green tick means the shop is actually up, not merely that a script ran.
 
 **Watching it**
 
