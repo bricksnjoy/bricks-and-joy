@@ -46,8 +46,13 @@ async function sendSms({ to, message, sender } = {}) {
   const headers = { 'content-type': 'application/json' }
   let url = base
   if (auth === 'bearer') headers.Authorization = `Bearer ${key}`
+  else if (auth === 'accesskey') headers.Authorization = `AccessKey ${key}`
   else if (auth === 'apikey') headers['X-API-Key'] = key
   else if (auth === 'query') url += (url.includes('?') ? '&' : '?') + 'api_key=' + encodeURIComponent(key)
+  // Anything else is taken as the Authorization scheme word itself, spelled the
+  // way it was written in .env rather than the lower-cased copy. A gateway that
+  // wants some other prefix can be matched without touching this file.
+  else if (auth) headers.Authorization = `${process.env.MESSAGEOWL_AUTH.trim()} ${key}`
 
   try {
     const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) })
