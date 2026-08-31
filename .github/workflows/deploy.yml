@@ -52,20 +52,55 @@ jobs:
             exit 1
           fi
 
+          # Accept either the text itself or a single-line base64 of it.
+          # Copying a multi-line private key out of a browser terminal means
+          # dragging across a dozen lines and hoping nothing was clipped; one
+          # wrong character produces "invalid format", which reads like the key
+          # is wrong rather than the copy. A base64 blob is one line, so it can
+          # be selected with a triple-click.
+          decode() {
+            local raw="$1" dec
+            dec="$(printf '%s' "$raw" | tr -d '\n\r' | base64 -d 2>/dev/null || true)"
+            if [ -n "$dec" ] && printf '%s' "$dec" | head -1 | grep -qE '^(-----BEGIN|ssh-|ecdsa-|[0-9a-fA-F.:]+ )'; then
+              printf '%s\n' "$dec"
+            else
+              printf '%s\n' "$raw"
+            fi
+          }
+
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          decode "$SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
+
+          if ! grep -q 'BEGIN.*PRIVATE KEY' ~/.ssh/deploy_key; then
+            echo "::error::DEPLOY_SSH_KEY does not look like a private key. Paste the whole thing, or the output of: base64 -w0 /root/.ssh/github_deploy"
+            exit 1
+          fi
 
           # The host key is pinned from a secret rather than trusted on first
           # use. Without it, anything that could answer on that address could
           # take the connection — and this connection deploys a shop.
           if [ -n "${KNOWN_HOSTS:-}" ]; then
-            printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+            decode "$KNOWN_HOSTS" > ~/.ssh/known_hosts
           else
             echo "::error::DEPLOY_KNOWN_HOSTS is not set. Run: ssh-keyscan $SSH_HOST"
             exit 1
           fi
           chmod 600 ~/.ssh/known_hosts
+
+          # "No ED25519 host key is known for ..." says nothing about *why*, and
+          # the host is masked in the log, so a mismatch between DEPLOY_HOST and
+          # the name inside DEPLOY_KNOWN_HOSTS looks identical to a bad paste.
+          # Host keys are public, so saying what we have costs nothing.
+          echo "known_hosts: $(grep -c . ~/.ssh/known_hosts || echo 0) line(s)"
+          echo "key types present: $(awk '{print $2}' ~/.ssh/known_hosts | sort -u | tr '\n' ' ')"
+          echo "names present:     $(awk '{print $1}' ~/.ssh/known_hosts | sort -u | tr '\n' ' ')"
+          if ssh-keygen -F "$SSH_HOST" -f ~/.ssh/known_hosts >/dev/null 2>&1; then
+            echo "the host we are connecting to IS in known_hosts"
+          else
+            echo "::error::DEPLOY_HOST is not among the names above. The name in DEPLOY_KNOWN_HOSTS must be exactly what DEPLOY_HOST says — an IP and a domain are different entries even when they reach the same machine."
+            exit 1
+          fi
 
           # No command is sent. The key is registered on the server with a
           # forced command, so this connection can do exactly one thing: run
