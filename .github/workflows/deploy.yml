@@ -88,6 +88,20 @@ jobs:
           fi
           chmod 600 ~/.ssh/known_hosts
 
+          # "No ED25519 host key is known for ..." says nothing about *why*, and
+          # the host is masked in the log, so a mismatch between DEPLOY_HOST and
+          # the name inside DEPLOY_KNOWN_HOSTS looks identical to a bad paste.
+          # Host keys are public, so saying what we have costs nothing.
+          echo "known_hosts: $(grep -c . ~/.ssh/known_hosts || echo 0) line(s)"
+          echo "key types present: $(awk '{print $2}' ~/.ssh/known_hosts | sort -u | tr '\n' ' ')"
+          echo "names present:     $(awk '{print $1}' ~/.ssh/known_hosts | sort -u | tr '\n' ' ')"
+          if ssh-keygen -F "$SSH_HOST" -f ~/.ssh/known_hosts >/dev/null 2>&1; then
+            echo "the host we are connecting to IS in known_hosts"
+          else
+            echo "::error::DEPLOY_HOST is not among the names above. The name in DEPLOY_KNOWN_HOSTS must be exactly what DEPLOY_HOST says — an IP and a domain are different entries even when they reach the same machine."
+            exit 1
+          fi
+
           # No command is sent. The key is registered on the server with a
           # forced command, so this connection can do exactly one thing: run
           # deploy.sh. If this workflow — or the token that triggered it — were
