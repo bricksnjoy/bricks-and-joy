@@ -58,14 +58,20 @@ jobs:
           # wrong character produces "invalid format", which reads like the key
           # is wrong rather than the copy. A base64 blob is one line, so it can
           # be selected with a triple-click.
+          # Already in its plain form? Use it untouched.
+          #
+          # Testing that FIRST is the whole point. The body of a PEM key is
+          # itself valid base64, so decoding "just in case" turns a perfectly
+          # good key into binary — which command substitution then strips the
+          # null bytes out of, quietly producing something that is no longer a
+          # key. That is exactly what the previous version of this did.
+          looks_plain() { printf '%s' "$1" | grep -qE '^-----BEGIN|^[^ ]+ (ssh-|ecdsa-)'; }
+
           decode() {
             local raw="$1" dec
+            if looks_plain "$raw"; then printf '%s\n' "$raw"; return; fi
             dec="$(printf '%s' "$raw" | tr -d '\n\r' | base64 -d 2>/dev/null || true)"
-            if [ -n "$dec" ] && printf '%s' "$dec" | head -1 | grep -qE '^(-----BEGIN|ssh-|ecdsa-|[0-9a-fA-F.:]+ )'; then
-              printf '%s\n' "$dec"
-            else
-              printf '%s\n' "$raw"
-            fi
+            if looks_plain "$dec"; then printf '%s\n' "$dec"; else printf '%s\n' "$raw"; fi
           }
 
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
