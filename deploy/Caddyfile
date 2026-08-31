@@ -1,0 +1,77 @@
+# Caddy — the only thing on the KVM2 listening to the internet.
+#
+# Copy to /etc/caddy/Caddyfile and `systemctl reload caddy`.
+#
+# Caddy gets and renews the HTTPS certificate on its own, with nothing to
+# configure and nothing to remember to renew. It hands everything to the Node
+# API on 127.0.0.1:4000, which serves both the built React app and /api — so
+# there is no separate static file root here and no rewrite rules to keep in
+# step with the app's routing.
+#
+# If Cloudflare's proxy (the orange cloud) is in front of this, set its SSL mode
+# to "Full (strict)". "Flexible" would make Cloudflare talk to us over plain
+# HTTP, which is worse than no encryption at all because the padlock still shows.
+
+bricksandjoy.com, www.bricksandjoy.com {
+
+	# Anything that isn't the shop's own hostname is not our traffic.
+	@www host www.bricksandjoy.com
+	redir @www https://bricksandjoy.com{uri} permanent
+
+	encode zstd gzip
+
+	header {
+		# Only ever reach this site over HTTPS, for the next two years.
+		Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		# Cameras are used for barcode scanning; nothing else is wanted.
+		Permissions-Policy "camera=(self), microphone=(), geolocation=()"
+		-Server
+	}
+
+	# The back office holds the whole business. Keep it out of search results —
+	# public/robots.txt says the same thing, this makes sure of it.
+	@backoffice path /backoffice /backoffice/*
+	header @backoffice X-Robots-Tag "noindex, nofollow"
+
+	# Uploads are multipart and can be a few megabytes before the browser has
+	# finished shrinking them; everything else is small.
+	request_body {
+		max_size 12MB
+	}
+
+	reverse_proxy 127.0.0.1:4000 {
+		header_up X-Real-IP {remote_host}
+		# The presence channel is a WebSocket; Caddy passes the upgrade through
+		# without needing to be told, but the read timeout has to outlast the
+		# 30-second heartbeat or the connection is cut mid-conversation.
+		transport http {
+			read_timeout 300s
+		}
+	}
+
+	# Access logs go to the system journal, alongside everything else Caddy has
+	# to say, so one command shows the lot:
+	#
+	#   journalctl -u caddy -f
+	#
+	# Not a file under /var/log. Caddy runs sandboxed by its own systemd unit
+	# and cannot write there even when the directory exists and is owned by the
+	# caddy user — and the failure mode is not a missing log, it is a web server
+	# that refuses to start at all. `caddy validate` does not catch it either,
+	# because validating a config never opens the log file. The journal rotates
+	# on its own and needs no permissions of ours.
+	log {
+		output stderr
+	}
+}
+
+# Pictures, if you connect a custom domain to the R2 bucket. Cloudflare serves
+# these directly and this block is not needed — it is here only as a reminder
+# that files.bricksandjoy.com should point at R2, not at this server.
+#
+# files.bricksandjoy.com {
+# 	redir https://pub-XXXXXXXX.r2.dev{uri}
+# }

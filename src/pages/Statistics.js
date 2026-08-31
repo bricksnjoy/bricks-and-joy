@@ -5,6 +5,7 @@ import { AnalyticsMonthly, AnalyticsProducts, AnalyticsCategories } from '../com
 import { BarChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, AreaChart, Area, ComposedChart } from 'recharts'
 import { TrendingUp, TrendingDown, Package, ShoppingCart, Users, AlertTriangle, BarChart3, PieChart as PieIcon, LineChart as LineIcon, Activity, Trophy, Medal, Award, Flame, ArrowUpRight, ArrowDownRight, ArrowRight, CheckCircle, Minus, Coins, Tag, Rocket, Wallet, Target, RotateCcw, CalendarDays, CalendarRange } from 'lucide-react'
 import { toLocalISO } from '../lib/dates'
+import { netOf } from '../lib/money'
 
 const COLORS = ['#FFA500','#0d1b2a','#1D9E75','#378ADD','#f57f17','#7F77DD','#c62828','#29b6f6']
 
@@ -100,7 +101,7 @@ export default function Statistics() {
     const ordByMonth = {}
     revenueOrders.forEach(o => {
       const m = o.order_date?.slice(0, 7) || 'Unknown'
-      revByMonth[m] = (revByMonth[m] || 0) + Number(o.total_price || 0)
+      revByMonth[m] = (revByMonth[m] || 0) + netOf(o)
       ordByMonth[m] = (ordByMonth[m] || 0) + 1
     })
     const revenueChart = Object.entries(revByMonth).sort().map(([month, revenue]) => ({
@@ -158,7 +159,7 @@ export default function Statistics() {
       if (isChargeLine(o)) return
       if (!productPerf[o.product_name]) productPerf[o.product_name] = { name: o.product_name, revenue: 0, units: 0, orders: 0, cancelled: 0, cogs: 0 }
       if (o.status !== 'cancelled' && (o.status === 'delivered' || o.payment_status === 'paid')) {
-        productPerf[o.product_name].revenue += Number(o.total_price || 0)
+        productPerf[o.product_name].revenue += netOf(o)
         productPerf[o.product_name].units += o.qty
         const p = prodById[o.product_id]
         productPerf[o.product_name].cogs += p ? o.qty * Number(p.cost_price || 0) : 0
@@ -174,7 +175,7 @@ export default function Statistics() {
 
     // Channel performance
     const chanPerf = {}
-    revenueOrders.forEach(o => { chanPerf[o.channel] = (chanPerf[o.channel] || 0) + Number(o.total_price || 0) })
+    revenueOrders.forEach(o => { chanPerf[o.channel] = (chanPerf[o.channel] || 0) + netOf(o) })
     const channelChart = Object.entries(chanPerf).sort((a, b) => b[1] - a[1]).map(([name, value]) => ({ name, value: parseFloat(value.toFixed(2)) }))
 
     // Smarter forecasting — blends a linear trend with compounding growth
@@ -248,7 +249,7 @@ export default function Statistics() {
     delivered.forEach(o => {
       if (!o.customer_name) return
       const c = custSpend[o.customer_name] || (custSpend[o.customer_name] = { revenue: 0, invoices: new Set() })
-      c.revenue += Number(o.total_price || 0)
+      c.revenue += netOf(o)
       c.invoices.add(invoiceKey(o))
     })
     const topCustomers = Object.entries(custSpend)
@@ -277,7 +278,7 @@ export default function Statistics() {
     })
 
     // KPIs
-    const revenue = revenueOrders.reduce((s, o) => s + Number(o.total_price || 0), 0)
+    const revenue = revenueOrders.reduce((s, o) => s + netOf(o), 0)
     const cogs = delivered.reduce((s, o) => { const p = prods.find(p => p.id === o.product_id); return s + (p ? (Number(o.qty) || 0) * Number(p.cost_price || 0) : 0) }, 0)
     const totalExp = exps.reduce((s, e) => s + Number(e.amount), 0)
     const netProfit = revenue - cogs - totalExp
@@ -308,7 +309,7 @@ export default function Statistics() {
     ;(data._revenueOrders || []).forEach(o => {
       const d = o.order_date?.slice(0, 10)
       if (!d || d.slice(0, 7) !== month) return
-      byDay[d] = (byDay[d] || 0) + Number(o.total_price || 0)
+      byDay[d] = (byDay[d] || 0) + netOf(o)
       ;(invByDay[d] || (invByDay[d] = new Set())).add(invoiceKey(o))
     })
     const costByDay = {}
@@ -673,7 +674,7 @@ export default function Statistics() {
         filtered.forEach(o => {
           const cat = o._category || 'Uncategorised'
           if (!catMap[cat]) catMap[cat] = { name: cat, revenue: 0, units: 0, orders: 0 }
-          catMap[cat].revenue += Number(o.total_price || 0)
+          catMap[cat].revenue += netOf(o)
           catMap[cat].units += Number(o.qty || 1)
           catMap[cat].orders++
         })

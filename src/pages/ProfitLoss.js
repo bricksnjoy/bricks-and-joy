@@ -6,6 +6,7 @@ import { exportBusinessSummary } from '../lib/business'
 import { downloadMiraSchedule2, getMiraTin } from '../lib/miraSchedule2'
 import { FileText, BookOpen, Calendar, Download, TrendingUp, TrendingDown, Receipt, CheckCircle, AlertTriangle, Info, Table2 } from 'lucide-react'
 import { toLocalISO } from '../lib/dates'
+import { netOf, discountOf } from '../lib/money'
 
 const MVR_RATE = 15.42
 const num = v => { const n = parseFloat(v); return isNaN(n) ? 0 : n }
@@ -67,7 +68,7 @@ export default function Accounting() {
   const isRevenue = o => o.status !== 'cancelled' && (o.status === 'delivered' || o.payment_status === 'paid')
   const revOrders = orders.filter(o => isRevenue(o) && inPeriod(o.order_date))
   const delivered = orders.filter(o => o.status === 'delivered' && inPeriod(o.order_date))
-  const revenue = revOrders.reduce((s, o) => s + Number(o.total_price || 0), 0)
+  const revenue = revOrders.reduce((s, o) => s + netOf(o), 0)
   const cogs = delivered.reduce((s, o) => {
     const p = products.find(p => p.id === o.product_id)
     return s + (p ? o.qty * Number(p.cost_price) : 0)
@@ -117,13 +118,13 @@ export default function Accounting() {
   const monthlyRevenue = {}
   orders.filter(isRevenue).forEach(o => {
     const m = o.order_date?.slice(0, 7)
-    if (m) monthlyRevenue[m] = (monthlyRevenue[m] || 0) + Number(o.total_price || 0)
+    if (m) monthlyRevenue[m] = (monthlyRevenue[m] || 0) + netOf(o)
   })
 
   // Journal
   const journal = []
   orders.filter(isRevenue).forEach(o => {
-    const amt = Number(o.total_price || 0)
+    const amt = netOf(o)
     const p = products.find(p => p.id === o.product_id)
     const cost = p ? o.qty * Number(p.cost_price) : 0
     journal.push({
@@ -216,10 +217,12 @@ export default function Accounting() {
 
   function downloadOrdersCSV() {
     downloadCSV(`orders-${periodFilter}.csv`,
-      ['Date', 'Customer', 'Product', 'Qty', 'Unit Price (MVR)', 'Total (MVR)', 'Channel', 'Status'],
+      // Discount has its own column: Total is what was charged, and without it
+      // Qty x Unit Price would not add up to the Total in the spreadsheet.
+      ['Date', 'Customer', 'Product', 'Qty', 'Unit Price (MVR)', 'Discount (MVR)', 'Total (MVR)', 'Channel', 'Status'],
       orders.filter(o => inPeriod(o.order_date)).map(o => [
         o.order_date, o.customer_name || 'Walk-in', o.product_name,
-        o.qty, Number(o.unit_price).toFixed(2), Number(o.total_price || 0).toFixed(2),
+        o.qty, Number(o.unit_price).toFixed(2), discountOf(o).toFixed(2), netOf(o).toFixed(2),
         o.channel, o.status
       ])
     )
@@ -261,7 +264,7 @@ export default function Accounting() {
     periodOrders.forEach(o => {
       if (!o.product_id) return
       const a = agg[o.product_id] || (agg[o.product_id] = { name: o.product_name, units: 0, revenue: 0 })
-      a.units += parseInt(o.qty) || 0; a.revenue += num(o.total_price)
+      a.units += parseInt(o.qty) || 0; a.revenue += netOf(o)
     })
     const costOf = {}; products.forEach(p => { costOf[p.id] = num(p.cost_price); })
     const catOf = {}; products.forEach(p => { catOf[p.id] = p.category || ''; })
@@ -279,7 +282,7 @@ export default function Accounting() {
     periodOrders.forEach(o => {
       const cat = catOf[o.product_id] || 'Uncategorised'
       const a = agg[cat] || (agg[cat] = { units: 0, revenue: 0, cost: 0 })
-      a.units += parseInt(o.qty) || 0; a.revenue += num(o.total_price); a.cost += costOf[o.product_id] * (parseInt(o.qty) || 0)
+      a.units += parseInt(o.qty) || 0; a.revenue += netOf(o); a.cost += costOf[o.product_id] * (parseInt(o.qty) || 0)
     })
     const rows = Object.entries(agg).map(([cat, a]) => [cat, a.units, a.revenue.toFixed(2), a.cost.toFixed(2), (a.revenue - a.cost).toFixed(2)]).sort((x, y) => num(y[2]) - num(x[2]))
     downloadCSV(`sales-by-category-${periodFilter}.csv`, ['Category', 'Units sold', 'Revenue', 'Cost', 'Profit'], rows)
@@ -290,8 +293,8 @@ export default function Accounting() {
     orders.filter(o => o.status !== 'cancelled' && inPeriod(o.order_date)).forEach(o => {
       const key = o.customer_id || o.customer_name || 'Walk-in'
       const a = agg[key] || (agg[key] = { name: o.customer_name || 'Walk-in', invoices: new Set(), spent: 0, unpaid: 0 })
-      a.invoices.add(o.invoice_number || o.id); a.spent += num(o.total_price)
-      if (o.payment_status === 'unpaid') a.unpaid += num(o.total_price)
+      a.invoices.add(o.invoice_number || o.id); a.spent += netOf(o)
+      if (o.payment_status === 'unpaid') a.unpaid += netOf(o)
     })
     const rows = Object.values(agg).map(a => [a.name, a.invoices.size, a.spent.toFixed(2), a.unpaid.toFixed(2)]).sort((x, y) => num(y[2]) - num(x[2]))
     downloadCSV(`sales-by-customer-${periodFilter}.csv`, ['Customer', 'Orders', 'Total spent (MVR)', 'Unpaid (MVR)'], rows)
@@ -302,7 +305,7 @@ export default function Accounting() {
     orders.filter(o => o.status !== 'cancelled' && o.payment_status !== 'paid').forEach(o => {
       const k = o.invoice_number || o.id
       const a = inv[k] || (inv[k] = { inv: o.invoice_number || '', customer: o.customer_name || 'Walk-in', date: o.order_date, status: o.payment_status || 'unpaid', total: 0 })
-      a.total += num(o.total_price)
+      a.total += netOf(o)
     })
     const rows = Object.values(inv).map(a => [a.inv, a.customer, a.date, a.status, a.total.toFixed(2)]).sort((x, y) => (x[2] < y[2] ? 1 : -1))
     downloadCSV('unpaid-invoices.csv', ['Invoice #', 'Customer', 'Date', 'Payment status', 'Amount due (MVR)'], rows)
@@ -555,12 +558,12 @@ export default function Accounting() {
           : new Date(now.getFullYear(), now.getMonth() - 12, 1)
         const sinceDateStr = toLocalISO(sinceDate)
         const periodDelivered = orders.filter(o => isRevenue(o) && o.order_date >= sinceDateStr)
-        const periodRevenue = periodDelivered.reduce((s, o) => s + Number(o.total_price || 0), 0)
+        const periodRevenue = periodDelivered.reduce((s, o) => s + netOf(o), 0)
 
         // Last 12m revenue (for threshold check)
         const last12Start = toLocalISO(new Date(now.getFullYear(), now.getMonth() - 12, 1))
         const last12Revenue = orders.filter(o => isRevenue(o) && o.order_date >= last12Start)
-          .reduce((s, o) => s + Number(o.total_price || 0), 0)
+          .reduce((s, o) => s + netOf(o), 0)
 
         const thresholdPct = Math.min(100, (last12Revenue / GST_THRESHOLD) * 100)
         const exceedsThreshold = last12Revenue >= GST_THRESHOLD
@@ -761,7 +764,7 @@ export default function Accounting() {
       {/* ── BALANCE SHEET ── */}
       {activeTab === 'balance' && (() => {
         const inventory = products.reduce((s, p) => s + (p.stock_qty || 0) * Number(p.cost_price || 0), 0)
-        const cashFromSales = delivered.reduce((s, o) => s + Number(o.total_price || 0), 0)
+        const cashFromSales = delivered.reduce((s, o) => s + netOf(o), 0)
         const totalAssets = inventory + cashFromSales
         const accountsPayable = purchaseOrders.filter(po => po.status !== 'received').reduce((s, po) => s + Number(po.total_cost || 0), 0)
         const totalLiabilities = accountsPayable + loanOutstanding
@@ -812,7 +815,7 @@ export default function Accounting() {
 
       {/* ── CASH FLOW ── */}
       {activeTab === 'cashflow' && (() => {
-        const cashIn = delivered.reduce((s, o) => s + Number(o.total_price || 0), 0)
+        const cashIn = delivered.reduce((s, o) => s + netOf(o), 0)
         const cashOutExpenses = expenses.filter(e => inPeriod(e.expense_date)).reduce((s, e) => s + Number(e.amount || 0), 0)
         const receivedPOs = purchaseOrders.filter(po => po.status === 'received' && inPeriod(po.order_date))
         const cashOutPurchases = receivedPOs.filter(po => po.cost_type !== 'extra').reduce((s, po) => s + Number(po.total_cost || 0), 0)
@@ -825,7 +828,7 @@ export default function Accounting() {
         const netCashFlow = operatingCashFlow + investingCashFlow + financingCashFlow
 
         const monthlyFlow = {}
-        delivered.forEach(o => { const m = o.order_date?.slice(0,7); if(m) { if(!monthlyFlow[m]) monthlyFlow[m]={in:0,out:0}; monthlyFlow[m].in += Number(o.total_price||0) } })
+        delivered.forEach(o => { const m = o.order_date?.slice(0,7); if(m) { if(!monthlyFlow[m]) monthlyFlow[m]={in:0,out:0}; monthlyFlow[m].in += netOf(o) } })
         expenses.forEach(e => { const m = e.expense_date?.slice(0,7); if(m) { if(!monthlyFlow[m]) monthlyFlow[m]={in:0,out:0}; monthlyFlow[m].out += Number(e.amount||0) } })
         purchaseOrders.filter(po=>po.status==='received').forEach(po => { const m = po.order_date?.slice(0,7); if(m) { if(!monthlyFlow[m]) monthlyFlow[m]={in:0,out:0}; monthlyFlow[m].out += Number(po.total_cost||0) } })
         loans.forEach(l => { const m = (l.received_date || l.taken_on || '').slice(0,7); if(m) { if(!monthlyFlow[m]) monthlyFlow[m]={in:0,out:0}; monthlyFlow[m].in += num(l.amount) } })
@@ -889,7 +892,7 @@ export default function Accounting() {
           ...orders.filter(o => inPeriod(o.order_date)).map(o => ({
             date: o.order_date, type: 'sale', ref: o.invoice_number || `ORD-${o.id?.slice(0,6)}`,
             description: `Sale: ${o.product_name} ×${o.qty} — ${o.customer_name || 'Walk-in'}`,
-            amount: Number(o.total_price || 0), direction: 'in',
+            amount: netOf(o), direction: 'in',
             status: o.status, payment: o.payment_status || 'unpaid', channel: o.channel
           })),
           ...expenses.filter(e => inPeriod(e.expense_date)).map(e => ({

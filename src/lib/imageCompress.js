@@ -18,14 +18,37 @@ export const humanBytes = n => {
 export const isDataUrl = u => /^data:image\//i.test(String(u || ''))
 export const isHttpUrl = u => /^https?:\/\//i.test(String(u || ''))
 
-// The path inside the `uploads` bucket, taken from a Supabase public URL, so the
+// The object name inside the `uploads` bucket, taken from a public URL, so the
 // compressed version can be written back over exactly the same object — which
 // keeps the URL, and therefore every product that already points at it, working.
-// Returns null when the URL isn't a Supabase storage URL (an external link).
+// Returns null when the URL points somewhere else (an external link).
+//
+// Three shapes are recognised, because pictures uploaded at different times
+// live at different addresses and all of them are still in the database:
+//   .../object/public/uploads/NAME   — the old Supabase URLs
+//   .../api/storage/uploads/NAME     — served by our own API
+//   https://files.example.com/NAME   — Cloudflare R2's public bucket domain
+const R2_BASE = (process.env.REACT_APP_R2_PUBLIC_BASE || '').replace(/\/+$/, '')
+
 export function storagePathFromUrl(url) {
-  const m = String(url || '').match(/\/object\/(?:public|sign)\/uploads\/([^?]+)/)
-  if (!m) return null
-  try { return decodeURIComponent(m[1]) } catch { return m[1] }
+  const s = String(url || '')
+
+  const legacy = s.match(/\/object\/(?:public|sign)\/uploads\/([^?]+)/)
+  if (legacy) return decode(legacy[1])
+
+  const viaApi = s.match(/\/storage\/uploads\/([^?/]+)/)
+  if (viaApi) return decode(viaApi[1])
+
+  if (R2_BASE && s.startsWith(R2_BASE + '/')) {
+    const rest = s.slice(R2_BASE.length + 1).split('?')[0]
+    if (rest && !rest.includes('/')) return decode(rest)
+  }
+
+  return null
+}
+
+function decode(s) {
+  try { return decodeURIComponent(s) } catch { return s }
 }
 
 export const isStorageUrl = u => storagePathFromUrl(u) != null

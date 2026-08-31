@@ -1,6 +1,6 @@
 # Email through Resend — setup
 
-The app sends email through the **`send-email`** Edge Function, which keeps the
+The app sends email through the API's **`/api/functions/send-email`** route, which keeps the
 Resend API key on the server. That is what makes attachments and scheduled
 sending possible, and it stops the key being lifted out of the browser bundle.
 
@@ -35,13 +35,13 @@ harsher on new senders:
 
 ## 3. Set the secrets
 
-In **Supabase → Edge Functions → Secrets** (or with the CLI):
+In **`server/.env` on the VPS** (or with the CLI):
 
 ```bash
-supabase secrets set RESEND_API_KEY=re_xxxxxxxx
-supabase secrets set EMAIL_REPLY_TO="bricknjoy@gmail.com"
+# in server/.env:  RESEND_API_KEY=re_xxxxxxxx
+# in server/.env:  EMAIL_REPLY_TO="bricknjoy@gmail.com"
 # optional — only to send from a different address than the monthly report
-supabase secrets set EMAIL_FROM="Brick's & Joy <orders@bricksandjoy.com>"
+# in server/.env:  EMAIL_FROM="Brick's & Joy <orders@bricksandjoy.com>"
 ```
 
 Only `RESEND_API_KEY` is required. The sender falls back to `REPORT_FROM` (which
@@ -52,7 +52,7 @@ nothing more to configure here.
 ## 4. Deploy the function
 
 ```bash
-supabase functions deploy send-email
+sudo systemctl restart bricksnjoy-api
 ```
 
 **Do not add `--no-verify-jwt`.** The function checks that a signed-in user is
@@ -68,44 +68,34 @@ from Gmail, the app fell back to EmailJS — see below.
 
 ## Scheduling (email that sends itself)
 
-This is the reason for doing any of it: a function can be called by the database
-on a timetable, whether or not anyone has the app open. `monthly-report` is
-already written for this. Enable the extensions once:
+This is the reason for doing any of it: the report goes out whether or not
+anyone has the app open. It is already scheduled — the API runs its own timer
+(`server/cron.js`), so there is nothing to set up and no key to pass around.
 
-```sql
-create extension if not exists pg_cron;
-create extension if not exists pg_net;
+| job | when | change it with |
+|---|---|---|
+| monthly report | 07:00 on the 1st | `CRON_MONTHLY_REPORT` in `server/.env` |
+| campaign reminders | 08:00 daily | `CRON_CAMPAIGN_REMINDERS` |
+
+Times are in the shop's own timezone (`TZ`, default `Indian/Maldives`), so 7am
+means seven in the morning in Malé.
+
+To send one now without waiting for the 1st, use **Settings → Monthly report →
+Send test**, or from the server:
+
+```bash
+cd /srv/bricksandjoy/server
+node -e "require('dotenv').config();require('./jobs/monthlyReport').runMonthlyReport({test:true}).then(console.log)"
 ```
 
-Then schedule a call. Replace `<PROJECT_REF>` and `<SERVICE_ROLE_KEY>`
-(Supabase → Project Settings → API):
+Check it ran:
 
-```sql
--- Monthly report, 07:00 UTC on the 1st
-select cron.schedule(
-  'monthly-report',
-  '0 7 1 * *',
-  $$
-  select net.http_post(
-    url     := 'https://<PROJECT_REF>.supabase.co/functions/v1/monthly-report',
-    headers := '{"Content-Type":"application/json","Authorization":"Bearer <SERVICE_ROLE_KEY>"}'::jsonb,
-    body    := '{}'::jsonb
-  );
-  $$
-);
+```bash
+sudo journalctl -u bricksnjoy-api | grep cron
+# [cron] monthly-report finished in 812ms: {"ok":true,"sent_to":["you@example.com"],...}
 ```
 
-Useful afterwards:
-
-```sql
-select * from cron.job;                      -- what is scheduled
-select * from cron.job_run_details           -- did it run
-  order by start_time desc limit 20;
-select cron.unschedule('monthly-report');    -- stop it
-```
-
-The service role key is a full-access credential. It is fine inside a database
-job, which nobody outside Supabase can read — never put it in the app.
+Set `CRON_ENABLED=false` to stop all of them.
 
 ---
 
@@ -130,14 +120,14 @@ Total attachments are capped at 8 MB.
 
 ## If mail still comes from Gmail
 
-The app falls back to EmailJS when the function is unreachable, so check in
-order:
+The app falls back to EmailJS when the API is unreachable, so check in order:
 
-1. **Function deployed?** `supabase functions list`
-2. **Key set?** A missing `RESEND_API_KEY` makes the function answer
-   `not_configured`, and the app falls back on purpose.
-3. **Logs** — Supabase → Edge Functions → `send-email` → Logs shows the reason
-   for every refusal.
+1. **API up?** `curl -s localhost:4000/api/health`
+2. **Key set?** A missing `RESEND_API_KEY` makes the route answer
+   `not_configured`, and the app falls back on purpose. After editing
+   `server/.env`, restart: `sudo systemctl restart bricksnjoy-api`.
+3. **Logs** — `sudo journalctl -u bricksnjoy-api -f` shows the reason for every
+   refusal.
 4. **Domain not verified** — Resend rejects any recipient other than your own
    address until it is.
 

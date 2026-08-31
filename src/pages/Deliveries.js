@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { localToday } from '../lib/dates'
+import { netOf } from '../lib/money'
 import { PageHeader, Card, Spinner, useToast, Toasts, StatusBadge, MetricCard } from '../components/UI'
 import { Truck, User, Bike, CalendarDays, Package, CheckCircle, Search, Instagram, LayoutGrid, List, Award, Save, ChevronRight, X } from 'lucide-react'
 
@@ -341,7 +342,7 @@ export default function Deliveries() {
                     <div style={{ fontSize: 14, color: '#555', fontWeight: 600 }}>{o.product_name} × {o.qty}</div>
                     {chargesFor(o).map(c => (
                       <div key={c.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, alignSelf: 'flex-start', fontSize: 11.5, fontWeight: 600, color: '#8a6d1b', background: '#FFF8E1', border: '1px solid #FAEEDA', borderRadius: 99, padding: '3px 10px' }}>
-                        {String(c.product_name).startsWith('🚚') ? '🚚 Delivery fee' : '🎁 Gift'} · MVR {Number(c.total_price || 0).toFixed(2)}
+                        {String(c.product_name).startsWith('🚚') ? '🚚 Delivery fee' : '🎁 Gift'} · MVR {netOf(c).toFixed(2)}
                       </div>
                     ))}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
@@ -389,7 +390,7 @@ export default function Deliveries() {
                         <div style={{ fontSize: 11, color: '#aaa', fontFamily: 'monospace' }}>{o.invoice_number || '—'}</div>
                         {chargesFor(o).map(c => (
                           <div key={c.id} style={{ fontSize: 11, color: '#8a6d1b', marginTop: 2 }}>
-                            {String(c.product_name).startsWith('🚚') ? '🚚 Delivery fee' : '🎁 Gift'} · MVR {Number(c.total_price || 0).toFixed(2)}
+                            {String(c.product_name).startsWith('🚚') ? '🚚 Delivery fee' : '🎁 Gift'} · MVR {netOf(c).toFixed(2)}
                           </div>
                         ))}
                       </td>
@@ -453,7 +454,7 @@ export default function Deliveries() {
                         {o.product_name}{o.qty > 1 ? ` ×${o.qty}` : ''}
                       </span>
                       <span style={{ fontSize: 12.5, fontWeight: 700, color: '#0d1b2a', whiteSpace: 'nowrap' }}>
-                        MVR {Number(o.total_price || 0).toFixed(2)}
+                        MVR {netOf(o).toFixed(2)}
                       </span>
                       <StatusBadge status={o.status} />
                     </div>

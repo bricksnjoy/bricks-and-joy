@@ -1,0 +1,62 @@
+# The API, run by systemd so it starts on boot and comes back if it dies.
+#
+#   sudo cp deploy/bricksnjoy-api.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now bricksnjoy-api
+#   sudo systemctl status bricksnjoy-api
+#   sudo journalctl -u bricksnjoy-api -f        # watch the log
+#
+# Adjust User and WorkingDirectory if the app lives somewhere else.
+
+[Unit]
+Description=Brick's & Joy API
+Documentation=https://bricksandjoy.com
+After=network-online.target postgresql.service
+Wants=network-online.target
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=bricksnjoy
+Group=bricksnjoy
+WorkingDirectory=/srv/bricksandjoy/server
+EnvironmentFile=/srv/bricksandjoy/server/.env
+ExecStart=/usr/bin/node index.js
+
+# Come back from a crash, but give up if it is crash-looping — a service that
+# restarts forever hides the fact that it is broken.
+Restart=always
+RestartSec=3
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=bricksnjoy-api
+
+# Finish the requests in flight before stopping, so nobody's save is lost.
+KillSignal=SIGTERM
+TimeoutStopSec=20
+
+# The API needs the network, its own directory and nothing else. If it is ever
+# talked into running something it shouldn't, these are the walls.
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ReadWritePaths=/srv/bricksandjoy
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+RestrictSUIDSGID=true
+RemoveIPC=true
+
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

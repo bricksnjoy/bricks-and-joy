@@ -3,7 +3,6 @@
   "version": "1.0.0",
   "private": true,
   "dependencies": {
-    "@supabase/supabase-js": "^2.49.0",
     "html5-qrcode": "^2.3.8",
     "jsbarcode": "^3.12.3",
     "jspdf": "^4.2.1",
@@ -21,7 +20,10 @@
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
-    "test": "react-scripts test"
+    "test": "react-scripts test",
+    "server": "cd server && npm start",
+    "server:install": "cd server && npm install --omit=dev",
+    "deploy": "bash deploy/deploy.sh"
   },
   "devDependencies": {
     "react-scripts": "5.0.1"

@@ -6,6 +6,7 @@ import { Plus, Trash2, AlertTriangle, Package, Upload, Eye, CreditCard, X, Camer
 import BarcodeScanner from '../components/BarcodeScanner'
 import { SlipNote, RescanButton, useSlipScan } from '../components/SlipScan'
 import { sendSMS } from '../lib/sms'
+import { netOf, sumNet, sumDiscount, sumGross } from '../lib/money'
 import { getSettings } from '../lib/settings'
 import { localToday } from '../lib/dates'
 import { logAudit } from '../lib/audit'
@@ -750,7 +751,7 @@ export default function Orders() {
       : [o]
     const items = siblings.length ? siblings : [o]
     const nameOf = r => isChargeLine(r) ? chargeLabel(r) : `${r.product_name} x${r.qty}`
-    return { items, list: items.map(nameOf).join(', '), total: items.reduce((s, r) => s + Number(r.total_price || 0), 0) }
+    return { items, list: items.map(nameOf).join(', '), total: sumNet(items) }
   }
   // Status update to the customer. Plain "x" and "-" keep every template GSM-7
   // encoded (160 chars/SMS); × and — would silently switch to Unicode (70/SMS).
@@ -963,9 +964,9 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
   const productSiblings = o => o.invoice_number
     ? orders.filter(x => !isChargeRow(x) && invKey(x) === invKey(o))
     : [o]
-  // What the customer pays for the whole invoice: every product plus its charges.
-  const invoiceTotal = o => [...productSiblings(o), ...chargesFor(o)]
-    .reduce((s, r) => s + Number(r.total_price || 0), 0)
+  // What the customer pays for the whole invoice: every product plus its
+  // charges, each already less its share of the discount.
+  const invoiceTotal = o => sumNet([...productSiblings(o), ...chargesFor(o)])
   // Collapse raw rows into the orders actually shown: charge lines fold into their
   // invoice, and the products of one invoice count once. Used by both the list and
   // the tab counts, so the numbers always match what's on screen.
@@ -1271,13 +1272,20 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
                     {/* Price — one total for everything on the invoice */}
                     {(() => {
                       const items = isChargeLine(o) ? [o] : productSiblings(o)
-                      const total = isChargeLine(o) ? Number(o.total_price || 0) : invoiceTotal(o)
-                      const disc = items.reduce((s, r) => s + Number(r.discount || 0), 0)
+                      const rows = isChargeLine(o) ? [o] : [...productSiblings(o), ...chargesFor(o)]
+                      const total = isChargeLine(o) ? netOf(o) : invoiceTotal(o)
+                      const disc = sumDiscount(rows)
+                      const gross = sumGross(rows)
                       return (
                         <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
                           <span className="ord-price" style={{ fontWeight: 800, fontSize: 19, color: '#0d1b2a' }}>MVR {total.toFixed(2)}</span>
                           {items.length > 1 && <span style={{ fontSize: 11.5, color: '#aaa', fontWeight: 600 }}>{items.length} items · paid together</span>}
-                          {disc > 0 && <span style={{ fontSize: 11, color: '#1D9E75', fontWeight: 600 }}>-MVR {disc.toFixed(2)}</span>}
+                          {disc > 0 && (
+                            <>
+                              <span style={{ fontSize: 12.5, color: '#aaa', fontWeight: 600, textDecoration: 'line-through' }}>MVR {gross.toFixed(2)}</span>
+                              <span style={{ fontSize: 11, color: '#1D9E75', fontWeight: 600 }}>-MVR {disc.toFixed(2)}</span>
+                            </>
+                          )}
                         </div>
                       )
                     })()}

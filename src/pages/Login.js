@@ -1,7 +1,10 @@
 import React, { useState } from 'react'
 import { supabase } from '../lib/supabase'
 
-export default function Login() {
+// `notStaff` is shown when someone signs in with a shop account. Their login is
+// perfectly valid — it just isn't a back-office one, and the API would refuse
+// every page behind here, so saying so plainly beats a wall of errors.
+export default function Login({ notStaff = false, email: signedInAs = '' }) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
@@ -75,9 +78,19 @@ export default function Login() {
         {/* Card */}
         <div className="bnj-card" style={{ background: '#fff', borderRadius: 18, border: '1px solid #f0f0f0', padding: '32px 28px', boxShadow: '0 12px 40px rgba(13,27,42,0.10)' }}>
           <h2 style={{ fontSize: 18, fontWeight: 600, margin: '0 0 24px', color: '#0d1b2a' }}>
-            Sign in to your account
+            {notStaff ? 'This account is a shop account' : 'Sign in to your account'}
           </h2>
 
+          {notStaff ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div style={{ background: '#fdecea', color: '#c62828', padding: '10px 14px', borderRadius: 8, fontSize: 13, lineHeight: 1.5 }}>
+                {signedInAs ? <><strong>{signedInAs}</strong> can shop at bricksandjoy.com, but</> : 'This account'} does not have access to the business manager.
+              </div>
+              <button type="button" className="bnj-btn" onClick={() => supabase.auth.signOut()}>
+                Sign out and use a different account
+              </button>
+            </div>
+          ) : (
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div>
               <label style={{ fontSize: 12, color: '#666', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.4px', display: 'block', marginBottom: 5 }}>Email</label>
@@ -98,6 +111,7 @@ export default function Login() {
               {loading ? 'Please wait…' : 'Sign in'}
             </button>
           </form>
+          )}
 
           <p style={{ textAlign: 'center', fontSize: 12.5, color: '#aaa', margin: '20px 0 0' }}>
             Staff access only. Contact an administrator to get an account.

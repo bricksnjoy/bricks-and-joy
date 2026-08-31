@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import { actionItems, generateInsights, restockPredictions } from '../lib/insights'
 import { loyaltyProfile } from '../lib/loyalty'
+import { netOf } from '../lib/money'
 
 const AVATAR_COLORS = ['#7F77DD','#1D9E75','#FFA500','#378ADD','#E24B4A','#0F6E56']
 
@@ -204,7 +205,7 @@ export default function Dashboard() {
     const delivered = ords.filter(o => o.status === 'delivered')
     // Count revenue for all paid orders (even if not yet delivered) + all delivered orders
     const revenueOrders = ords.filter(o => o.status !== 'cancelled' && (o.status === 'delivered' || o.payment_status === 'paid'))
-    const revenue = revenueOrders.reduce((s, o) => s + Number(o.total_price || 0), 0)
+    const revenue = revenueOrders.reduce((s, o) => s + netOf(o), 0)
     const cogs = delivered.reduce((s, o) => {
       const p = prods.find(p => p.id === o.product_id)
       return s + (p ? (Number(o.qty) || 0) * Number(p.cost_price || 0) : 0)
@@ -216,9 +217,9 @@ export default function Dashboard() {
     const thisMonthStr = todayStr.slice(0, 7)
     const lastMonthDate = new Date(); lastMonthDate.setMonth(lastMonthDate.getMonth() - 1)
     const lastMonthStr = `${lastMonthDate.getFullYear()}-${String(lastMonthDate.getMonth() + 1).padStart(2, '0')}`
-    const todaySales = revenueOrders.filter(o => o.order_date === todayStr).reduce((s, o) => s + Number(o.total_price || 0), 0)
-    const thisMonthSales = revenueOrders.filter(o => o.order_date?.startsWith(thisMonthStr)).reduce((s, o) => s + Number(o.total_price || 0), 0)
-    const lastMonthSales = revenueOrders.filter(o => o.order_date?.startsWith(lastMonthStr)).reduce((s, o) => s + Number(o.total_price || 0), 0)
+    const todaySales = revenueOrders.filter(o => o.order_date === todayStr).reduce((s, o) => s + netOf(o), 0)
+    const thisMonthSales = revenueOrders.filter(o => o.order_date?.startsWith(thisMonthStr)).reduce((s, o) => s + netOf(o), 0)
+    const lastMonthSales = revenueOrders.filter(o => o.order_date?.startsWith(lastMonthStr)).reduce((s, o) => s + netOf(o), 0)
     const monthChange = lastMonthSales > 0 ? ((thisMonthSales - lastMonthSales) / lastMonthSales * 100).toFixed(0) : null
 
     // One row per day for the last year, so the revenue panel can slice any
@@ -228,7 +229,7 @@ export default function Dashboard() {
       const k = o.order_date
       if (!k) return
       if (!revByDay[k]) revByDay[k] = { revenue: 0, orders: 0 }
-      revByDay[k].revenue += Number(o.total_price || 0)
+      revByDay[k].revenue += netOf(o)
       revByDay[k].orders += 1
     })
     const custByDay = {}
@@ -255,7 +256,7 @@ export default function Dashboard() {
         productSales[key] = { id: key, name: o.product_name || prod?.name || 'Unknown', qty: 0, revenue: 0 }
       }
       productSales[key].qty += Number(o.qty || 1)
-      productSales[key].revenue += Number(o.total_price || 0)
+      productSales[key].revenue += netOf(o)
     })
     const sellers = Object.values(productSales).sort((a, b) => b.qty - a.qty).slice(0, 5)
     setBestSellers(sellers)
@@ -579,7 +580,7 @@ export default function Dashboard() {
                   </div>
                 </div>
                 <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 10 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#0d1b2a' }}>MVR {Number(o.total_price || 0).toFixed(2)}</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#0d1b2a' }}>MVR {netOf(o).toFixed(2)}</div>
                   <div style={{ marginTop: 4 }}><StatusBadge status={o.status} /></div>
                 </div>
               </div>

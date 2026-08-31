@@ -1,0 +1,32 @@
+{
+  "name": "bricks-and-joy-api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "description": "Back-end API for Brick's & Joy — replaces Supabase (database, auth, storage, edge functions, realtime) on our own server.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js",
+    "schema": "psql \"$DATABASE_URL\" -f ../db/schema.sql",
+    "create-staff": "node scripts/create-staff.js",
+    "migrate-from-supabase": "node scripts/migrate-from-supabase.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.700.0",
+    "bcryptjs": "^2.4.3",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^1.4.5-lts.1",
+    "node-cron": "^3.0.3",
+    "pg": "^8.13.1",
+    "ws": "^8.18.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
