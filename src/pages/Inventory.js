@@ -39,6 +39,107 @@ function genBarcode(name, id) {
   return prefix + num
 }
 
+// ── Printing onto label sheets ────────────────────────────────────────────────
+// The shop buys the common A4 sheet of 30: three across, ten down, each label
+// 70 × 29.7mm. Three of those fill 210mm and ten fill 297mm exactly, so the
+// labels are die-cut right to the paper's edge with no margin and no gutter —
+// which is why the page margin has to be zero and every size below is in
+// millimetres. A layout in pixels drifts a little further out of register with
+// each row until the bottom labels print across the perforation.
+const LABEL_W = '70mm'
+const LABEL_H = '29.7mm'
+
+// Wide and short, with no margin of its own. On a label this shallow every
+// millimetre the image keeps for whitespace is one the bars do not get, and it
+// is width a scanner reads — height only decides how much of the beam can find
+// it.
+const LABEL_BARCODE_OPTS = {
+  format: 'CODE128', width: 2, height: 45,
+  displayValue: true, fontSize: 13, textMargin: 1, margin: 0,
+}
+
+function labelBarcodeSvg(value) {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+  document.body.appendChild(svg)
+  try {
+    JsBarcode(svg, value, LABEL_BARCODE_OPTS)
+    return new XMLSerializer().serializeToString(svg)
+  } finally {
+    document.body.removeChild(svg)
+  }
+}
+
+const escapeHtml = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+
+// One sheet of labels, ready to print. Both the "print everything" and the
+// "print what I selected" buttons come through here, so the two cannot drift
+// apart and leave one of them printing off-register.
+function labelSheetHtml({ labels, logoUrl, title }) {
+  const sheets = Math.ceil(labels.length / 30)
+  const one = l => `
+    <div class="label">
+      <img class="lg" src="${logoUrl}" alt="" onerror="this.style.display='none'" />
+      <div class="bc"><img src="data:image/svg+xml;base64,${btoa(l.svg)}" alt="" /></div>
+      <div class="nm">${escapeHtml(l.name)}</div>
+      <div class="pr">MVR ${Number(l.price || 0).toFixed(2)}</div>
+    </div>`
+  return `<html><head><title>${escapeHtml(title)}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      @page { size: A4; margin: 0; }
+      body { font-family: 'Poppins', Arial, sans-serif; background: #f0f0f0; }
+
+      .note { padding: 10mm; font-size: 13px; color: #444; }
+      .note b { color: #0d1b2a; }
+
+      /* Fixed millimetre track, not fractions: a label that stretches to fill
+         the page is a label that no longer lines up with the die cuts. */
+      .grid { display: grid; grid-template-columns: repeat(3, ${LABEL_W});
+              grid-auto-rows: ${LABEL_H}; width: 210mm; margin: 0 auto; background: #fff; }
+
+      .label { width: ${LABEL_W}; height: ${LABEL_H}; position: relative; overflow: hidden;
+               padding: 1mm 2mm 1.2mm; display: flex; flex-direction: column;
+               align-items: center; justify-content: flex-start;
+               break-inside: avoid; page-break-inside: avoid; }
+
+      /* Out of the flow, so the corner it sits in costs the barcode nothing */
+      .lg { position: absolute; top: 1mm; left: 1.5mm; height: 3mm; width: auto;
+            max-width: 18mm; object-fit: contain; }
+
+      .bc { margin-top: 3.4mm; line-height: 0; }
+      /* Width drives the size and the height is left to follow, so the bars are
+         never squeezed out of their proportions — a stretched barcode is a
+         barcode a scanner argues with. max-height keeps a short code from
+         growing past the label. */
+      .bc img { width: 62mm; height: auto; max-height: 14.5mm; display: block; }
+
+      .nm { font-size: 6pt; font-weight: 600; color: #0d1b2a; margin-top: 0.6mm;
+            max-width: 66mm; white-space: nowrap; overflow: hidden;
+            text-overflow: ellipsis; text-align: center; }
+      .pr { font-size: 8pt; font-weight: 700; color: #0d1b2a; margin-top: 0.4mm; }
+
+      @media screen {
+        .grid { box-shadow: 0 4px 24px rgba(0,0,0,0.12); }
+        /* Guides for a test print — they are on screen only, never on paper */
+        .label { outline: 0.2mm dashed #ddd; outline-offset: -0.2mm; }
+      }
+      @media print {
+        body { background: none; }
+        .note { display: none; }
+        .grid { box-shadow: none; }
+      }
+    </style></head><body>
+    <div class="note">
+      <b>${labels.length}</b> label${labels.length === 1 ? '' : 's'} · <b>${sheets}</b> sheet${sheets === 1 ? '' : 's'} of 30.
+      Print at <b>100% / actual size</b> with margins set to <b>none</b> — any scaling moves the labels off the die cuts.
+      The dashed guides are on screen only.
+    </div>
+    <div class="grid">${labels.map(one).join('')}</div>
+    <script>window.onload = () => window.print()</script>
+    </body></html>`
+}
+
 export default function Inventory() {
   const [products, setProducts] = useState([])
   const [categories, setCategories] = useState(BUILT_IN)   // every category worth offering
@@ -417,69 +518,17 @@ export default function Inventory() {
   }
 
   // Print all barcodes
-  async function printAllBarcodes() {
+  function printAllBarcodes() {
     const logoUrl = window.location.origin + '/logo-full.png'
-    const w = window.open('', '_blank')
-    const labelGroups = await Promise.all(products.filter(p => p.barcode && !p.discontinued).map(async p => {
+    const labels = products.filter(p => p.barcode && !p.discontinued).flatMap(p => {
       try {
-        const tempSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
-        document.body.appendChild(tempSvg)
-        JsBarcode(tempSvg, p.barcode, { format: 'CODE128', width: 1.5, height: 50, displayValue: true, fontSize: 10, margin: 5 })
-        const svgData = new XMLSerializer().serializeToString(tempSvg)
-        document.body.removeChild(tempSvg)
+        const svg = labelBarcodeSvg(p.barcode)
         const qty = Math.max(1, parseInt(p.stock_qty) || 1)
-        return Array.from({ length: qty }, () => ({ name: p.name, price: p.sell_price, barcode: p.barcode, svg: svgData }))
+        return Array.from({ length: qty }, () => ({ name: p.name, price: p.sell_price, barcode: p.barcode, svg }))
       } catch { return [] }
-    }))
-    const allLabels = labelGroups.flat()
-    w.document.write(`<html><head><title>All Labels — Brick's &amp; Joy</title>
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800&display=swap" rel="stylesheet">
-    <style>
-      * { margin: 0; padding: 0; box-sizing: border-box; }
-      body { font-family: 'Poppins', Arial, sans-serif; background: #f8f7f4; padding: 16px; }
-      .page-header { background: #0d1b2a; border-radius: 12px; padding: 14px 20px; display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
-      .brand-dot { width: 32px; height: 32px; border-radius: 8px; background: #FFA500; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 900; color: #fff; flex-shrink: 0; }
-      .brand-title { font-size: 16px; font-weight: 700; color: #fff; }
-      .brand-sub { font-size: 10px; color: rgba(255,255,255,0.35); text-transform: uppercase; letter-spacing: 1px; }
-      .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-      .label { background: #fff; border: 1px solid #eee; border-radius: 10px; overflow: hidden; break-inside: avoid; }
-      .label-top { display: flex; justify-content: space-between; align-items: center; padding: 5px 8px; border-bottom: 1px solid #f0f0f0; }
-      .label-top-logo { height: 16px; width: auto; max-width: 90px; object-fit: contain; }
-      .label-top-text { font-size: 7px; color: #FFA500; text-transform: uppercase; letter-spacing: 0.8px; font-weight: 600; }
-      .label-body { padding: 6px 8px 8px; text-align: center; }
-      .label-body img { max-width: 100%; height: 40px; display: block; margin: 0 auto; }
-      .l-name { font-size: 9px; font-weight: 600; color: #0d1b2a; margin: 5px 0 4px; }
-      .l-bottom { display: flex; justify-content: space-between; align-items: center; }
-      .l-price { background: #0d1b2a; color: #FFA500; font-size: 9px; font-weight: 600; padding: 2px 7px; border-radius: 5px; }
-      .l-code { font-size: 6px; color: #ccc; font-family: monospace; text-align: right; }
-      @media print { body { background: none; padding: 8px; } .page-header { display: none; } .grid { grid-template-columns: repeat(3, 1fr); gap: 8px; } }
-    </style></head><body>
-    <div class="page-header">
-      <img src="${logoUrl}" alt="" style="height:40px;width:auto;max-width:170px;object-fit:contain;flex-shrink:0;background:#fff;border-radius:6px;padding:3px" onerror="this.style.display='none'" />
-      <div>
-        <div class="brand-title">Product Labels</div>
-        <div class="brand-sub">Printed ${new Date().toLocaleDateString()} · ${allLabels.length} labels</div>
-      </div>
-    </div>
-    <div class="grid">
-      ${allLabels.map(l => `
-        <div class="label">
-          <div class="label-top">
-            <img class="label-top-logo" src="${logoUrl}" alt="Brick's & Joy" onerror="this.style.display='none'" />
-            <div class="label-top-text">Product</div>
-          </div>
-          <div class="label-body">
-            <img src="data:image/svg+xml;base64,${btoa(l.svg)}" alt="barcode" />
-            <div class="l-name">${l.name}</div>
-            <div class="l-bottom">
-              <div class="l-price">MVR ${Number(l.price).toFixed(2)}</div>
-              <div class="l-code">${l.barcode}</div>
-            </div>
-          </div>
-        </div>`).join('')}
-    </div>
-    <script>window.onload = () => window.print()</script>
-    </body></html>`)
+    })
+    const w = window.open('', '_blank')
+    w.document.write(labelSheetHtml({ labels, logoUrl, title: "All Labels — Brick's & Joy" }))
     w.document.close()
   }
 
@@ -517,45 +566,22 @@ export default function Inventory() {
     setSelected(new Set()); setSelectMode(false); load()
   }
 
-  async function bulkPrint() {
+  function bulkPrint() {
     const selProds = products.filter(p => selected.has(p.id) && p.barcode)
     if (!selProds.length) { toast.error('No selected products have barcodes'); return }
     const logoUrl = window.location.origin + '/logo-full.png'
-    // One label per unit in stock (min 1 per product)
-    const allLabels = selProds.flatMap(p => Array.from({ length: Math.max(1, parseInt(p.stock_qty) || 1) }, () => p))
-    const labelSvgs = await Promise.all(allLabels.map(async p => {
+    // One label per unit in stock (min 1 per product). The barcode is drawn once
+    // per product and the copies share it — a product with fifty in stock was
+    // otherwise rendering the same image fifty times.
+    const labels = selProds.flatMap(p => {
       try {
-        const tempSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
-        document.body.appendChild(tempSvg)
-        JsBarcode(tempSvg, p.barcode, { format: 'CODE128', width: 1.5, height: 50, displayValue: true, fontSize: 10, margin: 5 })
-        const svgData = new XMLSerializer().serializeToString(tempSvg)
-        document.body.removeChild(tempSvg)
-        return { name: p.name, price: p.sell_price, barcode: p.barcode, svg: svgData }
-      } catch { return null }
-    }))
-    const labels = labelSvgs.filter(Boolean)
+        const svg = labelBarcodeSvg(p.barcode)
+        const qty = Math.max(1, parseInt(p.stock_qty) || 1)
+        return Array.from({ length: qty }, () => ({ name: p.name, price: p.sell_price, barcode: p.barcode, svg }))
+      } catch { return [] }
+    })
     const w = window.open('', '_blank')
-    w.document.write(`<html><head><title>Labels</title>
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
-    <style>* { margin:0; padding:0; box-sizing:border-box; } body { font-family:'Poppins',Arial,sans-serif; background:#f8f7f4; padding:12px; }
-    .grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
-    .label { background:#fff; border:1px solid #eee; border-radius:10px; overflow:hidden; break-inside:avoid; }
-    .lt { display:flex; justify-content:space-between; align-items:center; padding:5px 8px; border-bottom:1px solid #f0f0f0; }
-    .lt img { height:15px; width:auto; max-width:85px; object-fit:contain; }
-    .lt span { font-size:7px; color:#FFA500; text-transform:uppercase; letter-spacing:0.8px; font-weight:600; }
-    .lb { padding:6px 8px 8px; text-align:center; }
-    .lb img { max-width:100%; height:40px; display:block; margin:0 auto; }
-    .ln { font-size:9px; font-weight:600; color:#0d1b2a; margin:4px 0; }
-    .lf { display:flex; justify-content:space-between; align-items:center; }
-    .lp { background:#0d1b2a; color:#FFA500; font-size:9px; font-weight:600; padding:2px 7px; border-radius:5px; }
-    .lc { font-size:6px; color:#ccc; font-family:monospace; }
-    @media print { body { background:none; } }
-    </style></head><body><div class="grid">
-    ${labels.map(l => `<div class="label">
-      <div class="lt"><img src="${logoUrl}" alt="Brick's & Joy" onerror="this.style.display='none'" /><span>Product</span></div>
-      <div class="lb"><img src="data:image/svg+xml;base64,${btoa(l.svg)}" /><div class="ln">${l.name}</div>
-      <div class="lf"><div class="lp">MVR ${Number(l.price).toFixed(2)}</div><div class="lc">${l.barcode}</div></div></div></div>`).join('')}
-    </div><script>window.onload=()=>window.print()</script></body></html>`)
+    w.document.write(labelSheetHtml({ labels, logoUrl, title: 'Labels' }))
     w.document.close()
   }
 
