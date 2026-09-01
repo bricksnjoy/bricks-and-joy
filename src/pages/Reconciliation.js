@@ -94,6 +94,18 @@ function parseStmtDate(s, serialFallback) {
   return null
 }
 const normRef = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '')
+// A payment settled in more than one transfer carries one reference per
+// transfer. Record Payment stores them as a list where the column exists and
+// comma-joined in the plain reference field either way, so read both and treat
+// each code separately. Run together as one string they only matched by
+// accident — a code happening to sit inside the joined blob — and a statement
+// line could just as easily match the wrong half.
+// Split on the separators the app joins with, and nothing else: bank codes
+// contain slashes and spaces of their own.
+const refCodes = (ref, list) => {
+  const raw = Array.isArray(list) && list.length ? list : String(ref || '').split(/[,;\n]+/)
+  return [...new Set(raw.map(normRef).filter(r => r.length >= 4))]
+}
 const dayMs = 86400000
 const daysApart = (a, b) => (!a || !b) ? 999 : Math.abs(Math.round((a - b) / dayMs))
 // Local calendar date. Not toISOString() — statement dates are parsed as local
@@ -268,6 +280,8 @@ export default function Reconciliation() {
     ...supplierPayments.map(p => ({
       id: 'spay:' + p.id, kind: 'spay',
       date: new Date(p.payment_date), amount: Number(p.amount), ref: p.reference || '',
+      // One entry per transfer when the payment was made in several
+      refList: Array.isArray(p.payment_references) ? p.payment_references : null,
       label: `Supplier payment · ${p.supplier_name || ''}`,
     })),
     ...loanPays.map(p => {
@@ -330,10 +344,67 @@ export default function Reconciliation() {
   function autoMatch(txns, keep = []) {
     const used = new Set(reconciledIds)
     keep.forEach(k => idsOf(k).forEach(id => used.add(id)))
+
+    // Codes on a statement line: the transfer reference and the bank's own id
+    const refsOfTxn = t => [t.ref, t.ref2].map(normRef).filter(r => r.length >= 4)
+    // Worked out once per record rather than once per record per statement line
+    const codeCache = new Map()
+    const codesFor = b => {
+      if (!codeCache.has(b.id)) codeCache.set(b.id, refCodes(b.ref, b.refList))
+      return codeCache.get(b.id)
+    }
+    const hits = (b, stmtRefs) => codesFor(b).some(bref =>
+      stmtRefs.some(r => bref === r
+        // Containment only between two long codes, so a short reference can't
+        // accidentally sit inside an unrelated transaction id
+        || (bref.length >= 8 && r.length >= 8 && (bref.includes(r) || r.includes(bref)))))
+    const settledByHand = (prev) => prev && (prev.manual || prev.ignored)
+
+    // ── One payment, several transfers ────────────────────────────────────────
+    // A supplier paid in two goes is one record in the books carrying a
+    // reference for each transfer, and two lines on the statement. Neither line
+    // matches the record's amount, so both landed in review saying "reference
+    // matches but the amount differs" — twice, for a payment that is in fact
+    // fully accounted for. Find those groups before matching line by line: when
+    // the lines pointing at one record add up to it exactly, that is the same
+    // proof a single matching line would be.
+    const splitOf = new Map()   // statement index → { entry, part, of }
+    {
+      const groups = new Map()  // book id → { entry, lines: [{ i, amt }] }
+      txns.forEach((t, i) => {
+        if (settledByHand(keep[i]) || isBacklog(t.date)) return
+        const stmtRefs = refsOfTxn(t)
+        if (!stmtRefs.length) return
+        const isIn = t.credit > 0
+        const amt = isIn ? t.credit : t.debit
+        ;(isIn ? bookIn : bookOut).forEach(b => {
+          if (used.has(b.id)) return
+          // A line that already equals the whole amount is a match on its own,
+          // not a part of one
+          if (Math.abs(b.amount - amt) < 0.01) return
+          if (!hits(b, stmtRefs)) return
+          if (!groups.has(b.id)) groups.set(b.id, { entry: b, lines: [] })
+          groups.get(b.id).lines.push({ i, amt })
+        })
+      })
+      const claimed = new Set()
+      groups.forEach(({ entry, lines }) => {
+        if (lines.length < 2) return
+        if (Math.abs(lines.reduce((s, l) => s + l.amt, 0) - entry.amount) > 0.01) return
+        // If a line could belong to two different groups the sum proves
+        // nothing, so leave the whole group for a person to look at
+        if (lines.some(l => claimed.has(l.i))) return
+        lines.forEach((l, n) => {
+          claimed.add(l.i)
+          splitOf.set(l.i, { entry, part: n + 1, of: lines.length })
+        })
+      })
+    }
+
     return txns.map((t, i) => {
       const prev = keep[i]
       // Anything already decided by hand is left exactly as it was
-      if (prev && (prev.manual || prev.ignored)) return prev
+      if (settledByHand(prev)) return prev
       const isIn = t.credit > 0
       const amt = isIn ? t.credit : t.debit
       const pool = isIn ? bookIn : bookOut
@@ -354,16 +425,22 @@ export default function Reconciliation() {
       // Proof: the reference matches and so does the amount. A slip may carry
       // the bank's transaction id or the transfer code, and the statement holds
       // both, so either side matching either column counts.
-      const stmtRefs = [t.ref, t.ref2].map(normRef).filter(r => r.length >= 4)
-      const refHit = b => {
-        if (!b.ref) return false
-        const bref = normRef(b.ref)
-        if (bref.length < 4) return false
-        // Containment only between two long codes, so a short reference can't
-        // accidentally sit inside an unrelated transaction id
-        return stmtRefs.some(r => bref === r
-          || (bref.length >= 8 && r.length >= 8 && (bref.includes(r) || r.includes(bref))))
+      const stmtRefs = refsOfTxn(t)
+
+      // Part of a payment made in several transfers, proved by the parts adding
+      // up to the record. Settled here before the single-line rules below, and
+      // deliberately not subject to `free` — the sibling lines share the record.
+      const split = splitOf.get(i)
+      if (split) {
+        used.add(split.entry.id)
+        return {
+          stmt: t, amt, isIn, matchIds: [split.entry.id],
+          why: `Part ${split.part} of ${split.of} · ${money(split.entry.amount)} paid in ${split.of} transfers`,
+          confidence: 'high', ignored: false, reason: '', manual: false,
+        }
       }
+
+      const refHit = b => hits(b, stmtRefs)
       const byRef = stmtRefs.length ? pool.filter(b => free(b) && refHit(b)) : []
       const solid = byRef.find(sameAmount)
       if (solid) {
