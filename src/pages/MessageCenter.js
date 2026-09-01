@@ -75,6 +75,7 @@ export default function MessageCenter() {
   const [logMissing, setLogMissing] = useState(false)
   const [logLoading, setLogLoading] = useState(false)
   const [logFilter, setLogFilter] = useState('all')   // all | email | sms | failed
+  const [logStale, setLogStale] = useState(false)     // something was sent since the log was read
   const [sending, setSending] = useState(false)
   const toast = useToast()
 
@@ -123,6 +124,10 @@ export default function MessageCenter() {
   // send-email function (Resend) when it is deployed, and falls back to the old
   // client-side route on its own if it isn't — see lib/emailer.
   async function deliverOne(channel, r, subject, body, context) {
+    // Every send goes through here, so this is the one place that knows the
+    // history on the Sent tab is now behind. Marking it here rather than in
+    // each caller means a send added later cannot forget to.
+    setLogStale(true)
     const meta = { name: r.name, context }
     if (channel === 'email') {
       return sendEmail({ to: r.email, subject: subject || 'Message from ' + BNJ_NAME, text: body, replyTo: BNJ_EMAIL, meta })
@@ -137,9 +142,16 @@ export default function MessageCenter() {
       .select('*').order('created_at', { ascending: false }).limit(300)
     setLogMissing(!!error)
     setLog(data || [])
+    setLogStale(false)
     setLogLoading(false)
   }
-  useEffect(() => { if (activeTab === 'sent' && !log.length && !logMissing) loadLog() }, [activeTab]) // eslint-disable-line
+  // Read it when the tab is opened, and again after anything has been sent.
+  // Without the stale check the list was fetched once and then never again, so
+  // a message sent afterwards was missing from the history until a reload —
+  // which reads as the send not having happened at all.
+  useEffect(() => {
+    if (activeTab === 'sent' && !logMissing && (logStale || !log.length)) loadLog()
+  }, [activeTab, logStale]) // eslint-disable-line
 
   // Totals for the month, since that is the window an SMS bill covers
   const logStats = React.useMemo(() => {
