@@ -103,16 +103,21 @@ function labelSheetHtml({ labels, logoUrl, title }) {
                align-items: center; justify-content: flex-start;
                break-inside: avoid; page-break-inside: avoid; }
 
-      /* Out of the flow, so the corner it sits in costs the barcode nothing */
-      .lg { position: absolute; top: 1mm; left: 1.5mm; height: 3mm; width: auto;
-            max-width: 18mm; object-fit: contain; }
+      /* Bottom right, and out of the flow so the corner it sits in costs the
+         barcode no height. The width cap is what keeps it off the price: the
+         price is centred, so at 8pt the longest one reaches about 44mm across
+         a 70mm label, and 20mm hard against the right edge starts at 48mm. */
+      .lg { position: absolute; bottom: 1.4mm; right: 2mm; height: 6mm; width: auto;
+            max-width: 20mm; object-fit: contain; }
 
-      .bc { margin-top: 3.4mm; line-height: 0; }
+      /* Starts near the top now that the logo has left that corner, and takes
+         the height the logo used to cost it. */
+      .bc { margin-top: 1.2mm; line-height: 0; }
       /* Width drives the size and the height is left to follow, so the bars are
          never squeezed out of their proportions — a stretched barcode is a
          barcode a scanner argues with. max-height keeps a short code from
          growing past the label. */
-      .bc img { width: 62mm; height: auto; max-height: 14.5mm; display: block; }
+      .bc img { width: 62mm; height: auto; max-height: 17mm; display: block; }
 
       .nm { font-size: 6pt; font-weight: 600; color: #0d1b2a; margin-top: 0.6mm;
             max-width: 66mm; white-space: nowrap; overflow: hidden;
