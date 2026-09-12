@@ -37,16 +37,20 @@ if ! id "$APP_USER" >/dev/null 2>&1; then
 	exit 1
 fi
 
-# Deploy whichever branch the server is already tracking, rather than assuming
-# main. Hardcoding main meant a deploy would silently move the shop onto a
-# different branch — which matters right now, while the work lives on
-# claude/supplier-favorites-sync-fni8t1 and main is still the old Vercel code.
-# Set BRANCH explicitly to move it on purpose.
-BRANCH="${BRANCH:-$(as_app git rev-parse --abbrev-ref HEAD)}"
-if [ "$BRANCH" = "HEAD" ]; then
-	echo "The checkout is not on a branch. Set BRANCH=... to say what to deploy."
-	exit 1
-fi
+# main is what the shop runs, so main is what a deploy builds.
+#
+# This used to default to whatever branch the checkout happened to be sitting
+# on. That was deliberate once — while main was still the old Vercel code, a
+# deploy defaulting to main would have replaced the working shop with it. But
+# once main became the live branch it turned into a trap: four deploys in a row
+# rebuilt the same stale commit and reported success every time, because a
+# merged pull request had left the server on main while the new work sat on a
+# feature branch. A deploy that builds the wrong code and says "✓ live" is
+# worse than one that fails.
+#
+# Set BRANCH=some-branch to deploy something else on purpose. It has to be
+# asked for by name now; it is never inferred.
+BRANCH="${BRANCH:-main}"
 
 step() { printf '\n\033[1m▸ %s\033[0m\n' "$1"; }
 
