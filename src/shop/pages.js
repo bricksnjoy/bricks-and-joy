@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import {
   BANK, money, num, genInvoice, dropMissingCol, onSale, effPrice,
-  useShop, ProductImage, ProductCard, Stars, VideoEmbed, QtyStepper, Field
+  useShop, ProductImage, ProductCard, Stars, VideoEmbed, QtyStepper, Field, feeOrFree
 } from './core'
 import {
   ArrowLeft, CheckCircle2, Gift, Truck, ShieldCheck, BatteryCharging, Boxes,
@@ -388,7 +388,7 @@ export function CartPage() {
             <Gift size={18} color="#FFA500" />
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 700, fontSize: 14 }}>Add gift wrapping</div>
-              <div style={{ fontSize: 12.5, color: '#8a8278' }}>We'll wrap it beautifully — {money(GIFT_WRAP_FEE)}</div>
+              <div style={{ fontSize: 12.5, color: '#8a8278' }}>We'll wrap it beautifully — {GIFT_WRAP_FEE > 0 ? money(GIFT_WRAP_FEE) : 'free'}</div>
             </div>
           </div>
 
@@ -407,20 +407,20 @@ export function CartPage() {
 
         <div className="sh-summary">
           <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 14 }}>Order summary</div>
-          <Field label="Delivery estimate to">
+          <Field label="Delivering to">
             <select value={shipIdx} onChange={e => setShipIdx(Number(e.target.value))}>
-              {SHIPPING.map((s, i) => <option key={i} value={i}>{s.label} — {money(s.fee)}</option>)}
+              {SHIPPING.map((s, i) => <option key={i} value={i}>{s.label} — {feeOrFree(s.fee)}</option>)}
             </select>
           </Field>
           {freeOver > 0 && !freeShip && <div style={{ fontSize: 12, color: '#1D9E75', fontWeight: 600, marginBottom: 8 }}>Add {money(freeOver - cartSubtotal)} more for FREE delivery 🎉</div>}
           <div className="sh-srow"><span>Subtotal</span><span>{money(cartSubtotal)}</span></div>
-          {giftWrap && <div className="sh-srow"><span>Gift wrapping</span><span>{money(GIFT_WRAP_FEE)}</span></div>}
-          <div className="sh-srow"><span>Delivery (est.)</span><span>{freeShip ? <b style={{ color: '#1D9E75' }}>FREE</b> : money(shipFee)}</span></div>
+          {giftWrap && <div className="sh-srow"><span>Gift wrapping</span><span>{feeOrFree(GIFT_WRAP_FEE)}</span></div>}
+          <div className="sh-srow"><span>Delivery</span><span>{shipFee > 0 && !freeShip ? money(shipFee) : <b style={{ color: '#1D9E75' }}>FREE</b>}</span></div>
           <div className="sh-stot"><span>Total</span><span style={{ color: '#E24B4A' }}>{money(total)}</span></div>
           <button className="sh-btn sh-btn-o" style={{ width: '100%', justifyContent: 'center', marginTop: 16 }} onClick={() => navigate('/checkout')}>
             Checkout <ChevronRight size={17} />
           </button>
-          <div style={{ fontSize: 11.5, color: '#a79a80', marginTop: 10, textAlign: 'center' }}>Delivery is an estimate — final charge confirmed with you.</div>
+          <div style={{ fontSize: 11.5, color: '#a79a80', marginTop: 10, textAlign: 'center' }}>You can change where it is going at the checkout.</div>
         </div>
       </div>
 
@@ -442,15 +442,23 @@ export function CartPage() {
 const NOTIFY_CUSTOMER = false
 
 export function CheckoutPage() {
-  const { cart, cartSubtotal, giftWrap, giftNote, user, navigate, clearCart, setLastOrder, settings, removeItem } = useShop()
+  const { cart, cartSubtotal, giftWrap, giftNote, user, navigate, clearCart, setLastOrder, settings, removeItem, shipIdx, setShipIdx } = useShop()
   const GIFT_WRAP_FEE = num(settings.gift_wrap_fee)
   const [payMethod, setPayMethod] = useState('')   // '' until the shopper picks one
   // Pickup is disabled for now — there's no store to collect from, so every
   // order is a delivery. Kept as a flag so pickup can be switched back on later.
   const pickup = false
-  // Delivery (front door + ferry) and gift wrapping are free. Any ferry surcharge
-  // or special request is arranged with the customer directly, not billed here.
-  const shipFee = 0
+
+  // Delivery is charged from the zone the shopper picks — free to Malé and
+  // Hulhumalé, a fee where a ferry is involved. This used to be hardwired to
+  // zero while the cart added the zone's fee to its total, so the total fell by
+  // the delivery amount between the two pages with nothing to explain it, and
+  // an island order was placed with no delivery on it at all.
+  const ZONES = settings.shipping || []
+  const zone = ZONES[shipIdx] || ZONES[0] || { label: '', fee: 0 }
+  const freeOver = num(settings.free_delivery_over)
+  const freeShip = freeOver > 0 && cartSubtotal >= freeOver
+  const shipFee = freeShip ? 0 : num(zone.fee)
   const meta = user?.user_metadata || {}
   // The same shape as a customer record in the back office — one name, an
   // address, a landmark and a contact number — so what is typed here lands in
@@ -530,9 +538,9 @@ export function CheckoutPage() {
       const extras = [
         pickup ? 'Website order · 🏬 PICKUP from store' : `Website order · ${form.island}`,
         !pickup && form.landmark.trim() ? `Landmark: ${form.landmark.trim()}` : '',
-        giftWrap ? `Gift wrap +${money(GIFT_WRAP_FEE)}` : '',
+        giftWrap ? (GIFT_WRAP_FEE > 0 ? `Gift wrap +${money(GIFT_WRAP_FEE)}` : 'Gift wrap (free)') : '',
         giftWrap && wrapNote ? `Wrapping: ${wrapNote}` : '',
-        pickup ? 'Pickup — collect from store' : 'Delivery — free (front door & ferry)',
+        pickup ? 'Pickup — collect from store' : `Delivery to ${zone.label} — ${shipFee > 0 ? money(shipFee) : 'free'}`,
         applied ? `Coupon ${applied.code} −${money(discount)}` : '',
         `Amount to pay ${money(total)}`,
         cash
@@ -693,13 +701,31 @@ The Brick's & Joy team`,
             <div className="co-field"><input className={!form.phone.trim() ? 'co-req' : ''} value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} inputMode="tel" placeholder="Contact number / WhatsApp *" /></div>
           </div>
 
-          {/* Delivery is free to the front door (ferry included), so there is no
-              shipping method to choose. Anything unusual is arranged directly. */}
-          <div className="co-sec">
-            <div style={{ background: '#f0fbf5', border: '1px solid #cfe3d6', borderRadius: 8, padding: '12px 14px', fontSize: 13, color: '#2c7a54' }}>
-              🚚 Free delivery to your front door — ferry included. Gift wrapping is on us too.
+          {/* Where it is going decides what delivery costs, so it is asked here
+              rather than left on the cart page — the cart's picker was never
+              read by this page, and the island field above is free text that
+              cannot be relied on to say whether a ferry is involved. */}
+          {ZONES.length > 0 && (
+            <div className="co-sec">
+              <div className="co-field" style={{ marginBottom: 10 }}>
+                <label htmlFor="zone" style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: '#6b645d', marginBottom: 6 }}>Delivering to</label>
+                <select id="zone" value={shipIdx} onChange={e => setShipIdx(Number(e.target.value))}
+                  style={{ width: '100%', padding: '11px 12px', borderRadius: 8, border: '1px solid #e2ded7', fontFamily: 'inherit', fontSize: 14, background: '#fff' }}>
+                  {ZONES.map((z, i) => (
+                    <option key={i} value={i}>{z.label} — {num(z.fee) > 0 ? money(z.fee) : 'free'}</option>
+                  ))}
+                </select>
+              </div>
+              <div style={{ background: '#f0fbf5', border: '1px solid #cfe3d6', borderRadius: 8, padding: '12px 14px', fontSize: 13, color: '#2c7a54' }}>
+                {freeShip
+                  ? <>🚚 Free delivery on this order.</>
+                  : shipFee > 0
+                    ? <>🚚 Delivered to your front door. {money(shipFee)} to {zone.label}.</>
+                    : <>🚚 Free delivery to your front door.</>}
+                {GIFT_WRAP_FEE === 0 && ' Gift wrapping is on us too.'}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* PAYMENT */}
           <div className="co-sec">
@@ -829,7 +855,7 @@ The Brick's & Joy team`,
           {couponMsg && <div style={{ fontSize: 12, margin: '-10px 0 14px', color: applied ? '#1D9E75' : '#E24B4A', fontWeight: 600 }}>{applied ? `✓ ${applied.code} applied` : couponMsg}</div>}
 
           <div className="co-row"><span>Subtotal</span><span>{money(cartSubtotal)}</span></div>
-          {giftWrap && <div className="co-row"><span>Gift wrapping</span><span>{money(GIFT_WRAP_FEE)}</span></div>}
+          {giftWrap && <div className="co-row"><span>Gift wrapping</span><span>{feeOrFree(GIFT_WRAP_FEE)}</span></div>}
           {/* Read back, so nobody pays for wrapping without seeing what they
               asked for — and can go back a page to change it. */}
           {giftWrap && giftNote.trim() && (
@@ -838,7 +864,9 @@ The Brick's & Joy team`,
               <span style={{ textAlign: 'right', fontStyle: 'italic', lineHeight: 1.5, maxWidth: '65%' }}>“{giftNote.trim()}”</span>
             </div>
           )}
-          <div className="co-row"><span>{pickup ? 'Pickup' : 'Delivery'}</span><span style={{ color: '#1D9E75', fontWeight: 700 }}>FREE</span></div>
+          <div className="co-row"><span>{pickup ? 'Pickup' : 'Delivery'}</span>{shipFee > 0
+            ? <span>{money(shipFee)}</span>
+            : <span style={{ color: '#1D9E75', fontWeight: 700 }}>FREE</span>}</div>
           {discount > 0 && <div className="co-row" style={{ color: '#1D9E75' }}><span>Discount</span><span>−{money(discount)}</span></div>}
           <div className="co-tot"><span>Total</span><span><span className="usd">MVR</span>{money(total).replace('MVR ', '')}</span></div>
 

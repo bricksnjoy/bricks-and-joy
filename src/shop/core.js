@@ -23,12 +23,19 @@ export function previewAllowed() {
   } catch { return false }
 }
 
-// Delivery estimate zones (defaults) + gift wrapping fee — the back office can
-// override all of these; these are only the fallback values.
+// Delivery zones + gift wrapping fee — the back office can override all of
+// these under Website → Delivery & gift wrapping; these are only the fallbacks
+// used before anything has been saved there.
+//
+// Free across greater Malé — Malé, Hulhumalé and Villingili — and MVR 30 out to
+// the other islands. The two free zones are kept as separate lines rather than
+// merged into one: "Greater Malé" carries an "etc." that covers whatever else
+// sits in the lagoon, and folding it into the first line would drop that and
+// push those addresses onto the MVR 30 option by default.
 export const SHIPPING = [
-  { label: 'Malé / Hulhumalé', fee: 35 },
-  { label: 'Greater Malé (Villingili, etc.)', fee: 50 },
-  { label: 'Other islands (ferry / courier)', fee: 90 },
+  { label: 'Malé / Hulhumalé', fee: 0 },
+  { label: 'Greater Malé (Villingili, etc.)', fee: 0 },
+  { label: 'Other islands (ferry / courier)', fee: 30 },
 ]
 export const GIFT_WRAP_FEE = 30
 
@@ -55,6 +62,9 @@ export const effPrice = p => onSale(p) ? num(p.sale_price) : num(p.sell_price)
 // ── helpers ───────────────────────────────────────────────────────────────────
 export const num = v => { const n = parseFloat(v); return isNaN(n) ? 0 : n }
 export const money = n => `MVR ${num(n) % 1 === 0 ? num(n).toLocaleString('en-US') : num(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+// A fee of nothing is worth saying in words. "MVR 0" beside gift wrapping reads
+// like a price that failed to load rather than a thing the shop is giving away.
+export const feeOrFree = n => (num(n) > 0 ? money(n) : 'Free')
 export const genInvoice = () => 'INV-' + Date.now().toString().slice(-6)
 
 export const CART_KEY = 'bnj_shop_cart'
@@ -343,7 +353,7 @@ export function CartDrawer() {
               <div className={`sh-toggle ${giftWrap ? 'on' : ''}`} style={{ marginTop: 14 }} onClick={() => setGiftWrap(g => !g)}>
                 <span className="sh-check">{giftWrap && <Star size={13} color="#fff" fill="#fff" />}</span>
                 <span style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>Add gift wrapping</span>
-                <span style={{ fontSize: 13, fontWeight: 700 }}>{money(gwFee)}</span>
+                <span style={{ fontSize: 13, fontWeight: 700 }}>{feeOrFree(gwFee)}</span>
               </div>
 
               {/* Also here, not only on the cart page — otherwise ticking the
@@ -361,8 +371,8 @@ export function CartDrawer() {
 
             <div className="sh-drawer-foot">
               <div className="sh-srow"><span>Subtotal</span><span>{money(cartSubtotal)}</span></div>
-              {giftWrap && <div className="sh-srow"><span>Gift wrapping</span><span>{money(gwFee)}</span></div>}
-              <div className="sh-srow"><span>Estimated delivery</span><span>{freeShip ? <b style={{ color: '#1D9E75' }}>FREE</b> : money(shipFee)}</span></div>
+              {giftWrap && <div className="sh-srow"><span>Gift wrapping</span><span>{feeOrFree(gwFee)}</span></div>}
+              <div className="sh-srow"><span>Delivery</span><span>{shipFee > 0 && !freeShip ? money(shipFee) : <b style={{ color: '#1D9E75' }}>FREE</b>}</span></div>
               <div className="sh-srow" style={{ fontWeight: 800, fontSize: 16, color: '#0d1b2a' }}><span>Total</span><span>{money(total)}</span></div>
               <div className="sh-srow" style={{ color: '#b8740a', fontWeight: 700 }}><span>Loyalty points</span><span>+{points.toLocaleString()}</span></div>
               <button className="sh-authbtn" style={{ marginTop: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }} onClick={() => go('/checkout')}>
