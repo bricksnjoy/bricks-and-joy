@@ -496,11 +496,14 @@ export function CheckoutPage() {
       if (!data) return
       setForm(f => ({
         ...f,
-        first: f.first || (data.full_name || '').split(' ')[0] || '',
-        last: f.last || (data.full_name || '').split(' ').slice(1).join(' ') || '',
+        // The form keeps one `name`, not a first and a last. Writing to fields
+        // that are not in it meant a returning shopper typed their name out
+        // again every time, and nothing said why.
+        name: f.name || data.full_name || '',
         phone: f.phone || data.phone || '',
         island: f.island || data.island || '',
         address: f.address || data.address || '',
+        landmark: f.landmark || data.landmark || '',
         notes: f.notes || data.notes || '',
       }))
     })
@@ -556,16 +559,37 @@ export function CheckoutPage() {
           address: addr, landmark: form.landmark.trim() || null,
         }
         if (!user) cp.notes = `Website order ${invoice}`   // keep existing notes for known accounts
-        let { error } = await supabase.from('customers').upsert(cp, { onConflict: 'id' })
-        while (error && dropMissingCol(error, cp)) { error = (await supabase.from('customers').upsert(cp, { onConflict: 'id' })).error }
+        // A guest inserts; somebody signed in upserts.
+        //
+        // An upsert asks for permission to update as well as to insert, and a
+        // guest has no business updating a customer record — so the API was
+        // refusing the whole thing and the shopper's phone and address were
+        // being dropped on the floor, quietly, because the failure is tolerated
+        // just below. A guest is given a brand new id a few lines up, so there
+        // is never a row to update: insert is both what is allowed and what is
+        // actually meant.
+        const saveCustomer = () => user
+          ? supabase.from('customers').upsert(cp, { onConflict: 'id' })
+          : supabase.from('customers').insert(cp)
+        let { error } = await saveCustomer()
+        while (error && dropMissingCol(error, cp)) { error = (await saveCustomer()).error }
         if (error) { /* place order even if the customer record fails */ }
       }
       const orderDate = localToday()
-      // The back office reads money off the order rows, not off the note. A
-      // discount has to come out of the line totals, and a delivery or gift-wrap
-      // charge has to go into the first row's total the same way the back
-      // office merges them — otherwise the shop bills one figure and the books
-      // record another, and the payment can never be reconciled.
+      // The back office reads money off the order rows, not off the note, so a
+      // discount has to come out of the line totals.
+      //
+      // Delivery and wrapping used to be added onto the first product's total,
+      // which balanced but blurred the books: a 750 toy with 30 delivery was
+      // stored as one 780 line, so the delivery was indistinguishable from
+      // product revenue and there was no way to answer what a month's delivery
+      // charges came to. They now get their own rows, the way the back office
+      // has written staff-entered charges all along — a row with no product_id
+      // is a charge, and both pages already know that.
+      //
+      // The legacy delivery_fee and special_request_cost columns stay at zero
+      // deliberately. The order editor reads charge rows AND those columns, so
+      // filling in both would show staff the same fee twice.
       for (let i = 0; i < cart.length; i++) {
         const it = cart[i]
         const line = num(it.price) * it.qty
@@ -575,7 +599,11 @@ export function CheckoutPage() {
           customer_id: customerId, customer_name: fullName,
           product_id: it.id, product_name: it.name, qty: it.qty,
           unit_price: num(it.price),
-          total_price: +(Math.max(0, line - itemDiscount) + (isFirst ? shipFee + wrapFee : 0)).toFixed(2),
+          // The database computes this one — `generated always as (qty *
+          // unit_price)` — so it is always the price before the discount, and
+          // whatever is sent here is dropped. Sent as the gross anyway so the
+          // line does not read as though a net figure were being stored.
+          total_price: +line.toFixed(2),
           discount: itemDiscount,
           // Website orders land as "under review" — bank or cash — until the back
           // office checks the slip/payment and confirms (or cancels) them.
@@ -584,18 +612,44 @@ export function CheckoutPage() {
           // Kept on the first row only, the way the back office reads a slip
           transfer_slip_url: isFirst && !cash ? slip?.url || null : null,
           fulfilment: pickup ? 'pickup' : 'delivery',
-          delivery_fee: isFirst ? shipFee : 0,
+          delivery_fee: 0,            // carried by its own row below
           delivery_fee_covered: false,
           // The shopper's own words, not just that they ticked the box —
           // otherwise the instruction is collected and then thrown away.
           special_request: isFirst && giftWrap ? (wrapNote ? `Gift wrapping — ${wrapNote}` : 'Gift wrapping') : '',
-          special_request_cost: isFirst ? wrapFee : 0,
+          special_request_cost: 0,    // carried by its own row below
           special_request_covered: false,
           notes: isFirst ? extras : '',
         }
         let { error } = await supabase.from('orders').insert(payload)
         while (error && dropMissingCol(error, payload)) { error = (await supabase.from('orders').insert(payload)).error }
         if (error) throw error
+      }
+
+      // Delivery and wrapping as their own invoice lines. Same shape the back
+      // office writes for a hand-entered cost: no product_id, the label in
+      // product_name, the amount in unit_price and total_price. The labels are
+      // worded so the back office files them without being asked — it reads the
+      // category off the words, matching "deliver" and "wrap".
+      const chargeLines = [
+        shipFee > 0 && { name: `Delivery — ${zone.label}`, amount: shipFee },
+        wrapFee > 0 && { name: 'Gift wrapping', amount: wrapFee },
+      ].filter(Boolean)
+
+      for (const c of chargeLines) {
+        const row = {
+          customer_id: customerId, customer_name: fullName,
+          product_id: null, product_name: c.name,
+          qty: 1, unit_price: c.amount, total_price: c.amount, discount: 0,
+          channel: 'Website', status: 'review', order_date: orderDate,
+          invoice_number: invoice, payment_status: 'unpaid', payment_method: payLabel,
+          fulfilment: pickup ? 'pickup' : 'delivery',
+        }
+        let { error } = await supabase.from('orders').insert(row)
+        while (error && dropMissingCol(error, row)) { error = (await supabase.from('orders').insert(row)).error }
+        // A charge that fails to save must not lose the order that is already
+        // in — the shopper has paid. The amount is in the notes either way.
+        if (error) console.error('charge line failed:', c.name, error.message)
       }
       // remember the signed-in customer's details for next time (after ordering,
       // not while they type)

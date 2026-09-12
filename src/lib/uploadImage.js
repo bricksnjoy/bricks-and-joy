@@ -36,6 +36,22 @@ const isImage = f => (f?.type || '').startsWith('image/')
  *
  * @returns {Promise<{url: string|null, name: string, type: string, before: number, after: number}>}
  */
+// 122 bits of randomness. crypto.randomUUID needs a secure context, which the
+// live site is; the fallback covers a stale browser without quietly dropping
+// back to something guessable.
+function randomId() {
+  try {
+    if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID()
+    const b = new Uint8Array(16)
+    globalThis.crypto.getRandomValues(b)
+    return Array.from(b, x => x.toString(16).padStart(2, '0')).join('')
+  } catch {
+    // No crypto at all — say so rather than pretend, so a slip is never filed
+    // under a name that can be guessed.
+    throw new Error('This browser cannot generate a secure file name — please update it')
+  }
+}
+
 export async function uploadImage(file, { prefix = 'file', preset = PHOTO } = {}) {
   const before = file.size
   let body = file
@@ -51,7 +67,15 @@ export async function uploadImage(file, { prefix = 'file', preset = PHOTO } = {}
     } catch { /* unreadable image — store it as it came */ }
   }
 
-  const name = `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}.${ext}`
+  // The bucket is public, because product photos have to be. That makes the
+  // file name the only thing standing between a stranger and somebody's bank
+  // slip, so it has to be unguessable rather than merely unique.
+  //
+  // This used to be a millisecond and four characters of Math.random() — about
+  // twenty bits, next to a timestamp anyone can narrow down to the day an order
+  // was placed. A UUID is 122 bits from the browser's cryptographic generator,
+  // which is the same thing a private share link relies on anywhere else.
+  const name = `${prefix}-${randomId()}.${ext}`
   const { data, error } = await supabase.storage.from('uploads').upload(name, body, { upsert: true, contentType })
   if (!error) {
     // Use the name storage actually filed it under, not the one we asked for.

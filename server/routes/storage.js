@@ -17,6 +17,7 @@
 const express = require('express')
 const multer = require('multer')
 const rateLimit = require('express-rate-limit')
+const crypto = require('crypto')
 const r2 = require('../lib/r2')
 
 const router = express.Router()
@@ -70,8 +71,13 @@ router.post('/:bucket/upload', anonLimit, upload.single('file'), async (req, res
     // Everyone else gets a name we choose. `web-` marks it as having come from
     // the public site, so it can never collide with, or overwrite, a product
     // photo or a staff-uploaded slip.
-    const rand = Math.random().toString(36).slice(2, 8)
-    key = `web-${Date.now()}-${rand}.${extFor(type, 'jpg')}`
+    //
+    // The bucket is public — product photos need to be — so the name is the
+    // only thing keeping a stranger away from a customer's bank slip. It was a
+    // millisecond and six characters of Math.random(), which is neither
+    // unpredictable nor much of a search space next to a guessable timestamp.
+    // randomUUID is 122 bits from the system's cryptographic source.
+    key = `web-${crypto.randomUUID()}.${extFor(type, 'jpg')}`
   }
 
   if (!isStaff || !upsert) {

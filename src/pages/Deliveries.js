@@ -7,7 +7,21 @@ import { Truck, User, Bike, CalendarDays, Package, CheckCircle, Search, Instagra
 
 // Charge lines (delivery fee / gift) are money rows, not deliverable items —
 // they show as a small note under their invoice's order instead of own cards.
-const isChargeRow = r => !r.product_id && /^(🚚|🎁)/.test(String(r.product_name || ''))
+//
+// A row with no product_id is a charge, which is what Orders decides on too. It
+// used to also demand an emoji at the front of the name, a convention the order
+// form stopped writing long ago — so every charge a person typed in by hand was
+// invisible here, and so were the ones the website now writes.
+const isChargeRow = r => !r.product_id
+
+// What kind of charge, read from what it is called rather than from a prefix.
+// The same words Orders files expenses under, so the two agree on a given line.
+const chargeKind = r => {
+  const s = String(r.product_name || '').toLowerCase()
+  if (/deliver|courier|transport|boat|ferry|launch/.test(s)) return { icon: '🚚', label: 'Delivery fee' }
+  if (/gift|wrap|pack|box|card|ribbon|bag/.test(s)) return { icon: '🎁', label: 'Gift' }
+  return { icon: '💰', label: String(r.product_name || 'Extra cost').replace(/^[🚚🎁]\s*/, '') }
+}
 
 // Deliveries is a record-keeping tab: attach a staff member and a delivery date
 // to each order. Changes stay local until Save is clicked.
@@ -342,7 +356,7 @@ export default function Deliveries() {
                     <div style={{ fontSize: 14, color: '#555', fontWeight: 600 }}>{o.product_name} × {o.qty}</div>
                     {chargesFor(o).map(c => (
                       <div key={c.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, alignSelf: 'flex-start', fontSize: 11.5, fontWeight: 600, color: '#8a6d1b', background: '#FFF8E1', border: '1px solid #FAEEDA', borderRadius: 99, padding: '3px 10px' }}>
-                        {String(c.product_name).startsWith('🚚') ? '🚚 Delivery fee' : '🎁 Gift'} · MVR {netOf(c).toFixed(2)}
+                        {chargeKind(c).icon} {chargeKind(c).label} · MVR {netOf(c).toFixed(2)}
                       </div>
                     ))}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
@@ -390,7 +404,7 @@ export default function Deliveries() {
                         <div style={{ fontSize: 11, color: '#aaa', fontFamily: 'monospace' }}>{o.invoice_number || '—'}</div>
                         {chargesFor(o).map(c => (
                           <div key={c.id} style={{ fontSize: 11, color: '#8a6d1b', marginTop: 2 }}>
-                            {String(c.product_name).startsWith('🚚') ? '🚚 Delivery fee' : '🎁 Gift'} · MVR {netOf(c).toFixed(2)}
+                            {chargeKind(c).icon} {chargeKind(c).label} · MVR {netOf(c).toFixed(2)}
                           </div>
                         ))}
                       </td>

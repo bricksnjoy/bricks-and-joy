@@ -182,7 +182,7 @@ function buildLimit(limit, offset, params) {
 // Checks every key, drops the columns the database computes for itself
 // (total_price, total_cost), and applies any value the policy has locked —
 // a shopper saving their profile cannot claim someone else's id.
-function prepareRows(table, values, locked) {
+function prepareRows(table, values, locked, guard) {
   const rows = Array.isArray(values) ? values : [values]
   if (!rows.length) throw new QueryError('No rows to write', { code: 'PGRST102' })
 
@@ -195,8 +195,16 @@ function prepareRows(table, values, locked) {
     for (const [k, v] of Object.entries(row)) {
       if (generated.has(k)) continue           // the database owns this one
       if (!db.hasColumn(table, k)) throw missingColumn(table, k)
+      // A caller who is not staff may only set the fields the shop actually
+      // uses. Anything else is dropped rather than refused: the shop sends a
+      // few columns it no longer needs, and failing the whole order over one
+      // of them would cost a sale to protect a value the database defaults
+      // correctly anyway.
+      if (guard && !guard.allow.has(k)) continue
       out[k] = v
     }
+    // Set after the loop so they cannot be talked out of by the request.
+    if (guard && guard.force) Object.assign(out, guard.force)
     if (locked) out[locked.column] = locked.value
     return out
   })
@@ -217,12 +225,14 @@ const jsonSafe = (table, col, v) => db.encodeFor(table, col, v)
 // ── the compiler ────────────────────────────────────────────────────────────
 /**
  * @param {object} q      the request body from the client shim
- * @param {object} [opts] { locked: {column, value} } from the policy layer
+ * @param {object} [opts] { locked: {column, value}, guard: {allow, force} }
+ *   from the policy layer
  * @returns {{text: string, params: any[]}}
  */
 function compile(q, opts = {}) {
   const { table, op } = q
   const locked = opts.locked || null
+  const guard = opts.guard || null
 
   if (!db.hasTable(table)) {
     throw new QueryError(`relation "public.${table}" does not exist`, { code: '42P01', status: 404 })
@@ -248,7 +258,7 @@ function compile(q, opts = {}) {
   }
 
   if (op === 'insert' || op === 'upsert') {
-    const { rows, keys } = prepareRows(table, q.values, locked)
+    const { rows, keys } = prepareRows(table, q.values, locked, guard)
     const cols = keys.map(k => db.quote(k)).join(', ')
 
     const tuples = rows.map(row =>
@@ -275,7 +285,7 @@ function compile(q, opts = {}) {
   }
 
   if (op === 'update') {
-    const { rows, keys } = prepareRows(table, q.values, locked)
+    const { rows, keys } = prepareRows(table, q.values, locked, guard)
     if (rows.length !== 1) throw new QueryError('update takes a single object', { code: 'PGRST102' })
     const row = rows[0]
 

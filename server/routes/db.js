@@ -38,17 +38,19 @@ router.post('/query', async (req, res) => {
   // An upsert can create or modify, so it needs both permissions.
   const needed = op === 'upsert' ? ['insert', 'update'] : [op]
   let locked = null
+  let guard = null
   for (const need of needed) {
     const verdict = authorize(table, need, role, userId)
     if (!verdict.ok) {
       return fail(res, role === 'anon' ? 401 : 403, verdict.reason, '42501')
     }
     if (verdict.force) locked = verdict.force
+    if (verdict.guard) guard = verdict.guard
   }
 
   let sql
   try {
-    sql = compile(q, { locked })
+    sql = compile(q, { locked, guard })
   } catch (e) {
     if (e instanceof QueryError) return fail(res, e.status, e.message, e.code, e.details, e.hint)
     throw e
