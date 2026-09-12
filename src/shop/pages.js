@@ -333,7 +333,7 @@ export function ProductPage() {
 
 // ── Cart ────────────────────────────────────────────────────────────────────────
 export function CartPage() {
-  const { cart, setQty, removeItem, cartSubtotal, giftWrap, setGiftWrap, shipIdx, setShipIdx, navigate, settings, products } = useShop()
+  const { cart, setQty, removeItem, cartSubtotal, giftWrap, setGiftWrap, giftNote, setGiftNote, shipIdx, setShipIdx, navigate, settings, products } = useShop()
 
   // What else to show somebody who is already holding something. Best-sellers
   // would be the obvious answer and cannot be done from here: the shop reads
@@ -391,6 +391,18 @@ export function CartPage() {
               <div style={{ fontSize: 12.5, color: '#8a8278' }}>We'll wrap it beautifully — {money(GIFT_WRAP_FEE)}</div>
             </div>
           </div>
+
+          {/* Only once the box is ticked. Asked for before that it is a field
+              about something the shopper has not chosen to buy. */}
+          {giftWrap && (
+            <div className="sh-giftnote">
+              <label htmlFor="giftnote">How would you like it wrapped?</label>
+              <textarea id="giftnote" rows={3} maxLength={500}
+                value={giftNote} onChange={e => setGiftNote(e.target.value)}
+                placeholder="Colours, paper, ribbon, a message on the tag — anything you'd like. Leave it blank and we'll choose something nice." />
+              <div className="sh-giftnote-c">{giftNote.length}/500</div>
+            </div>
+          )}
         </div>
 
         <div className="sh-summary">
@@ -430,7 +442,7 @@ export function CartPage() {
 const NOTIFY_CUSTOMER = false
 
 export function CheckoutPage() {
-  const { cart, cartSubtotal, giftWrap, user, navigate, clearCart, setLastOrder, settings, removeItem } = useShop()
+  const { cart, cartSubtotal, giftWrap, giftNote, user, navigate, clearCart, setLastOrder, settings, removeItem } = useShop()
   const GIFT_WRAP_FEE = num(settings.gift_wrap_fee)
   const [payMethod, setPayMethod] = useState('')   // '' until the shopper picks one
   // Pickup is disabled for now — there's no store to collect from, so every
@@ -514,10 +526,12 @@ export function CheckoutPage() {
       // have no slip, so they never auto-confirm.
       const slipMatches = !cash && slip?.amount != null && Math.abs(num(slip.amount) - total) < 1
       const payLabel = cash ? 'Cash' : 'Bank Transfer'
+      const wrapNote = (giftNote || '').trim()
       const extras = [
         pickup ? 'Website order · 🏬 PICKUP from store' : `Website order · ${form.island}`,
         !pickup && form.landmark.trim() ? `Landmark: ${form.landmark.trim()}` : '',
         giftWrap ? `Gift wrap +${money(GIFT_WRAP_FEE)}` : '',
+        giftWrap && wrapNote ? `Wrapping: ${wrapNote}` : '',
         pickup ? 'Pickup — collect from store' : 'Delivery — free (front door & ferry)',
         applied ? `Coupon ${applied.code} −${money(discount)}` : '',
         `Amount to pay ${money(total)}`,
@@ -564,7 +578,9 @@ export function CheckoutPage() {
           fulfilment: pickup ? 'pickup' : 'delivery',
           delivery_fee: isFirst ? shipFee : 0,
           delivery_fee_covered: false,
-          special_request: isFirst && giftWrap ? 'Gift wrapping' : '',
+          // The shopper's own words, not just that they ticked the box —
+          // otherwise the instruction is collected and then thrown away.
+          special_request: isFirst && giftWrap ? (wrapNote ? `Gift wrapping — ${wrapNote}` : 'Gift wrapping') : '',
           special_request_cost: isFirst ? wrapFee : 0,
           special_request_covered: false,
           notes: isFirst ? extras : '',
@@ -814,6 +830,14 @@ The Brick's & Joy team`,
 
           <div className="co-row"><span>Subtotal</span><span>{money(cartSubtotal)}</span></div>
           {giftWrap && <div className="co-row"><span>Gift wrapping</span><span>{money(GIFT_WRAP_FEE)}</span></div>}
+          {/* Read back, so nobody pays for wrapping without seeing what they
+              asked for — and can go back a page to change it. */}
+          {giftWrap && giftNote.trim() && (
+            <div className="co-row" style={{ alignItems: 'flex-start' }}>
+              <span style={{ flexShrink: 0 }}>Wrapping</span>
+              <span style={{ textAlign: 'right', fontStyle: 'italic', lineHeight: 1.5, maxWidth: '65%' }}>“{giftNote.trim()}”</span>
+            </div>
+          )}
           <div className="co-row"><span>{pickup ? 'Pickup' : 'Delivery'}</span><span style={{ color: '#1D9E75', fontWeight: 700 }}>FREE</span></div>
           {discount > 0 && <div className="co-row" style={{ color: '#1D9E75' }}><span>Discount</span><span>−{money(discount)}</span></div>}
           <div className="co-tot"><span>Total</span><span><span className="usd">MVR</span>{money(total).replace('MVR ', '')}</span></div>

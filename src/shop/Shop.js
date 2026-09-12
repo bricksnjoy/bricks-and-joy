@@ -17,6 +17,10 @@ export default function Shop() {
   const [user, setUser] = useState(null)
   const [cart, setCart] = useState(readCart)
   const [giftWrap, setGiftWrap] = useState(false)
+  // What the wrapping should look like, in the shopper's own words. Kept beside
+  // giftWrap rather than inside it so ticking the box and describing the paper
+  // are one decision followed by another, not one field doing both jobs.
+  const [giftNote, setGiftNote] = useState('')
   const [shipIdx, setShipIdx] = useState(0)
   const [cartOpen, setCartOpen] = useState(false)
   const [wishlist, setWishlist] = useState(readWish)
@@ -79,7 +83,7 @@ export default function Shop() {
   }, [])
   const setQty = useCallback((id, qty) => setCart(c => c.map(i => i.id === id ? { ...i, qty: Math.max(1, Math.min(Number(i.stock_qty) || 99, qty)) } : i)), [])
   const removeItem = useCallback(id => setCart(c => c.filter(i => i.id !== id)), [])
-  const clearCart = useCallback(() => { setCart([]); writeCart([]); setGiftWrap(false) }, [])
+  const clearCart = useCallback(() => { setCart([]); writeCart([]); setGiftWrap(false); setGiftNote('') }, [])
 
   const signIn = useCallback(() => {
     supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin + '/account' } })
@@ -149,7 +153,7 @@ export default function Shop() {
     loc, navigate, products, loading, needsSetup, reload: load, settings,
     user, signIn, signOut,
     cart, cartCount, cartSubtotal, addToCart, setQty, removeItem, clearCart,
-    giftWrap, setGiftWrap, shipIdx, setShipIdx, cartOpen, setCartOpen,
+    giftWrap, setGiftWrap, giftNote, setGiftNote, shipIdx, setShipIdx, cartOpen, setCartOpen,
     wishlist, toggleWish, lastOrder, setLastOrder,
   }
 

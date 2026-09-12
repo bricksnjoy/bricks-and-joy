@@ -160,7 +160,7 @@ export function ProductCard({ p }) {
         <div className="sh-buyrow">
           <span className="sh-price">{money(effPrice(p))}{sale && <span className="sh-was">{money(p.sell_price)}</span>}</span>
           <button className="sh-buy" title="Add to cart" onClick={e => { e.stopPropagation(); addToCart(p) }}>
-            <Plus size={14} /> Add
+            Add
           </button>
         </div>
       </div>
@@ -286,7 +286,7 @@ export function Footer() {
 
 // ── slide-out cart / bag ────────────────────────────────────────────────────────
 export function CartDrawer() {
-  const { cartOpen, setCartOpen, cart, setQty, removeItem, cartSubtotal, giftWrap, setGiftWrap, shipIdx, settings, navigate } = useShop()
+  const { cartOpen, setCartOpen, cart, setQty, removeItem, cartSubtotal, giftWrap, setGiftWrap, giftNote, setGiftNote, shipIdx, settings, navigate } = useShop()
   if (!cartOpen) return null
   const freeOver = num(settings.free_delivery_over)
   const gwFee = num(settings.gift_wrap_fee)
@@ -345,6 +345,18 @@ export function CartDrawer() {
                 <span style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>Add gift wrapping</span>
                 <span style={{ fontSize: 13, fontWeight: 700 }}>{money(gwFee)}</span>
               </div>
+
+              {/* Also here, not only on the cart page — otherwise ticking the
+                  box in the drawer and going straight to the checkout means
+                  never being asked what the wrapping should look like. */}
+              {giftWrap && (
+                <div className="sh-giftnote">
+                  <label htmlFor="giftnote-bag">How would you like it wrapped?</label>
+                  <textarea id="giftnote-bag" rows={2} maxLength={500}
+                    value={giftNote} onChange={e => setGiftNote(e.target.value)}
+                    placeholder="Colours, ribbon, a message on the tag…" />
+                </div>
+              )}
             </div>
 
             <div className="sh-drawer-foot">
@@ -486,7 +498,7 @@ export function ShopStyles() {
     .sh-buyrow{ display:flex; align-items:center; justify-content:center; gap:11px; margin-top:auto; padding:9px 0 4px; flex-wrap:wrap; }
     .sh-price{ font-size:18px; font-weight:700; color:#0d1b2a; letter-spacing:-0.3px; }
     .sh-was{ font-size:13px; font-weight:600; color:#b0a595; text-decoration:line-through; margin-left:7px; }
-    .sh-buy{ display:inline-flex; align-items:center; gap:6px; padding:9px 16px; border-radius:999px; border:none; cursor:pointer; font-family:inherit; font-size:13px; font-weight:700; color:#fff; background:linear-gradient(135deg,#FFA500,#ff8c00); box-shadow:0 4px 12px rgba(255,165,0,0.28); transition:transform .15s, box-shadow .15s; }
+    .sh-buy{ display:inline-flex; align-items:center; justify-content:center; padding:9px 20px; border-radius:999px; border:none; cursor:pointer; font-family:inherit; font-size:13px; font-weight:700; color:#fff; background:linear-gradient(135deg,#FFA500,#ff8c00); box-shadow:0 4px 12px rgba(255,165,0,0.28); transition:transform .15s, box-shadow .15s; }
     .sh-buy:hover{ transform:translateY(-1px); box-shadow:0 7px 18px rgba(255,165,0,0.36); }
     /* Those sizes are pitched at a wide column. Once the grid is down to two
        across, the type comes down with the column rather than shouting. */
@@ -576,6 +588,14 @@ export function ShopStyles() {
     .sh-card2 .hd{ font-size:12px; font-weight:800; color:#8a8278; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:14px; }
 
     .sh-toggle{ display:flex; align-items:center; gap:12px; padding:14px; border:1px solid #eee3d3; border-radius:12px; cursor:pointer; background:#fffdf8; }
+    /* Hangs off the bottom of the toggle it belongs to — no top border and no
+       gap, so it reads as part of that choice rather than a new question. */
+    .sh-giftnote{ border:1px solid #eee3d3; border-top:none; border-radius:0 0 12px 12px; background:#fffdf8; padding:0 14px 14px; margin-top:-1px; }
+    .sh-giftnote label{ display:block; font-size:12.5px; font-weight:700; color:#8a6a2a; padding:12px 0 8px; }
+    .sh-giftnote textarea{ width:100%; border:1px solid #eee3d3; border-radius:10px; padding:10px 12px; font-family:inherit; font-size:13.5px; line-height:1.55; color:#0d1b2a; background:#fff; resize:vertical; outline:none; }
+    .sh-giftnote textarea:focus{ border-color:#FFA500; box-shadow:0 0 0 3px rgba(255,165,0,0.14); }
+    .sh-giftnote textarea::placeholder{ color:#b5ab9c; }
+    .sh-giftnote-c{ text-align:right; font-size:11px; color:#b5ab9c; margin-top:5px; }
     .sh-toggle.on{ border-color:#FFA500; background:#FFF8EC; }
     .sh-check{ width:22px; height:22px; border-radius:6px; border:2px solid #d8cdbb; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
     .sh-toggle.on .sh-check{ background:#FFA500; border-color:#FFA500; }
