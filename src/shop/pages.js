@@ -333,7 +333,22 @@ export function ProductPage() {
 
 // ── Cart ────────────────────────────────────────────────────────────────────────
 export function CartPage() {
-  const { cart, setQty, removeItem, cartSubtotal, giftWrap, setGiftWrap, shipIdx, setShipIdx, navigate, settings } = useShop()
+  const { cart, setQty, removeItem, cartSubtotal, giftWrap, setGiftWrap, shipIdx, setShipIdx, navigate, settings, products } = useShop()
+
+  // What else to show somebody who is already holding something. Best-sellers
+  // would be the obvious answer and cannot be done from here: the shop reads
+  // only the product list, and how many of each has sold lives in the orders
+  // table, which no shopper is allowed to read. So: things from the same
+  // category as what is in the cart first, then whatever is marked featured,
+  // then anything at all — never what they have already picked up.
+  const alsoLike = useMemo(() => {
+    const inCart = new Set(cart.map(c => c.id))
+    const wanted = new Set(cart.map(c => products.find(p => p.id === c.id)?.category).filter(Boolean))
+    const free = products.filter(p => !inCart.has(p.id) && Number(p.stock_qty) > 0)
+    const rank = p => (wanted.has(p.category) ? 0 : p.featured ? 1 : 2)
+    return free.slice().sort((a, b) => rank(a) - rank(b)).slice(0, 5)
+  }, [cart, products])
+
   const SHIPPING = settings.shipping || []
   const GIFT_WRAP_FEE = num(settings.gift_wrap_fee)
   const freeOver = num(settings.free_delivery_over)
@@ -396,6 +411,14 @@ export function CartPage() {
           <div style={{ fontSize: 11.5, color: '#a79a80', marginTop: 10, textAlign: 'center' }}>Delivery is an estimate — final charge confirmed with you.</div>
         </div>
       </div>
+
+      {alsoLike.length > 0 && (<>
+        <div className="sh-sec-h" style={{ marginTop: 40 }}>
+          <h2>You might also like</h2>
+          <button className="sh-see" onClick={() => navigate('/products')}>See all</button>
+        </div>
+        <div className="sh-rack"><div className="sh-grid">{alsoLike.map(p => <ProductCard key={p.id} p={p} />)}</div></div>
+      </>)}
     </div>
   )
 }

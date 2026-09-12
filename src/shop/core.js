@@ -286,7 +286,7 @@ export function Footer() {
 
 // ── slide-out cart / bag ────────────────────────────────────────────────────────
 export function CartDrawer() {
-  const { cartOpen, setCartOpen, cart, setQty, removeItem, cartSubtotal, giftWrap, setGiftWrap, shipIdx, settings, navigate, products } = useShop()
+  const { cartOpen, setCartOpen, cart, setQty, removeItem, cartSubtotal, giftWrap, setGiftWrap, shipIdx, settings, navigate } = useShop()
   if (!cartOpen) return null
   const freeOver = num(settings.free_delivery_over)
   const gwFee = num(settings.gift_wrap_fee)
@@ -299,8 +299,6 @@ export function CartDrawer() {
   const points = Math.round(cartSubtotal)
   const remaining = Math.max(0, freeOver - cartSubtotal)
   const pct = freeOver > 0 ? Math.min(100, (cartSubtotal / freeOver) * 100) : 0
-  const upsell = products.filter(p => !cart.find(c => c.id === p.id))
-    .slice().sort((a, b) => num(a.sell_price) - num(b.sell_price)).slice(0, 4)
   const close = () => setCartOpen(false)
   const go = to => { close(); navigate(to) }
   return (
@@ -347,22 +345,6 @@ export function CartDrawer() {
                 <span style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>Add gift wrapping</span>
                 <span style={{ fontSize: 13, fontWeight: 700 }}>{money(gwFee)}</span>
               </div>
-
-              {upsell.length > 0 && (
-                <div style={{ marginTop: 20 }}>
-                  <div style={{ fontSize: 12, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px', color: '#8a8278' }}>Add a little extra</div>
-                  <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 6, marginTop: 10 }}>
-                    {upsell.map(p => (
-                      <div key={p.id} className="sh-upsell">
-                        <ProductImage src={p.photo_url} name={p.name} style={{ width: '100%', aspectRatio: '1/1', borderRadius: 8 }} />
-                        <div style={{ fontSize: 11.5, fontWeight: 600, lineHeight: 1.3, marginTop: 6, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{p.name}</div>
-                        <div style={{ fontSize: 12.5, fontWeight: 800, margin: '3px 0 6px' }}>{money(effPrice(p))}</div>
-                        <button className="sh-add" style={{ marginTop: 0, padding: '6px' }} onClick={() => go(`/product/${p.id}`)}>View</button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
 
             <div className="sh-drawer-foot">
@@ -552,7 +534,13 @@ export function ShopStyles() {
     .sh-chip.on{ background:#0d1b2a; border-color:#0d1b2a; color:#fff; }
 
     /* product page */
-    .sh-pd{ display:grid; grid-template-columns:1fr 1fr; gap:34px; }
+    /* The page wrapper is deliberately wide, which suits a grid of toys and
+       does not suit one toy: half of 2200px made the photograph about a
+       thousand pixels square, and ran the description across the whole of a
+       monitor where the eye loses the start of the next line. Capping the block
+       halves the picture and gives the words a column you can read down.
+       Left-aligned so it lines up with the "Back to toys" link above it. */
+    .sh-pd{ display:grid; grid-template-columns:minmax(0,448px) minmax(0,1fr); gap:34px; max-width:1040px; align-items:start; }
     @media(max-width:820px){ .sh-pd{ grid-template-columns:1fr; gap:22px; } }
     .sh-pd-info h1{ font-size:27px; font-weight:800; letter-spacing:-0.6px; margin:8px 0 8px; }
     .sh-pd-price{ font-size:26px; font-weight:900; margin:6px 0; }
@@ -615,7 +603,6 @@ export function ShopStyles() {
     .sh-freebar{ height:7px; background:#f0ebe3; border-radius:99px; overflow:hidden; }
     .sh-freebar span{ display:block; height:100%; background:linear-gradient(90deg,#FFA500,#ff7a00); border-radius:99px; transition:width .3s ease; }
     .sh-bagline{ display:flex; gap:12px; padding:14px 0; border-bottom:1px solid #f5f1ea; }
-    .sh-upsell{ flex:0 0 118px; width:118px; }
 
     /* account — full-page dashboard */
     .acctp{ width:100%; }
