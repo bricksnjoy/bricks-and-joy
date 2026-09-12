@@ -68,7 +68,7 @@ const GUARDS = {
   ),
 
   customer_profiles: guard(
-    ['id', 'email', 'full_name', 'phone', 'island', 'address', 'notes', 'updated_at'],
+    ['id', 'email', 'full_name', 'phone', 'island', 'address', 'landmark', 'notes', 'updated_at'],
   ),
 }
 

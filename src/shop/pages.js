@@ -496,11 +496,14 @@ export function CheckoutPage() {
       if (!data) return
       setForm(f => ({
         ...f,
-        first: f.first || (data.full_name || '').split(' ')[0] || '',
-        last: f.last || (data.full_name || '').split(' ').slice(1).join(' ') || '',
+        // The form keeps one `name`, not a first and a last. Writing to fields
+        // that are not in it meant a returning shopper typed their name out
+        // again every time, and nothing said why.
+        name: f.name || data.full_name || '',
         phone: f.phone || data.phone || '',
         island: f.island || data.island || '',
         address: f.address || data.address || '',
+        landmark: f.landmark || data.landmark || '',
         notes: f.notes || data.notes || '',
       }))
     })
@@ -556,8 +559,20 @@ export function CheckoutPage() {
           address: addr, landmark: form.landmark.trim() || null,
         }
         if (!user) cp.notes = `Website order ${invoice}`   // keep existing notes for known accounts
-        let { error } = await supabase.from('customers').upsert(cp, { onConflict: 'id' })
-        while (error && dropMissingCol(error, cp)) { error = (await supabase.from('customers').upsert(cp, { onConflict: 'id' })).error }
+        // A guest inserts; somebody signed in upserts.
+        //
+        // An upsert asks for permission to update as well as to insert, and a
+        // guest has no business updating a customer record — so the API was
+        // refusing the whole thing and the shopper's phone and address were
+        // being dropped on the floor, quietly, because the failure is tolerated
+        // just below. A guest is given a brand new id a few lines up, so there
+        // is never a row to update: insert is both what is allowed and what is
+        // actually meant.
+        const saveCustomer = () => user
+          ? supabase.from('customers').upsert(cp, { onConflict: 'id' })
+          : supabase.from('customers').insert(cp)
+        let { error } = await saveCustomer()
+        while (error && dropMissingCol(error, cp)) { error = (await saveCustomer()).error }
         if (error) { /* place order even if the customer record fails */ }
       }
       const orderDate = localToday()

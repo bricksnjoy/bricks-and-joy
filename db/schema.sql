@@ -662,7 +662,7 @@ insert into site_settings (id, data) values (1, '{}') on conflict (id) do nothin
 -- Signed-in customer profiles (saved delivery details).
 create table if not exists customer_profiles (
   id uuid primary key references app_users(id) on delete cascade,
-  full_name text, phone text, island text, address text, notes text, email text,
+  full_name text, phone text, island text, address text, landmark text, notes text, email text,
   updated_at timestamptz default now()
 );
 
@@ -734,3 +734,8 @@ alter table supplier_products add column if not exists moq numeric;
 -- Reviews wait for approval. Only changes what happens to new ones; anything
 -- already published stays published.
 alter table product_reviews alter column approved set default false;
+
+-- The checkout has always sent a landmark with the saved delivery details and
+-- there was nowhere to put it, so the whole save failed and a signed-in
+-- shopper's details were never remembered.
+alter table customer_profiles add column if not exists landmark text;
