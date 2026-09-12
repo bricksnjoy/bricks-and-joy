@@ -131,7 +131,17 @@ if (fs.existsSync(buildDir)) {
 
   // Every other path is the single-page app. /backoffice is a route inside it,
   // not a folder on disk — which is why index.html has to answer for it.
-  app.get('*', (_req, res) => res.sendFile(path.join(buildDir, 'index.html')))
+  //
+  // It must be revalidated on every visit. This one file names the hashed
+  // bundles, so a browser holding an old copy keeps asking for the old
+  // JavaScript and never learns a new build exists — the page looks unchanged
+  // after a deploy until somebody thinks to force a reload, which is what made
+  // every deploy here need a Ctrl+Shift+R. `no-cache` still lets the browser
+  // keep the file; it just has to ask whether it is current first, and an
+  // unchanged one comes back as an empty 304.
+  app.get('*', (_req, res) => res.sendFile(path.join(buildDir, 'index.html'), {
+    headers: { 'Cache-Control': 'no-cache, must-revalidate' },
+  }))
 } else {
   console.warn(`[api] no build/ directory at ${buildDir} — serving the API only`)
   app.get('*', (_req, res) => res.status(503).send('The site has not been built yet: run npm run build'))
