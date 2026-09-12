@@ -57,9 +57,7 @@ const ORDER_STATUS = {
 const PROMO_ICONS = [Truck, Gift, ShieldCheck, Sparkles]
 export function Home() {
   const { products, loading, navigate, settings } = useShop()
-  const ages = useMemo(() => Array.from(new Set(products.map(p => p.age_range).filter(Boolean))).slice(0, 6), [products])
-  const cats = useMemo(() => Array.from(new Set(products.map(p => p.category).filter(Boolean))).slice(0, 8), [products])
-  const featured = useMemo(() => products.filter(p => p.featured).slice(0, 8), [products])
+  const featured = useMemo(() => products.filter(p => p.featured).slice(0, 10), [products])
   const newest = useMemo(() => products.slice(0, 10), [products])
   const promos = (settings.promos || []).filter(Boolean).slice(0, 3)
   if (loading) return <Loading />
@@ -81,35 +79,19 @@ export function Home() {
         </div>
       )}
 
-      {ages.length > 0 && (<>
-        <div className="sh-sec-h"><h2>Shop by age</h2><button className="sh-see" onClick={() => navigate('/shop-by-age')}>See all</button></div>
-        <div className="sh-tiles">
-          {ages.map((a, i) => (
-            <button key={a} className="sh-tile" style={{ background: TILE_COLORS[i % TILE_COLORS.length] }} onClick={() => navigate(`/products?age=${encodeURIComponent(a)}`)}>
-              <span className="emoji">{ageEmoji(a)}</span>Ages {a}
-            </button>
-          ))}
-        </div>
-      </>)}
+      {/* Shop by age and Browse categories have their own pages, reachable from
+          the header and the hero. On the front they were two rows of coloured
+          boxes between the shopper and the toys — and with one category in the
+          shop, "Browse categories" was a heading over a single tile. */}
 
       {featured.length > 0 && (<>
         <div className="sh-sec-h"><h2>✨ Featured & seasonal</h2><button className="sh-see" onClick={() => navigate('/products')}>Shop all</button></div>
-        <div className="sh-grid">{featured.map(p => <ProductCard key={p.id} p={p} />)}</div>
-      </>)}
-
-      {cats.length > 0 && (<>
-        <div className="sh-sec-h"><h2>Browse categories</h2></div>
-        <div className="sh-tiles">
-          {cats.map((c, i) => (
-            <button key={c} className="sh-tile" style={{ background: TILE_COLORS[(i + 3) % TILE_COLORS.length], fontSize: 14 }} onClick={() => navigate(`/products?cat=${encodeURIComponent(c)}`)}>
-              <span className="emoji">🧩</span>{c}
-            </button>
-          ))}
-        </div>
+        <div className="sh-rack"><div className="sh-grid">{featured.map(p => <ProductCard key={p.id} p={p} />)}</div></div>
       </>)}
 
       <div className="sh-sec-h"><h2>New arrivals</h2><button className="sh-see" onClick={() => navigate('/products')}>See all</button></div>
-      {newest.length ? <div className="sh-grid">{newest.map(p => <ProductCard key={p.id} p={p} />)}</div>
+      {newest.length
+        ? <div className="sh-rack"><div className="sh-grid">{newest.map(p => <ProductCard key={p.id} p={p} />)}</div></div>
         : <div className="sh-empty"><Package size={40} color="#e5dcc9" /><div style={{ marginTop: 10, fontWeight: 600 }}>No products yet — check back soon!</div></div>}
     </div>
   )
@@ -212,7 +194,7 @@ export function Listing() {
 
       {list.length === 0 ? (
         <div className="sh-empty"><Package size={40} color="#e5dcc9" /><div style={{ marginTop: 10, fontWeight: 600 }}>Nothing matches these filters.</div></div>
-      ) : <div className="sh-grid">{list.map(p => <ProductCard key={p.id} p={p} />)}</div>}
+      ) : <div className="sh-rack"><div className="sh-grid">{list.map(p => <ProductCard key={p.id} p={p} />)}</div></div>}
     </div>
   )
 }
@@ -898,7 +880,7 @@ export function Wishlist() {
           <div style={{ marginTop: 10, fontWeight: 600, color: '#8a8278' }}>Nothing saved yet — tap the ♥ on any toy to save it here.</div>
           <button className="sh-btn sh-btn-o" style={{ marginTop: 16 }} onClick={() => navigate('/products')}>Browse toys</button>
         </div>
-      ) : <div className="sh-grid">{items.map(p => <ProductCard key={p.id} p={p} />)}</div>}
+      ) : <div className="sh-rack"><div className="sh-grid">{items.map(p => <ProductCard key={p.id} p={p} />)}</div></div>}
     </div>
   )
 }

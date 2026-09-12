@@ -135,8 +135,8 @@ export function ProductCard({ p }) {
   const rated = Number(p.review_count) > 0
   return (
     <div className="sh-card" onClick={() => navigate(`/product/${p.id}`)}>
-      <div className="sh-tile">
-        <ProductImage src={p.photo_url} name={p.name} className="sh-tile-img" style={{ width: '100%', height: '100%', padding: 0 }} />
+      <div className="sh-photo">
+        <ProductImage src={p.photo_url} name={p.name} className="sh-photo-img" style={{ width: '100%', height: '100%', padding: 0 }} />
         {tag && <span className="sh-tag" style={sale && !p.badge ? { background: '#E24B4A' } : undefined}>{tag}</span>}
         <button className="sh-heart" title={wished ? 'Remove from wishlist' : 'Save to wishlist'} onClick={e => { e.stopPropagation(); toggleWish(p.id) }}>
           <Heart size={17} color={wished ? '#E24B4A' : '#9a9186'} fill={wished ? '#E24B4A' : 'none'} />
@@ -144,8 +144,8 @@ export function ProductCard({ p }) {
         {/* The rating rides on the picture as a chip, the way the back office
             shows a product's numbers, so the words below stay to the point. */}
         {rated && (
-          <div className="sh-chips">
-            <span className="sh-chip">
+          <div className="sh-ratewrap">
+            <span className="sh-rate">
               <Star size={12} color="#f5a623" fill="#f5a623" />
               {num(p.avg_rating).toFixed(1)} ({p.review_count})
             </span>
@@ -460,6 +460,12 @@ export function ShopStyles() {
        tile radius, the same layered inset highlights, the same lift. The
        numbers are copied rather than approximated — a shadow that is nearly
        the same reads as a mistake next to the real one. */
+    /* The grid sits on a white panel, as the back office's inventory does. The
+       cards are white tiles on a cream page otherwise, which leaves them
+       floating with nothing holding the row together. */
+    .sh-rack{ background:#fff; border:1px solid #eee; border-radius:16px; padding:26px 24px; box-shadow:0 1px 4px rgba(0,0,0,0.04); }
+    @media(max-width:768px){ .sh-rack{ padding:16px 12px; border-radius:14px; } }
+
     /* Five across on a desktop and two on a phone, counted rather than fitted.
        auto-fill decides the count from whatever width it is given, so the same
        page showed three cards on a laptop and five on a monitor; asking for a
@@ -473,24 +479,25 @@ export function ShopStyles() {
     @media(max-width:768px){ .sh-grid{ grid-template-columns:repeat(2,1fr); gap:20px 12px; } }
     @keyframes shCardIn{ from{ opacity:0; transform:translateY(14px); } to{ opacity:1; transform:translateY(0); } }
     .sh-card{ animation:shCardIn .35s ease both; position:relative; display:flex; flex-direction:column; height:100%; cursor:pointer; }
-    .sh-tile{
+    .sh-photo{
       position:relative; width:100%; aspect-ratio:372/443; border-radius:22px; overflow:hidden; background:#fff;
       box-shadow: inset 0 1.5px 0 rgba(255,255,255,0.95), inset 0 -3px 8px rgba(0,0,0,0.07),
                   inset 0 0 0 1px rgba(0,0,0,0.04), 0 2px 6px rgba(0,0,0,0.05);
       transition: transform .28s cubic-bezier(.2,.7,.3,1), box-shadow .28s;
     }
-    .sh-card:hover .sh-tile{
+    .sh-card:hover .sh-photo{
       transform:translateY(-6px) scale(1.012);
       box-shadow: inset 0 1.5px 0 rgba(255,255,255,0.95), inset 0 -3px 8px rgba(0,0,0,0.07),
                   inset 0 0 0 1px rgba(0,0,0,0.04), 0 16px 34px rgba(13,27,42,0.16);
     }
-    .sh-tile-img{ object-fit:contain; background:#fff; display:block; padding:25px !important; box-sizing:border-box; }
-    @media(max-width:768px){ .sh-tile{ border-radius:18px; } .sh-tile-img{ padding:16px !important; } }
+    .sh-photo-img{ object-fit:contain; background:#fff; display:block; padding:25px !important; box-sizing:border-box; }
+    @media(max-width:768px){ .sh-photo{ border-radius:18px; } .sh-photo-img{ padding:16px !important; } }
     /* Chips on the picture, as the back office does with its stock numbers */
-    .sh-chips{ position:absolute; bottom:12px; left:12px; right:12px; display:flex; gap:8px; justify-content:center; pointer-events:none; }
-    .sh-chip{ display:inline-flex; align-items:center; gap:4px; font-size:11.5px; font-weight:700; color:#4a5568; background:rgba(255,255,255,0.88); backdrop-filter:blur(6px); padding:5px 10px; border-radius:999px; box-shadow:0 2px 6px rgba(0,0,0,0.08); }
+    .sh-ratewrap{ position:absolute; bottom:12px; left:12px; right:12px; display:flex; justify-content:center; pointer-events:none; }
+    .sh-rate{ display:inline-flex; align-items:center; gap:4px; font-size:11.5px; font-weight:700; color:#4a5568; background:rgba(255,255,255,0.88); backdrop-filter:blur(6px); padding:5px 10px; border-radius:999px; box-shadow:0 2px 6px rgba(0,0,0,0.08); }
     .sh-card .bd{ text-align:center; padding:16px 8px 0; display:flex; flex-direction:column; flex:1; }
     .sh-cat{ font-size:12px; font-weight:600; color:#aaa; margin-top:4px; }
+    .sh-low{ font-size:15px; font-weight:800; color:#f57f17; margin-top:9px; }
     /* Two lines' worth of room whether or not the name needs it, so the prices
        across a row line up instead of stepping up and down. */
     .sh-name{ font-size:19px; font-weight:700; color:#0d1b2a; letter-spacing:-0.3px; line-height:1.2; min-height:2.4em; display:flex; align-items:center; justify-content:center; }
@@ -508,7 +515,7 @@ export function ShopStyles() {
       .sh-price{ font-size:16px; }
       .sh-was{ font-size:11.5px; margin-left:5px; }
       .sh-card .bd{ padding:12px 4px 0; }
-      .sh-chip{ font-size:10.5px; padding:4px 8px; }
+      .sh-rate{ font-size:10.5px; padding:4px 8px; }
       /* Price above, button below its own width. Side by side there is not
          room for a struck-through was-price as well, so discounted cards wrapped
          and sat at a different height from the ones beside them. Stacking is a
@@ -518,7 +525,6 @@ export function ShopStyles() {
       .sh-buy{ width:100%; justify-content:center; font-size:13px; padding:11px 12px; }
     }
     .sh-announce{ background:#0d1b2a; color:#fff; text-align:center; font-size:13px; font-weight:600; padding:8px 14px; }
-    .sh-low{ font-size:15px; font-weight:800; color:#f57f17; margin-top:9px; }
     .sh-add{ margin-top:8px; border:none; background:#FFF1D6; color:#b8740a; font-weight:700; font-size:12.5px; padding:9px; border-radius:10px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:6px; }
     .sh-add:hover{ background:#ffe6b8; }
     .sh-tag{ position:absolute; top:10px; left:10px; background:#0d1b2a; color:#fff; font-size:10.5px; font-weight:800; padding:4px 9px; border-radius:99px; text-transform:uppercase; letter-spacing:0.4px; }
