@@ -630,7 +630,10 @@ create table if not exists product_reviews (
   author_name text,
   rating int not null check (rating between 1 and 5),
   comment text,
-  approved boolean default true,
+  -- Waits for somebody to say yes. It used to default to true, so a review was
+  -- published the moment a stranger wrote it and the moderation screen in the
+  -- back office never had anything in it.
+  approved boolean default false,
   created_at timestamptz default now()
 );
 create index if not exists product_reviews_product_idx on product_reviews(product_id);
@@ -727,3 +730,7 @@ alter table purchase_orders   add column if not exists slip_url text;
 alter table supplier_products add column if not exists product_id uuid;
 alter table supplier_products add column if not exists supplier_sku text;
 alter table supplier_products add column if not exists moq numeric;
+
+-- Reviews wait for approval. Only changes what happens to new ones; anything
+-- already published stays published.
+alter table product_reviews alter column approved set default false;

@@ -26,6 +26,52 @@ const backOffice = {
   select: STAFF, insert: STAFF, update: STAFF, delete: STAFF,
 }
 
+// What a caller who is not staff may put in a row.
+//
+// The rules above answer "may you write to this table at all". They have to say
+// yes to orders and customers, because a shopper checking out is a stranger —
+// but that let a stranger set *any* column, including marking their own order
+// paid and delivered, or approving their own review. Table-level permission was
+// never meant to be the only thing standing there.
+//
+// `allow` is the set of columns the shop genuinely sends. Anything else is
+// dropped. `force` is written afterwards, over the top of whatever arrived, so
+// the answers that matter are the server's and not the request's.
+//
+// Note what this does not do: unit_price is on the allow list, because the
+// browser has to say what is being bought. A determined shopper can still
+// under-price their own order — which is why every website order lands as
+// "under review" for a person to look at before anything is dispatched.
+const guard = (allow, force) => ({ allow: new Set(allow), force: force || null })
+
+const GUARDS = {
+  orders: guard(
+    [
+      'customer_id', 'customer_name',
+      'product_id', 'product_name', 'qty', 'unit_price', 'discount',
+      'order_date', 'invoice_number', 'payment_method',
+      'transfer_slip_url', 'fulfilment', 'special_request', 'notes',
+    ],
+    // Nobody places their own order as paid, delivered, or as a shop sale.
+    { status: 'review', payment_status: 'unpaid', channel: 'Website' },
+  ),
+
+  customers: guard(
+    ['id', 'name', 'phone', 'email', 'address', 'landmark', 'notes'],
+  ),
+
+  // A review is written by a stranger and read by everyone, so it waits for
+  // somebody to say yes. Back office → Website → Reviews.
+  product_reviews: guard(
+    ['product_id', 'author_id', 'author_name', 'rating', 'comment'],
+    { approved: false },
+  ),
+
+  customer_profiles: guard(
+    ['id', 'email', 'full_name', 'phone', 'island', 'address', 'notes', 'updated_at'],
+  ),
+}
+
 const TABLES = {
   // ── Back office ──────────────────────────────────────────────────────────
   products:              backOffice,
@@ -115,18 +161,26 @@ const EDGE = {
  *           {ok: true, force?: {column: string, value: string}}}
  *   `force` means "allowed, but only for their own rows" — the caller must add
  *   it as a filter on reads and as a locked value on writes.
+ *   `guard` limits which columns a non-staff caller may set, and pins the ones
+ *   the server decides.
  */
 function authorize(table, op, role, userId) {
   const rule = TABLES[table]
   if (!rule) return { ok: false, reason: `Table '${table}' is not available through the API` }
 
+  // Staff are trusted with every column; everyone else writes through a guard
+  // where one exists. Reads are unaffected — this only shapes what goes in.
+  const guardFor = op === 'insert' || op === 'update'
+    ? (role === 'staff' ? null : GUARDS[table] || null)
+    : null
+
   const allowed = rule[op] || []
-  if (allowed.includes(role)) return { ok: true }
+  if (allowed.includes(role)) return { ok: true, guard: guardFor }
 
   const own = rule.own
   if (own && own.role === role && own.ops.includes(op)) {
     if (!userId) return { ok: false, reason: 'Sign in to do that' }
-    return { ok: true, force: { column: own.column, value: userId } }
+    return { ok: true, force: { column: own.column, value: userId }, guard: guardFor }
   }
 
   return {
