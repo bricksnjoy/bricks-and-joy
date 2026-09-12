@@ -121,28 +121,48 @@ export function VideoEmbed({ url }) {
   return <video src={url} controls style={{ width: '100%', borderRadius: 14, background: '#000' }} />
 }
 
+// Built like the back office's inventory card: the photograph floats on its own
+// rounded tile and the words sit on the page underneath it, rather than
+// everything living inside one bordered box. The tile carries the lift on hover
+// — the text stays put, so a row of cards does not jitter as the cursor crosses
+// it.
 export function ProductCard({ p }) {
   const { navigate, addToCart, wishlist, toggleWish } = useShop()
   const low = Number(p.stock_qty) > 0 && Number(p.stock_qty) <= 3
   const sale = onSale(p)
   const wished = wishlist?.includes(p.id)
   const tag = p.badge || (sale ? `Save ${Math.round((1 - num(p.sale_price) / num(p.sell_price)) * 100)}%` : null)
+  const rated = Number(p.review_count) > 0
   return (
     <div className="sh-card" onClick={() => navigate(`/product/${p.id}`)}>
-      <div style={{ position: 'relative' }}>
-        <ProductImage src={p.photo_url} name={p.name} style={{ width: '100%', aspectRatio: '1/1' }} />
+      <div className="sh-tile">
+        <ProductImage src={p.photo_url} name={p.name} className="sh-tile-img" style={{ width: '100%', height: '100%', padding: 0 }} />
         {tag && <span className="sh-tag" style={sale && !p.badge ? { background: '#E24B4A' } : undefined}>{tag}</span>}
         <button className="sh-heart" title={wished ? 'Remove from wishlist' : 'Save to wishlist'} onClick={e => { e.stopPropagation(); toggleWish(p.id) }}>
           <Heart size={17} color={wished ? '#E24B4A' : '#9a9186'} fill={wished ? '#E24B4A' : 'none'} />
         </button>
+        {/* The rating rides on the picture as a chip, the way the back office
+            shows a product's numbers, so the words below stay to the point. */}
+        {rated && (
+          <div className="sh-chips">
+            <span className="sh-chip">
+              <Star size={12} color="#f5a623" fill="#f5a623" />
+              {num(p.avg_rating).toFixed(1)} ({p.review_count})
+            </span>
+          </div>
+        )}
       </div>
+
       <div className="bd">
-        {p.category && <span className="sh-cat">{p.category}</span>}
         <span className="sh-name">{p.name}</span>
-        {Number(p.review_count) > 0 && <Stars rating={p.avg_rating} size={12} />}
+        {p.category && <span className="sh-cat">{p.category}</span>}
         {low && <span className="sh-low">Only {p.stock_qty} left</span>}
-        <span className="sh-price">{money(effPrice(p))}{sale && <span className="sh-was">{money(p.sell_price)}</span>}</span>
-        <button className="sh-add" onClick={e => { e.stopPropagation(); addToCart(p) }}><Plus size={14} /> Add to cart</button>
+        <div className="sh-buyrow">
+          <span className="sh-price">{money(effPrice(p))}{sale && <span className="sh-was">{money(p.sell_price)}</span>}</span>
+          <button className="sh-buy" title="Add to cart" onClick={e => { e.stopPropagation(); addToCart(p) }}>
+            <Plus size={14} /> Add
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -436,22 +456,66 @@ export function ShopStyles() {
     .sh-see{ background:none; border:none; color:#b8740a; font-weight:700; font-size:13px; cursor:pointer; }
 
     /* grids & cards */
-    .sh-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(215px,1fr)); gap:18px; }
-    @media(max-width:560px){ .sh-grid{ grid-template-columns:1fr 1fr; gap:12px; } }
-    .sh-card{ background:#fff; border:1px solid #f0ebe3; border-radius:16px; overflow:hidden; cursor:pointer; display:flex; flex-direction:column; transition:transform .15s, box-shadow .15s; }
-    .sh-card:hover{ transform:translateY(-3px); box-shadow:0 14px 30px rgba(13,27,42,0.09); }
-    .sh-card .bd{ padding:12px 13px 14px; display:flex; flex-direction:column; gap:5px; flex:1; }
-    .sh-cat{ font-size:10.5px; font-weight:700; color:#c7a15a; text-transform:uppercase; letter-spacing:0.5px; }
-    .sh-name{ font-size:13.5px; font-weight:600; line-height:1.35; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
-    .sh-price{ font-size:16px; font-weight:800; margin-top:auto; }
-    .sh-was{ font-size:12.5px; font-weight:600; color:#b0a595; text-decoration:line-through; margin-left:7px; }
+    /* The inventory grid from the back office, brought over whole: the same
+       tile radius, the same layered inset highlights, the same lift. The
+       numbers are copied rather than approximated — a shadow that is nearly
+       the same reads as a mistake next to the real one. */
+    .sh-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,372px),1fr)); gap:34px 28px; }
+    /* Two across on a phone. The back office goes to one, but that is a tool
+       you work down a list in; this is a shop, and a shopper wants to compare. */
+    @media(max-width:560px){ .sh-grid{ grid-template-columns:1fr 1fr; gap:20px 12px; } }
+    @keyframes shCardIn{ from{ opacity:0; transform:translateY(14px); } to{ opacity:1; transform:translateY(0); } }
+    .sh-card{ animation:shCardIn .35s ease both; position:relative; display:flex; flex-direction:column; height:100%; cursor:pointer; }
+    .sh-tile{
+      position:relative; width:100%; aspect-ratio:372/443; border-radius:22px; overflow:hidden; background:#fff;
+      box-shadow: inset 0 1.5px 0 rgba(255,255,255,0.95), inset 0 -3px 8px rgba(0,0,0,0.07),
+                  inset 0 0 0 1px rgba(0,0,0,0.04), 0 2px 6px rgba(0,0,0,0.05);
+      transition: transform .28s cubic-bezier(.2,.7,.3,1), box-shadow .28s;
+    }
+    .sh-card:hover .sh-tile{
+      transform:translateY(-6px) scale(1.012);
+      box-shadow: inset 0 1.5px 0 rgba(255,255,255,0.95), inset 0 -3px 8px rgba(0,0,0,0.07),
+                  inset 0 0 0 1px rgba(0,0,0,0.04), 0 16px 34px rgba(13,27,42,0.16);
+    }
+    .sh-tile-img{ object-fit:contain; background:#fff; display:block; padding:25px !important; box-sizing:border-box; }
+    @media(max-width:600px){ .sh-tile{ border-radius:18px; } .sh-tile-img{ padding:16px !important; } }
+    /* Chips on the picture, as the back office does with its stock numbers */
+    .sh-chips{ position:absolute; bottom:12px; left:12px; right:12px; display:flex; gap:8px; justify-content:center; pointer-events:none; }
+    .sh-chip{ display:inline-flex; align-items:center; gap:4px; font-size:11.5px; font-weight:700; color:#4a5568; background:rgba(255,255,255,0.88); backdrop-filter:blur(6px); padding:5px 10px; border-radius:999px; box-shadow:0 2px 6px rgba(0,0,0,0.08); }
+    .sh-card .bd{ text-align:center; padding:16px 8px 0; display:flex; flex-direction:column; flex:1; }
+    .sh-cat{ font-size:12px; font-weight:600; color:#aaa; margin-top:4px; }
+    /* Two lines' worth of room whether or not the name needs it, so the prices
+       across a row line up instead of stepping up and down. */
+    .sh-name{ font-size:19px; font-weight:700; color:#0d1b2a; letter-spacing:-0.3px; line-height:1.2; min-height:2.4em; display:flex; align-items:center; justify-content:center; }
+    .sh-buyrow{ display:flex; align-items:center; justify-content:center; gap:11px; margin-top:auto; padding:9px 0 4px; flex-wrap:wrap; }
+    .sh-price{ font-size:18px; font-weight:700; color:#0d1b2a; letter-spacing:-0.3px; }
+    .sh-was{ font-size:13px; font-weight:600; color:#b0a595; text-decoration:line-through; margin-left:7px; }
+    .sh-buy{ display:inline-flex; align-items:center; gap:6px; padding:9px 16px; border-radius:999px; border:none; cursor:pointer; font-family:inherit; font-size:13px; font-weight:700; color:#fff; background:linear-gradient(135deg,#FFA500,#ff8c00); box-shadow:0 4px 12px rgba(255,165,0,0.28); transition:transform .15s, box-shadow .15s; }
+    .sh-buy:hover{ transform:translateY(-1px); box-shadow:0 7px 18px rgba(255,165,0,0.36); }
+    /* Those sizes are pitched at a 372px column. Two of these fit across a
+       phone, so the type comes down with the column rather than shouting. */
+    @media(max-width:560px){
+      .sh-name{ font-size:15px; letter-spacing:-0.2px; }
+      .sh-cat{ font-size:11px; }
+      .sh-low{ font-size:12.5px; margin-top:6px; }
+      .sh-price{ font-size:16px; }
+      .sh-was{ font-size:11.5px; margin-left:5px; }
+      .sh-buy{ font-size:12px; padding:8px 13px; }
+      .sh-card .bd{ padding:12px 4px 0; }
+      .sh-chip{ font-size:10.5px; padding:4px 8px; }
+    }
     .sh-announce{ background:#0d1b2a; color:#fff; text-align:center; font-size:13px; font-weight:600; padding:8px 14px; }
-    .sh-low{ font-size:11px; color:#E24B4A; font-weight:600; }
+    .sh-low{ font-size:15px; font-weight:800; color:#f57f17; margin-top:9px; }
     .sh-add{ margin-top:8px; border:none; background:#FFF1D6; color:#b8740a; font-weight:700; font-size:12.5px; padding:9px; border-radius:10px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:6px; }
     .sh-add:hover{ background:#ffe6b8; }
     .sh-tag{ position:absolute; top:10px; left:10px; background:#0d1b2a; color:#fff; font-size:10.5px; font-weight:800; padding:4px 9px; border-radius:99px; text-transform:uppercase; letter-spacing:0.4px; }
-    .sh-heart{ position:absolute; top:8px; right:8px; width:32px; height:32px; border-radius:50%; background:rgba(255,255,255,0.9); border:none; cursor:pointer; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 6px rgba(0,0,0,0.08); }
-    .sh-heart:hover{ background:#fff; }
+    /* Kept off the picture until the cursor arrives, the way the back office
+       holds its card actions back — but always there on a touchscreen, where
+       there is no hover and a hidden button is simply a missing one. */
+    .sh-heart{ position:absolute; top:12px; right:12px; width:34px; height:34px; border-radius:11px; background:rgba(255,255,255,0.92); backdrop-filter:blur(6px); border:none; cursor:pointer; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 8px rgba(0,0,0,0.14); opacity:0; transition:opacity .2s, transform .15s; }
+    .sh-card:hover .sh-heart{ opacity:1; }
+    .sh-heart:hover{ transform:scale(1.1); }
+    @media(hover:none){ .sh-heart{ opacity:1; } }
 
     /* tiles (age / category) */
     .sh-tiles{ display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:14px; }
