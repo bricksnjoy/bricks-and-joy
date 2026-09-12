@@ -27,11 +27,14 @@ export function previewAllowed() {
 // these under Website → Delivery & gift wrapping; these are only the fallbacks
 // used before anything has been saved there.
 //
-// Free to Malé and Hulhumalé, MVR 30 anywhere a ferry is involved. Villingili
-// counts as the ferry rate: it is neither Malé nor Hulhumalé.
+// Free across greater Malé — Malé, Hulhumalé and Villingili — and MVR 30 out to
+// the other islands. The two free zones are kept as separate lines rather than
+// merged into one: "Greater Malé" carries an "etc." that covers whatever else
+// sits in the lagoon, and folding it into the first line would drop that and
+// push those addresses onto the MVR 30 option by default.
 export const SHIPPING = [
   { label: 'Malé / Hulhumalé', fee: 0 },
-  { label: 'Greater Malé (Villingili, etc.)', fee: 30 },
+  { label: 'Greater Malé (Villingili, etc.)', fee: 0 },
   { label: 'Other islands (ferry / courier)', fee: 30 },
 ]
 export const GIFT_WRAP_FEE = 30

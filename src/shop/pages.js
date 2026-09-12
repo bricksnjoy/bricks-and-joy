@@ -388,7 +388,7 @@ export function CartPage() {
             <Gift size={18} color="#FFA500" />
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 700, fontSize: 14 }}>Add gift wrapping</div>
-              <div style={{ fontSize: 12.5, color: '#8a8278' }}>We'll wrap it beautifully — {feeOrFree(GIFT_WRAP_FEE).toLowerCase()}</div>
+              <div style={{ fontSize: 12.5, color: '#8a8278' }}>We'll wrap it beautifully — {GIFT_WRAP_FEE > 0 ? money(GIFT_WRAP_FEE) : 'free'}</div>
             </div>
           </div>
 
@@ -409,7 +409,7 @@ export function CartPage() {
           <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 14 }}>Order summary</div>
           <Field label="Delivering to">
             <select value={shipIdx} onChange={e => setShipIdx(Number(e.target.value))}>
-              {SHIPPING.map((s, i) => <option key={i} value={i}>{s.label} — {feeOrFree(s.fee).toLowerCase()}</option>)}
+              {SHIPPING.map((s, i) => <option key={i} value={i}>{s.label} — {feeOrFree(s.fee)}</option>)}
             </select>
           </Field>
           {freeOver > 0 && !freeShip && <div style={{ fontSize: 12, color: '#1D9E75', fontWeight: 600, marginBottom: 8 }}>Add {money(freeOver - cartSubtotal)} more for FREE delivery 🎉</div>}
@@ -720,7 +720,7 @@ The Brick's & Joy team`,
                 {freeShip
                   ? <>🚚 Free delivery on this order.</>
                   : shipFee > 0
-                    ? <>🚚 Delivered to your front door. {money(shipFee)} for {zone.label.toLowerCase()}.</>
+                    ? <>🚚 Delivered to your front door. {money(shipFee)} to {zone.label}.</>
                     : <>🚚 Free delivery to your front door.</>}
                 {GIFT_WRAP_FEE === 0 && ' Gift wrapping is on us too.'}
               </div>
