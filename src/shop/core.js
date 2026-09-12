@@ -597,6 +597,12 @@ export function ShopStyles() {
     .sh-giftnote textarea::placeholder{ color:#b5ab9c; }
     .sh-giftnote-c{ text-align:right; font-size:11px; color:#b5ab9c; margin-top:5px; }
     .sh-toggle.on{ border-color:#FFA500; background:#FFF8EC; }
+    /* Ticked, the toggle and the note below it are one control: the toggle
+       gives up its bottom corners and the note takes the same orange edge and
+       cream fill, its -1px pulling it over the join. Left as two outlines in
+       two different colours it read as a stray panel stuck underneath. */
+    .sh-toggle.on{ border-bottom-left-radius:0; border-bottom-right-radius:0; }
+    .sh-toggle.on + .sh-giftnote{ border-color:#FFA500; background:#FFF8EC; }
     .sh-check{ width:22px; height:22px; border-radius:6px; border:2px solid #d8cdbb; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
     .sh-toggle.on .sh-check{ background:#FFA500; border-color:#FFA500; }
 
