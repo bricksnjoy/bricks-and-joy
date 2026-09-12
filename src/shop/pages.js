@@ -57,9 +57,7 @@ const ORDER_STATUS = {
 const PROMO_ICONS = [Truck, Gift, ShieldCheck, Sparkles]
 export function Home() {
   const { products, loading, navigate, settings } = useShop()
-  const ages = useMemo(() => Array.from(new Set(products.map(p => p.age_range).filter(Boolean))).slice(0, 6), [products])
-  const cats = useMemo(() => Array.from(new Set(products.map(p => p.category).filter(Boolean))).slice(0, 8), [products])
-  const featured = useMemo(() => products.filter(p => p.featured).slice(0, 8), [products])
+  const featured = useMemo(() => products.filter(p => p.featured).slice(0, 10), [products])
   const newest = useMemo(() => products.slice(0, 10), [products])
   const promos = (settings.promos || []).filter(Boolean).slice(0, 3)
   if (loading) return <Loading />
@@ -81,35 +79,19 @@ export function Home() {
         </div>
       )}
 
-      {ages.length > 0 && (<>
-        <div className="sh-sec-h"><h2>Shop by age</h2><button className="sh-see" onClick={() => navigate('/shop-by-age')}>See all</button></div>
-        <div className="sh-tiles">
-          {ages.map((a, i) => (
-            <button key={a} className="sh-tile" style={{ background: TILE_COLORS[i % TILE_COLORS.length] }} onClick={() => navigate(`/products?age=${encodeURIComponent(a)}`)}>
-              <span className="emoji">{ageEmoji(a)}</span>Ages {a}
-            </button>
-          ))}
-        </div>
-      </>)}
+      {/* Shop by age and Browse categories have their own pages, reachable from
+          the header and the hero. On the front they were two rows of coloured
+          boxes between the shopper and the toys — and with one category in the
+          shop, "Browse categories" was a heading over a single tile. */}
 
       {featured.length > 0 && (<>
         <div className="sh-sec-h"><h2>✨ Featured & seasonal</h2><button className="sh-see" onClick={() => navigate('/products')}>Shop all</button></div>
-        <div className="sh-grid">{featured.map(p => <ProductCard key={p.id} p={p} />)}</div>
-      </>)}
-
-      {cats.length > 0 && (<>
-        <div className="sh-sec-h"><h2>Browse categories</h2></div>
-        <div className="sh-tiles">
-          {cats.map((c, i) => (
-            <button key={c} className="sh-tile" style={{ background: TILE_COLORS[(i + 3) % TILE_COLORS.length], fontSize: 14 }} onClick={() => navigate(`/products?cat=${encodeURIComponent(c)}`)}>
-              <span className="emoji">🧩</span>{c}
-            </button>
-          ))}
-        </div>
+        <div className="sh-rack"><div className="sh-grid">{featured.map(p => <ProductCard key={p.id} p={p} />)}</div></div>
       </>)}
 
       <div className="sh-sec-h"><h2>New arrivals</h2><button className="sh-see" onClick={() => navigate('/products')}>See all</button></div>
-      {newest.length ? <div className="sh-grid">{newest.map(p => <ProductCard key={p.id} p={p} />)}</div>
+      {newest.length
+        ? <div className="sh-rack"><div className="sh-grid">{newest.map(p => <ProductCard key={p.id} p={p} />)}</div></div>
         : <div className="sh-empty"><Package size={40} color="#e5dcc9" /><div style={{ marginTop: 10, fontWeight: 600 }}>No products yet — check back soon!</div></div>}
     </div>
   )
@@ -212,7 +194,7 @@ export function Listing() {
 
       {list.length === 0 ? (
         <div className="sh-empty"><Package size={40} color="#e5dcc9" /><div style={{ marginTop: 10, fontWeight: 600 }}>Nothing matches these filters.</div></div>
-      ) : <div className="sh-grid">{list.map(p => <ProductCard key={p.id} p={p} />)}</div>}
+      ) : <div className="sh-rack"><div className="sh-grid">{list.map(p => <ProductCard key={p.id} p={p} />)}</div></div>}
     </div>
   )
 }
@@ -351,7 +333,22 @@ export function ProductPage() {
 
 // ── Cart ────────────────────────────────────────────────────────────────────────
 export function CartPage() {
-  const { cart, setQty, removeItem, cartSubtotal, giftWrap, setGiftWrap, shipIdx, setShipIdx, navigate, settings } = useShop()
+  const { cart, setQty, removeItem, cartSubtotal, giftWrap, setGiftWrap, giftNote, setGiftNote, shipIdx, setShipIdx, navigate, settings, products } = useShop()
+
+  // What else to show somebody who is already holding something. Best-sellers
+  // would be the obvious answer and cannot be done from here: the shop reads
+  // only the product list, and how many of each has sold lives in the orders
+  // table, which no shopper is allowed to read. So: things from the same
+  // category as what is in the cart first, then whatever is marked featured,
+  // then anything at all — never what they have already picked up.
+  const alsoLike = useMemo(() => {
+    const inCart = new Set(cart.map(c => c.id))
+    const wanted = new Set(cart.map(c => products.find(p => p.id === c.id)?.category).filter(Boolean))
+    const free = products.filter(p => !inCart.has(p.id) && Number(p.stock_qty) > 0)
+    const rank = p => (wanted.has(p.category) ? 0 : p.featured ? 1 : 2)
+    return free.slice().sort((a, b) => rank(a) - rank(b)).slice(0, 5)
+  }, [cart, products])
+
   const SHIPPING = settings.shipping || []
   const GIFT_WRAP_FEE = num(settings.gift_wrap_fee)
   const freeOver = num(settings.free_delivery_over)
@@ -394,6 +391,18 @@ export function CartPage() {
               <div style={{ fontSize: 12.5, color: '#8a8278' }}>We'll wrap it beautifully — {money(GIFT_WRAP_FEE)}</div>
             </div>
           </div>
+
+          {/* Only once the box is ticked. Asked for before that it is a field
+              about something the shopper has not chosen to buy. */}
+          {giftWrap && (
+            <div className="sh-giftnote">
+              <label htmlFor="giftnote">How would you like it wrapped?</label>
+              <textarea id="giftnote" rows={3} maxLength={500}
+                value={giftNote} onChange={e => setGiftNote(e.target.value)}
+                placeholder="Colours, paper, ribbon, a message on the tag — anything you'd like. Leave it blank and we'll choose something nice." />
+              <div className="sh-giftnote-c">{giftNote.length}/500</div>
+            </div>
+          )}
         </div>
 
         <div className="sh-summary">
@@ -414,6 +423,14 @@ export function CartPage() {
           <div style={{ fontSize: 11.5, color: '#a79a80', marginTop: 10, textAlign: 'center' }}>Delivery is an estimate — final charge confirmed with you.</div>
         </div>
       </div>
+
+      {alsoLike.length > 0 && (<>
+        <div className="sh-sec-h" style={{ marginTop: 40 }}>
+          <h2>You might also like</h2>
+          <button className="sh-see" onClick={() => navigate('/products')}>See all</button>
+        </div>
+        <div className="sh-rack"><div className="sh-grid">{alsoLike.map(p => <ProductCard key={p.id} p={p} />)}</div></div>
+      </>)}
     </div>
   )
 }
@@ -425,7 +442,7 @@ export function CartPage() {
 const NOTIFY_CUSTOMER = false
 
 export function CheckoutPage() {
-  const { cart, cartSubtotal, giftWrap, user, navigate, clearCart, setLastOrder, settings, removeItem } = useShop()
+  const { cart, cartSubtotal, giftWrap, giftNote, user, navigate, clearCart, setLastOrder, settings, removeItem } = useShop()
   const GIFT_WRAP_FEE = num(settings.gift_wrap_fee)
   const [payMethod, setPayMethod] = useState('')   // '' until the shopper picks one
   // Pickup is disabled for now — there's no store to collect from, so every
@@ -509,10 +526,12 @@ export function CheckoutPage() {
       // have no slip, so they never auto-confirm.
       const slipMatches = !cash && slip?.amount != null && Math.abs(num(slip.amount) - total) < 1
       const payLabel = cash ? 'Cash' : 'Bank Transfer'
+      const wrapNote = (giftNote || '').trim()
       const extras = [
         pickup ? 'Website order · 🏬 PICKUP from store' : `Website order · ${form.island}`,
         !pickup && form.landmark.trim() ? `Landmark: ${form.landmark.trim()}` : '',
         giftWrap ? `Gift wrap +${money(GIFT_WRAP_FEE)}` : '',
+        giftWrap && wrapNote ? `Wrapping: ${wrapNote}` : '',
         pickup ? 'Pickup — collect from store' : 'Delivery — free (front door & ferry)',
         applied ? `Coupon ${applied.code} −${money(discount)}` : '',
         `Amount to pay ${money(total)}`,
@@ -559,7 +578,9 @@ export function CheckoutPage() {
           fulfilment: pickup ? 'pickup' : 'delivery',
           delivery_fee: isFirst ? shipFee : 0,
           delivery_fee_covered: false,
-          special_request: isFirst && giftWrap ? 'Gift wrapping' : '',
+          // The shopper's own words, not just that they ticked the box —
+          // otherwise the instruction is collected and then thrown away.
+          special_request: isFirst && giftWrap ? (wrapNote ? `Gift wrapping — ${wrapNote}` : 'Gift wrapping') : '',
           special_request_cost: isFirst ? wrapFee : 0,
           special_request_covered: false,
           notes: isFirst ? extras : '',
@@ -809,6 +830,14 @@ The Brick's & Joy team`,
 
           <div className="co-row"><span>Subtotal</span><span>{money(cartSubtotal)}</span></div>
           {giftWrap && <div className="co-row"><span>Gift wrapping</span><span>{money(GIFT_WRAP_FEE)}</span></div>}
+          {/* Read back, so nobody pays for wrapping without seeing what they
+              asked for — and can go back a page to change it. */}
+          {giftWrap && giftNote.trim() && (
+            <div className="co-row" style={{ alignItems: 'flex-start' }}>
+              <span style={{ flexShrink: 0 }}>Wrapping</span>
+              <span style={{ textAlign: 'right', fontStyle: 'italic', lineHeight: 1.5, maxWidth: '65%' }}>“{giftNote.trim()}”</span>
+            </div>
+          )}
           <div className="co-row"><span>{pickup ? 'Pickup' : 'Delivery'}</span><span style={{ color: '#1D9E75', fontWeight: 700 }}>FREE</span></div>
           {discount > 0 && <div className="co-row" style={{ color: '#1D9E75' }}><span>Discount</span><span>−{money(discount)}</span></div>}
           <div className="co-tot"><span>Total</span><span><span className="usd">MVR</span>{money(total).replace('MVR ', '')}</span></div>
@@ -898,7 +927,7 @@ export function Wishlist() {
           <div style={{ marginTop: 10, fontWeight: 600, color: '#8a8278' }}>Nothing saved yet — tap the ♥ on any toy to save it here.</div>
           <button className="sh-btn sh-btn-o" style={{ marginTop: 16 }} onClick={() => navigate('/products')}>Browse toys</button>
         </div>
-      ) : <div className="sh-grid">{items.map(p => <ProductCard key={p.id} p={p} />)}</div>}
+      ) : <div className="sh-rack"><div className="sh-grid">{items.map(p => <ProductCard key={p.id} p={p} />)}</div></div>}
     </div>
   )
 }
