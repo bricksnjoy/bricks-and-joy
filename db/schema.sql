@@ -475,6 +475,37 @@ create table if not exists audit_log (
 );
 create index if not exists audit_log_at_idx on audit_log(at desc);
 
+-- ── SECURITY REPORTS ────────────────────────────────────────────────────────
+-- What the browser's security policy would have blocked.
+--
+-- The Content-Security-Policy in deploy/Caddyfile runs in Report-Only mode:
+-- browsers report what the policy WOULD stop, and let it through anyway. Those
+-- reports arrive at /api/csp-report and land here, so the Security page in the
+-- back office can show them instead of them living only in a server log nobody
+-- opens.
+--
+-- One row per distinct problem, not per occurrence. A page that trips the
+-- policy trips it on every single load, so the same violation would otherwise
+-- write thousands of identical rows a day; the unique index below turns a
+-- repeat into hits = hits + 1 and a new last_seen.
+--
+-- Written only by the server, never through the API's query layer — which is
+-- why policies.js gives this table no insert policy at all.
+create table if not exists security_reports (
+  id uuid primary key default gen_random_uuid(),
+  directive text not null,          -- which rule: script-src, img-src, …
+  blocked_uri text not null,        -- where it wanted to load from, or 'inline'
+  document_uri text,                -- the page it happened on
+  hits integer not null default 1,
+  first_seen timestamptz default now(),
+  last_seen timestamptz default now(),
+  acknowledged boolean not null default false,
+  acknowledged_by text,
+  acknowledged_at timestamptz
+);
+create unique index if not exists security_reports_key_idx on security_reports(directive, blocked_uri);
+create index if not exists security_reports_last_idx on security_reports(last_seen desc);
+
 -- ── RECONCILIATION ──────────────────────────────────────────────────────────
 create table if not exists reconciliations (
   id uuid primary key default gen_random_uuid(),

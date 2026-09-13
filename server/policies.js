@@ -108,6 +108,15 @@ const TABLES = {
   // not a log.
   audit_log:             { select: STAFF, insert: STAFF, update: [], delete: [] },
 
+  // Browser security-policy reports. Staff read them on the Security page and
+  // mark them as dealt with; deleting one clears it once it has been fixed.
+  //
+  // No insert policy, deliberately. These rows are written by the server in
+  // routes/csp-report.js, straight through db.query, because the browser
+  // posting the report is an anonymous stranger and must not be able to reach
+  // the table through the ordinary API — otherwise anyone could fill it.
+  security_reports:      { select: STAFF, insert: [], update: STAFF, delete: STAFF },
+
   // ── Shop ─────────────────────────────────────────────────────────────────
   // The public product view. cost_price is not in it, so browsing is safe.
   shop_products:         { select: ANY, insert: [], update: [], delete: [] },

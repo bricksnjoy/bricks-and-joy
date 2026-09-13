@@ -94,6 +94,7 @@ app.use('/api', rateLimit({
 app.use('/api', identify)
 
 // ── routes ──────────────────────────────────────────────────────────────────
+app.use('/api/csp-report', require('./routes/csp-report'))
 app.use('/api/auth',      require('./routes/auth'))
 app.use('/api/db',        require('./routes/db'))
 app.use('/api/rpc',       require('./routes/rpc'))

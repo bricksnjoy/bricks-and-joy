@@ -25,6 +25,7 @@ import StockReport from './pages/StockReport'
 import HelpGuide from './pages/HelpGuide'
 import Settings from './pages/Settings'
 import AuditLog from './pages/AuditLog'
+import Security from './pages/Security'
 import Storefront from './pages/Storefront'
 import Loans from './pages/Loans'
 import Cash from './pages/Cash'
@@ -32,7 +33,7 @@ import {
   LayoutDashboard, ShoppingCart, Package, Users,
   DollarSign, BarChart2, Truck, ChevronDown, ChevronRight,
   LogOut, Building2, FileText, Menu, CalendarDays, Tag, BookOpen,
-  GripVertical, Check, Settings2, MoreVertical, Sparkles, MessageSquare, LifeBuoy, TrendingUp, Scale, ClipboardList, Settings as SettingsIcon, History, Globe, Landmark, Calculator, Wallet, Megaphone
+  GripVertical, Check, Settings2, MoreVertical, Sparkles, MessageSquare, LifeBuoy, TrendingUp, Scale, ClipboardList, Settings as SettingsIcon, History, Globe, Landmark, Calculator, Wallet, Megaphone, ShieldAlert
 } from 'lucide-react'
 
 // Catalog of every page. The sidebar layout (sections + order) is built from
@@ -63,13 +64,14 @@ const ITEMS = {
   vendors:            { label: 'Vendors',           icon: Building2,       render: <Vendors /> },
   statistics:         { label: 'Analytics',         icon: BarChart2,       render: <Statistics /> },
   'audit-log':        { label: 'Audit Log',         icon: History,         render: <AuditLog /> },
+  security:           { label: 'Security',          icon: ShieldAlert,     render: <Security /> },
 }
 
 const DEFAULT_NAV = [
   { id: 'main',       section: null,             items: ['dashboard', 'website'] },
   { id: 'pos',        section: 'Point of Sale',  items: ['orders', 'invoices', 'customers', 'deliveries', 'tasks', 'messages', 'planning'] },
   { id: 'inventory',  section: 'Inventory',      items: ['inventory', 'categories', 'supplier-catalog', 'order-analysis', 'purchase-orders', 'stock-report'] },
-  { id: 'accounting', section: 'Accounting',     items: ['cash', 'loans', 'future-plans', 'profit-loss', 'reconciliation', 'costs', 'ads', 'vendors', 'statistics', 'audit-log'] },
+  { id: 'accounting', section: 'Accounting',     items: ['cash', 'loans', 'future-plans', 'profit-loss', 'reconciliation', 'costs', 'ads', 'vendors', 'statistics', 'audit-log', 'security'] },
 ]
 
 const NAV_KEY = 'bnj_nav_layout_v1'
@@ -176,6 +178,7 @@ export default function App() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [alerts, setAlerts] = useState(0)   // unreviewed security reports
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -206,6 +209,29 @@ export default function App() {
       })
     return () => { live = false }
   }, [session])
+
+  // How many security reports nobody has looked at yet.
+  //
+  // The browser security policy runs in report-only mode and files anything it
+  // would have blocked (see src/pages/Security.js). Those reports arrive on
+  // their own schedule — whenever a visitor happens to trip one — so there is
+  // nothing to react to; this asks every few minutes, and on every sign-in.
+  //
+  // Deliberately quiet about failure. An older server without the table, or a
+  // dropped connection, must not put an error in front of somebody trying to
+  // take an order.
+  useEffect(() => {
+    if (!session) return
+    let live = true
+    const check = () => {
+      supabase.from('security_reports').select('id').eq('acknowledged', false).limit(100)
+        .then(({ data, error }) => { if (live && !error) setAlerts((data || []).length) })
+        .catch(() => {})
+    }
+    check()
+    const t = setInterval(check, 5 * 60 * 1000)
+    return () => { live = false; clearInterval(t) }
+  }, [session, page])
 
   function persist(next) {
     setNav(next)
@@ -429,6 +455,11 @@ export default function App() {
                     {editMode && <GripVertical size={13} color="#d8cdbb" style={{ flexShrink: 0 }} />}
                     <item.icon size={15} color={page === id && !editMode ? '#fff' : '#aaa'} style={{ flexShrink: 0 }} />
                     {item.label}
+                    {id === 'security' && alerts > 0 && !editMode && (
+                      <span style={{ marginLeft: 'auto', minWidth: 18, height: 18, padding: '0 5px', borderRadius: 99, background: '#e74c3c', color: '#fff', fontSize: 10.5, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        {alerts >= 100 ? '99+' : alerts}
+                      </span>
+                    )}
                   </button>
                 )
               })}
@@ -501,6 +532,28 @@ export default function App() {
             {currentItem?.label || 'Dashboard'}
           </span>
           <OnlineUsers session={session} pageLabel={currentItem?.label || 'Dashboard'} />
+
+          {/* Security alert. Sits in the header rather than only on the sidebar
+              item, because the sidebar is hidden on a phone and this is the
+              one thing that should reach somebody wherever they are. It shows
+              only when there is something to see. */}
+          {alerts > 0 && page !== 'security' && (
+            <button onClick={() => { setPage('security'); setSidebarOpen(false) }}
+              title="Something was reported by the website's security policy"
+              style={{
+                display: 'flex', alignItems: 'center', gap: 7,
+                background: '#FDECEA', border: '1px solid #F7C9C3', color: '#c0392b',
+                padding: '6px 12px', borderRadius: 99, cursor: 'pointer',
+                fontSize: 12, fontWeight: 700, fontFamily: 'inherit', flexShrink: 0,
+              }}>
+              <ShieldAlert size={14} />
+              <span className="alert-text">
+                {alerts >= 100 ? '99+' : alerts} security {alerts === 1 ? 'report' : 'reports'}
+              </span>
+            </button>
+          )}
+          {/* On a narrow screen the count alone is enough — the icon carries the meaning. */}
+          <style>{`@media (max-width: 560px) { .alert-text { display: none; } }`}</style>
         </div>
 
         <div key={page} className="page-content" style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '22px 26px' }}>
