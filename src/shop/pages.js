@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import {
   BANK, money, num, genInvoice, dropMissingCol, onSale, effPrice,
@@ -9,6 +9,7 @@ import {
   Sparkles, ShoppingCart, Trash2, LogOut, Star, Package, ChevronRight, Eye, EyeOff, Heart
 } from 'lucide-react'
 import { localToday } from '../lib/dates'
+import { netOf, sumNet } from '../lib/money'
 import { uploadImage, SLIP } from '../lib/uploadImage'
 import { readSlip } from '../lib/slipOcr'
 import { sendEmail } from '../lib/emailer'
@@ -509,16 +510,35 @@ export function CheckoutPage() {
     })
   }, [user]) // eslint-disable-line
 
-  async function applyCoupon() {
-    if (!coupon.trim()) return
-    setChecking(true); setCouponMsg('')
-    const { data, error } = await supabase.rpc('validate_coupon', { p_code: coupon.trim(), p_subtotal: cartSubtotal })
-    setChecking(false)
+  async function applyCoupon(code = coupon, quiet = false) {
+    const c = String(code || '').trim()
+    if (!c) return false
+    if (!quiet) { setChecking(true); setCouponMsg('') }
+    const { data, error } = await supabase.rpc('validate_coupon', { p_code: c, p_subtotal: cartSubtotal })
+    if (!quiet) setChecking(false)
     const row = Array.isArray(data) ? data[0] : data
-    if (error || !row || !row.valid) { setApplied(null); setCouponMsg(row?.message || 'Invalid code'); return }
-    setApplied({ type: row.discount_type, value: row.discount_value, code: coupon.trim().toUpperCase() })
+    if (error || !row || !row.valid) {
+      setApplied(null)
+      setCouponMsg(row?.message || (quiet ? 'That code no longer applies to this basket' : 'Invalid code'))
+      return false
+    }
+    setApplied({ type: row.discount_type, value: row.discount_value, code: c.toUpperCase() })
     setCouponMsg('Applied')
+    return true
   }
+
+  // A code is checked against the basket it was given for. Change the basket and
+  // that answer is stale — a code needing MVR 500 stayed applied while items were
+  // taken back out, so the discount came off an order that no longer qualified.
+  // Re-asked whenever the subtotal moves; the server decides, same as the first
+  // time. Skipped on the first render, when nothing has changed yet.
+  const checkedFor = useRef(null)
+  useEffect(() => {
+    if (!applied) { checkedFor.current = cartSubtotal; return }
+    if (checkedFor.current === cartSubtotal) return
+    checkedFor.current = cartSubtotal
+    applyCoupon(applied.code, true)
+  }, [cartSubtotal]) // eslint-disable-line
 
   async function placeOrder() {
     if (!detailsComplete || !cart.length) return
@@ -590,12 +610,17 @@ export function CheckoutPage() {
       // The legacy delivery_fee and special_request_cost columns stay at zero
       // deliberately. The order editor reads charge rows AND those columns, so
       // filling in both would show staff the same fee twice.
-      for (let i = 0; i < cart.length; i++) {
-        const it = cart[i]
+      //
+      // Built first, sent as one insert. Sending them one at a time meant a
+      // failure on the third line left the first two behind: the shopper was
+      // told the order had not gone through, tried again, and the shop was left
+      // with half an invoice nobody placed beside the whole one they did. One
+      // statement either writes every line or writes none.
+      const lines = cart.map((it, i) => {
         const line = num(it.price) * it.qty
         const itemDiscount = cartSubtotal > 0 ? +(discount * (line / cartSubtotal)).toFixed(2) : 0
         const isFirst = i === 0
-        const payload = {
+        return {
           customer_id: customerId, customer_name: fullName,
           product_id: it.id, product_name: it.name, qty: it.qty,
           unit_price: num(it.price),
@@ -621,10 +646,14 @@ export function CheckoutPage() {
           special_request_covered: false,
           notes: isFirst ? extras : '',
         }
-        let { error } = await supabase.from('orders').insert(payload)
-        while (error && dropMissingCol(error, payload)) { error = (await supabase.from('orders').insert(payload)).error }
-        if (error) throw error
+      })
+      let { error: lineErr } = await supabase.from('orders').insert(lines)
+      // A column this database has not got yet has to come off every line, not
+      // just the one that reported it.
+      while (lineErr && lines.every(l => dropMissingCol(lineErr, l))) {
+        lineErr = (await supabase.from('orders').insert(lines)).error
       }
+      if (lineErr) throw lineErr
 
       // Delivery and wrapping as their own invoice lines. Same shape the back
       // office writes for a hand-entered cost: no product_id, the label in
@@ -1145,7 +1174,7 @@ export function AccountPage() {
   // ── signed in: dashboard ──
   const displayName = profile.full_name || user.user_metadata?.full_name || (user.email || '').split('@')[0]
   const invoices = groupInvoices(orders)
-  const totalSpent = orders.filter(o => o.status !== 'cancelled').reduce((s, o) => s + num(o.total_price), 0)
+  const totalSpent = sumNet(orders.filter(o => o.status !== 'cancelled'))
   const points = Math.round(totalSpent)
   const tierIdx = TIERS.reduce((idx, t, i) => points >= t.min ? i : idx, 0)
   const tier = TIERS[tierIdx]
@@ -1260,7 +1289,7 @@ function groupInvoices(orders) {
     if (!map.has(k)) map.set(k, { invoice: o.invoice_number, date: o.order_date, status: o.status, payment: o.payment_status, items: [], total: 0 })
     const g = map.get(k)
     g.items.push(`${o.product_name} ×${o.qty}`)
-    g.total += num(o.total_price)
+    g.total += netOf(o)
   })
   return [...map.values()]
 }

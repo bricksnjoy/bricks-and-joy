@@ -7,6 +7,7 @@ import { loyaltyProfile, dedupeInvoices, TIERS, AT_RISK_DAYS } from '../lib/loya
 import { sendSMS } from '../lib/sms'
 import { getSettings } from '../lib/settings'
 import { printHtml } from '../lib/printWindow'
+import { netOf, sumNet, sumGross } from '../lib/money'
 
 const EMPTY = { name: '', email: '', instagram: '', phone: '', address: '', landmark: '', notes: '' }
 
@@ -109,7 +110,8 @@ export default function Customers() {
       ? orders.filter(x => x.customer_id === customer.id && x.invoice_number === o.invoice_number)
       : [o])
     const items = lineItems.length ? lineItems : [o]
-    const itemsTotal = items.reduce((s, it) => s + Number(it.total_price || 0), 0)
+    const itemsTotal = sumGross(items)                 // the lines, before discount
+    const netTotal = sumNet(items)                     // what is actually owed
     const discountTotal = items.reduce((s, it) => s + Number(it.discount || 0), 0)
     const payStatus = o.payment_status || 'unpaid'
     const payColor = payStatus === 'paid' ? '#1D9E75' : payStatus === 'partial' ? '#f57f17' : '#c62828'
@@ -188,7 +190,7 @@ export default function Customers() {
         ${discountTotal > 0 ? `<div class="item-row" style="color:#1D9E75"><span style="font-size:12px">Discount</span><span style="font-weight:700">-MVR ${discountTotal.toFixed(2)}</span></div>` : ''}
         <div class="total-block">
           <div class="total-label">Total Amount</div>
-          <div class="total-amount">MVR ${itemsTotal.toFixed(2)}</div>
+          <div class="total-amount">MVR ${netTotal.toFixed(2)}</div>
         </div>
         <div class="pay-section">
           <span class="badge">${payStatus.toUpperCase()}</span>
@@ -215,8 +217,8 @@ export default function Customers() {
     return {
       totalOrders: invoices.length,
       deliveredOrders: delivered.length,
-      totalSpent: delivered.reduce((s, o) => s + Number(o.total_price || 0), 0),
-      unpaidAmount: unpaid.reduce((s, o) => s + Number(o.total_price || 0), 0),
+      totalSpent: sumNet(delivered),
+      unpaidAmount: sumNet(unpaid),
       lastOrder: [...invoices].map(o => o.order_date).filter(Boolean).sort().pop() || null,
       orders: custRows,
       loyalty: loyaltyProfile(custRows),
@@ -429,7 +431,7 @@ export default function Customers() {
                       <td style={{ padding: '9px 12px', fontSize: 11, color: '#aaa', fontFamily: 'monospace' }}>{o.invoice_number || '—'}</td>
                       <td style={{ padding: '9px 12px', fontWeight: 500 }}>{o.product_name}</td>
                       <td style={{ padding: '9px 12px' }}>{o.qty}</td>
-                      <td style={{ padding: '9px 12px', fontWeight: 600 }}>MVR {Number(o.total_price || 0).toFixed(2)}</td>
+                      <td style={{ padding: '9px 12px', fontWeight: 600 }}>MVR {netOf(o).toFixed(2)}</td>
                       <td style={{ padding: '9px 12px', color: '#888', fontSize: 12 }}>{o.order_date}</td>
                       <td style={{ padding: '9px 12px' }}><StatusBadge status={o.status} /></td>
                       <td style={{ padding: '9px 12px' }}>

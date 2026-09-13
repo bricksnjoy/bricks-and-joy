@@ -1,4 +1,5 @@
 import { localToday, localDaysAgo } from './dates'
+import { sumNet } from './money'
 // Lightweight, rule-based analytics — no external AI calls.
 // Produces restock predictions, an action checklist, and plain-English insights
 // from the data the app already has.
@@ -86,7 +87,7 @@ export function actionItems({ orders, products, customers, loyaltyProfiles = [] 
   const today = localToday()
 
   const unpaid = orders.filter(o => (o.payment_status || 'unpaid') === 'unpaid' && o.status !== 'cancelled')
-  const unpaidTotal = unpaid.reduce((s, o) => s + Number(o.total_price || 0), 0)
+  const unpaidTotal = sumNet(unpaid)
   if (unpaid.length) items.push({ key: 'unpaid', severity: 'high', icon: 'wallet', count: unpaid.length,
     title: `${unpaid.length} unpaid order${unpaid.length > 1 ? 's' : ''}`,
     detail: `MVR ${unpaidTotal.toFixed(0)} outstanding`, page: 'orders' })
@@ -129,7 +130,7 @@ export function generateInsights({ orders, products, customers, restock = [], lo
   const delivered = orders.filter(o => o.status === 'delivered')
   const revenueOrders = orders.filter(o => o.status !== 'cancelled' && (o.status === 'delivered' || o.payment_status === 'paid'))
 
-  const rev = m => revenueOrders.filter(o => o.order_date?.startsWith(m)).reduce((s, o) => s + Number(o.total_price || 0), 0)
+  const rev = m => sumNet(revenueOrders.filter(o => o.order_date?.startsWith(m)))
   const thisRev = rev(thisMonth), lastRev = rev(lastMonth)
 
   // Revenue trend
@@ -164,7 +165,7 @@ export function generateInsights({ orders, products, customers, restock = [], lo
 
   // Unpaid follow-up
   const unpaid = orders.filter(o => (o.payment_status || 'unpaid') === 'unpaid' && o.status !== 'cancelled')
-  const unpaidTotal = unpaid.reduce((s, o) => s + Number(o.total_price || 0), 0)
+  const unpaidTotal = sumNet(unpaid)
   if (unpaidTotal > 0) out.push({ tone: 'warn', text: `MVR ${unpaidTotal.toFixed(0)} is unpaid across ${unpaid.length} order${unpaid.length > 1 ? 's' : ''}. A friendly payment reminder could free up that cash.` })
 
   // At-risk customers

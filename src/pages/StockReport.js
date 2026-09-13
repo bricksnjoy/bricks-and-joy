@@ -4,6 +4,7 @@ import { PageHeader, Card, Button, Spinner, useToast, Toasts } from '../componen
 import { TrendingUp, Truck, Calculator } from 'lucide-react'
 import { getSettings } from '../lib/settings'
 import { localToday, localDaysAgo } from '../lib/dates'
+import { netOf } from '../lib/money'
 
 const PERIODS = [{ d: 30, label: '30 days' }, { d: 60, label: '60 days' }, { d: 90, label: '90 days' }]
 const COVERS = [{ d: 30, label: '1 month' }, { d: 45, label: '6 weeks' }, { d: 60, label: '2 months' }]
@@ -70,7 +71,7 @@ export default function StockReport() {
       const a = agg[o.product_id] || (agg[o.product_id] = { units: 0, revenue: 0, cost: 0 })
       const p = prodById[o.product_id]
       a.units += Number(o.qty || 0)
-      a.revenue += Number(o.total_price || 0)
+      a.revenue += netOf(o)
       a.cost += (p ? Number(p.cost_price || 0) : 0) * Number(o.qty || 0)
     })
     return Object.entries(agg).map(([id, a]) => {

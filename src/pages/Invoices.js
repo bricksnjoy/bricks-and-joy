@@ -3,7 +3,9 @@ import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Spinner, useToast, Toasts } from '../components/UI'
 import { Printer, Search, ChevronDown, ChevronRight, Download, FileText } from 'lucide-react'
 import { getSettings } from '../lib/settings'
+import { localToday } from '../lib/dates'
 import { printHtml } from '../lib/printWindow'
+import { netOf } from '../lib/money'
 
 const payColors = { paid: '#1D9E75', partial: '#f57f17', unpaid: '#c62828' }
 
@@ -42,7 +44,7 @@ function buildInvoices(orders) {
     if (map[key].transfer_amount == null && o.transfer_amount != null) map[key].transfer_amount = o.transfer_amount
     if (!map[key].transfer_date && o.transfer_date) map[key].transfer_date = o.transfer_date
     map[key].items.push(o)
-    map[key].total += Number(o.total_price || 0)
+    map[key].total += netOf(o)          // what the customer actually pays, discount off
   }
   return Object.values(map).sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
 }
@@ -211,7 +213,7 @@ export default function Invoices() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `invoices-${new Date().toISOString().split('T')[0]}.csv`
+    a.download = `invoices-${localToday()}.csv`
     a.click()
     URL.revokeObjectURL(url)
     toast.success('CSV downloaded!')

@@ -1,6 +1,7 @@
 import * as XLSX from 'xlsx'
 import { supabase } from './supabase'
 import { localToday } from './dates'
+import { netOf, isRevenue, costOfRow } from './money'
 
 export const AD_CATS = ['Meta Ads', 'Promotions', 'Sponsorship']
 export const OPEN_KEY = 'bnj_opening_balance'
@@ -26,7 +27,11 @@ export async function loadBusinessData() {
 export function computeBusiness(data) {
   const { orders, products, expenses, purchases, loans, loanPays } = data
   const costOf = {}; products.forEach(p => { costOf[p.id] = num(p.cost_price) })
-  const liveOrders = orders.filter(o => o.status !== 'cancelled')
+  // Money earned, on the same rule the Income Statement uses. This counted every
+  // order that had not been cancelled, so an order still sitting "under review"
+  // — unpaid, possibly about to be cancelled — was already being reported as
+  // revenue, and the two tabs of the Profit & Loss page never agreed.
+  const liveOrders = orders.filter(isRevenue)
 
   // monthly
   const keys = new Set()
@@ -36,8 +41,8 @@ export function computeBusiness(data) {
   const monthly = [...keys].sort().map(m => {
     const mo = liveOrders.filter(o => (o.order_date || '').startsWith(m))
     const invoices = new Set(mo.map(o => o.invoice_number || o.id))
-    const revenue = mo.reduce((s, o) => s + num(o.total_price), 0)
-    const cogs = mo.reduce((s, o) => s + (costOf[o.product_id] || 0) * (parseInt(o.qty) || 0), 0)
+    const revenue = mo.reduce((s, o) => s + netOf(o), 0)
+    const cogs = mo.reduce((s, o) => s + costOfRow(o, costOf), 0)
     const exps = expenses.filter(e => (e.expense_date || '').startsWith(m))
     const ad = exps.filter(e => AD_CATS.includes(e.category)).reduce((s, e) => s + num(e.amount), 0)
     const other = exps.filter(e => !AD_CATS.includes(e.category)).reduce((s, e) => s + num(e.amount), 0)
@@ -67,16 +72,19 @@ export function computeBusiness(data) {
   const sold = {}
   liveOrders.forEach(o => {
     if (!o.product_id) return
-    if (!sold[o.product_id]) sold[o.product_id] = { soldQty: 0, revenue: 0 }
+    if (!sold[o.product_id]) sold[o.product_id] = { soldQty: 0, revenue: 0, cost: 0 }
     sold[o.product_id].soldQty += parseInt(o.qty) || 0
-    sold[o.product_id].revenue += num(o.total_price)
+    sold[o.product_id].revenue += netOf(o)
+    sold[o.product_id].cost += costOfRow(o, costOf)      // what those sales cost, on the day
   })
   const productAnalysis = products.map(p => {
-    const s = sold[p.id] || { soldQty: 0, revenue: 0 }
+    const s = sold[p.id] || { soldQty: 0, revenue: 0, cost: 0 }
     const unitCost = num(p.cost_price)
     const stock = parseInt(p.stock_qty) || 0
-    const spent = unitCost * (s.soldQty + stock)
-    const cogs = unitCost * s.soldQty
+    // Stock still on the shelf is valued at what it would cost to replace;
+    // stock already sold at what it actually cost when it went out.
+    const spent = s.cost + unitCost * stock
+    const cogs = s.cost
     const profit = s.revenue - cogs
     const covered = spent > 0 ? s.revenue >= spent : s.revenue > 0
     return { id: p.id, name: p.name, category: p.category || '—', soldQty: s.soldQty, stock, revenue: s.revenue, unitCost, spent, cogs, profit, covered }
@@ -167,8 +175,8 @@ export function computeSummary(data, opening = getOpening()) {
   const months = [...keys].sort().map(m => {
     const mo = liveOrders.filter(o => (o.order_date || '').startsWith(m))
     const orderCount = new Set(mo.map(o => o.invoice_number || o.id)).size
-    const revenue = mo.reduce((s, o) => s + num(o.total_price), 0)
-    const cogs = mo.reduce((s, o) => s + (costOf[o.product_id] || 0) * (parseInt(o.qty) || 0), 0)
+    const revenue = mo.reduce((s, o) => s + netOf(o), 0)
+    const cogs = mo.reduce((s, o) => s + costOfRow(o, costOf), 0)
     const ex = expenses.filter(e => (e.expense_date || '').startsWith(m))
     const delivery = ex.filter(e => DELIVERY_CATS.includes(e.category)).reduce((s, e) => s + num(e.amount), 0)
     const ad = ex.filter(e => AD_CATS.includes(e.category)).reduce((s, e) => s + num(e.amount), 0)
@@ -188,7 +196,7 @@ export function computeSummary(data, opening = getOpening()) {
     const name = (o.channel || 'Other').trim() || 'Other'
     if (!chan[name]) chan[name] = { channel: name, invoices: new Set(), revenue: 0 }
     chan[name].invoices.add(o.invoice_number || o.id)
-    chan[name].revenue += num(o.total_price)
+    chan[name].revenue += netOf(o)
   })
   const channels = Object.values(chan)
     .map(c => ({ channel: c.channel, orders: c.invoices.size, revenue: c.revenue }))
@@ -196,7 +204,7 @@ export function computeSummary(data, opening = getOpening()) {
 
   // inventory
   const soldQty = liveOrders.reduce((s, o) => s + (parseInt(o.qty) || 0), 0)
-  const cogsTotal = liveOrders.reduce((s, o) => s + (costOf[o.product_id] || 0) * (parseInt(o.qty) || 0), 0)
+  const cogsTotal = liveOrders.reduce((s, o) => s + costOfRow(o, costOf), 0)
   const closing = products.filter(p => !p.discontinued).reduce((s, p) => s + num(p.cost_price) * (parseInt(p.stock_qty) || 0), 0)
   const closingQty = products.filter(p => !p.discontinued).reduce((s, p) => s + (parseInt(p.stock_qty) || 0), 0)
   const purchasesVal = purchases.reduce((s, po) => s + num(po.total_cost || (num(po.unit_cost) * (parseInt(po.qty) || 0))), 0)

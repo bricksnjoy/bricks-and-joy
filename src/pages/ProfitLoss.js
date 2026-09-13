@@ -7,7 +7,7 @@ import { exportBusinessSummary } from '../lib/business'
 import { downloadMiraSchedule2, getMiraTin } from '../lib/miraSchedule2'
 import { FileText, BookOpen, Calendar, Download, TrendingUp, TrendingDown, Receipt, CheckCircle, AlertTriangle, Info, Table2 } from 'lucide-react'
 import { toLocalISO } from '../lib/dates'
-import { netOf, discountOf } from '../lib/money'
+import { netOf, discountOf, isRevenue, costOfRow } from '../lib/money'
 
 const MVR_RATE = 15.42
 const num = v => { const n = parseFloat(v); return isNaN(n) ? 0 : n }
@@ -66,14 +66,16 @@ export default function Accounting() {
   const inPeriod = date => periodFilter === 'all' || (date && date.startsWith(periodFilter))
 
   // Calculations — revenue counts paid orders even if not yet delivered
-  const isRevenue = o => o.status !== 'cancelled' && (o.status === 'delivered' || o.payment_status === 'paid')
+  // The rule now lives in lib/money.js, shared with the Business Sheet below —
+  // the two tabs used to answer this differently.
   const revOrders = orders.filter(o => isRevenue(o) && inPeriod(o.order_date))
   const delivered = orders.filter(o => o.status === 'delivered' && inPeriod(o.order_date))
   const revenue = revOrders.reduce((s, o) => s + netOf(o), 0)
-  const cogs = delivered.reduce((s, o) => {
-    const p = products.find(p => p.id === o.product_id)
-    return s + (p ? o.qty * Number(p.cost_price) : 0)
-  }, 0)
+  // What those sales actually cost, from the cost recorded on each line when it
+  // was sold — not the supplier's price today, which would rewrite history every
+  // time a cost changed.
+  const costById = {}; products.forEach(p => { costById[p.id] = Number(p.cost_price) || 0 })
+  const cogs = delivered.reduce((s, o) => s + costOfRow(o, costById), 0)
   const grossProfit = revenue - cogs
   const periodExp = expenses.filter(e => inPeriod(e.expense_date))
   const expByCat = {}
@@ -261,16 +263,16 @@ export default function Accounting() {
   }
 
   function downloadSalesByProductCSV() {
+    const costOf = {}; products.forEach(p => { costOf[p.id] = num(p.cost_price); })
     const agg = {}
     periodOrders.forEach(o => {
       if (!o.product_id) return
-      const a = agg[o.product_id] || (agg[o.product_id] = { name: o.product_name, units: 0, revenue: 0 })
-      a.units += parseInt(o.qty) || 0; a.revenue += netOf(o)
+      const a = agg[o.product_id] || (agg[o.product_id] = { name: o.product_name, units: 0, revenue: 0, cost: 0 })
+      a.units += parseInt(o.qty) || 0; a.revenue += netOf(o); a.cost += costOfRow(o, costOf)
     })
-    const costOf = {}; products.forEach(p => { costOf[p.id] = num(p.cost_price); })
     const catOf = {}; products.forEach(p => { catOf[p.id] = p.category || ''; })
     const rows = Object.entries(agg).map(([id, a]) => {
-      const cost = costOf[id] * a.units; const profit = a.revenue - cost
+      const cost = a.cost; const profit = a.revenue - cost
       return [a.name, catOf[id], a.units, a.revenue.toFixed(2), cost.toFixed(2), profit.toFixed(2), a.revenue > 0 ? Math.round(profit / a.revenue * 100) + '%' : '0%']
     }).sort((x, y) => num(y[3]) - num(x[3]))
     downloadCSV(`sales-by-product-${periodFilter}.csv`, ['Product', 'Category', 'Units sold', 'Revenue', 'Cost', 'Profit', 'Margin'], rows)
@@ -283,7 +285,7 @@ export default function Accounting() {
     periodOrders.forEach(o => {
       const cat = catOf[o.product_id] || 'Uncategorised'
       const a = agg[cat] || (agg[cat] = { units: 0, revenue: 0, cost: 0 })
-      a.units += parseInt(o.qty) || 0; a.revenue += netOf(o); a.cost += costOf[o.product_id] * (parseInt(o.qty) || 0)
+      a.units += parseInt(o.qty) || 0; a.revenue += netOf(o); a.cost += costOfRow(o, costOf)
     })
     const rows = Object.entries(agg).map(([cat, a]) => [cat, a.units, a.revenue.toFixed(2), a.cost.toFixed(2), (a.revenue - a.cost).toFixed(2)]).sort((x, y) => num(y[2]) - num(x[2]))
     downloadCSV(`sales-by-category-${periodFilter}.csv`, ['Category', 'Units sold', 'Revenue', 'Cost', 'Profit'], rows)

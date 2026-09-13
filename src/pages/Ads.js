@@ -6,7 +6,7 @@ import {
   MousePointerClick, Users, UserPlus, ShoppingCart, DollarSign, TrendingUp,
   Edit2, Trash2, BarChart3, Package, AlertTriangle, Percent,
 } from 'lucide-react'
-import { localToday } from '../lib/dates'
+import { localToday, localDaysAgo } from '../lib/dates'
 import { logAudit } from '../lib/audit'
 
 // Cost Management categories that count as advertising money. The Ads page never
@@ -122,8 +122,11 @@ export default function Ads() {
     if (period === 'all') return () => true
     if (period === 'month') { const m = localToday().slice(0, 7); return d => (d || '').startsWith(m) }
     const days = parseInt(period, 10)
-    const from = new Date(); from.setDate(from.getDate() - days)
-    const fromStr = from.toISOString().slice(0, 10)
+    // localDaysAgo, not toISOString — which gives the UTC date, and in the
+    // Maldives that is yesterday until 5 in the morning. The rest of this file
+    // already used the local helpers; this one line did not, so the window
+    // silently shifted by a day for the first five hours of each day.
+    const fromStr = localDaysAgo(days)
     return d => (d || '') >= fromStr
   }, [period])
 
