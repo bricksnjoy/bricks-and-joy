@@ -63,9 +63,18 @@ bricksandjoy.com, www.bricksandjoy.com {
 	#   style-src     inline styles are needed: index.html carries a <style>
 	#                 block and the app sets style={{…}} all over
 	#   font-src      Poppins and Inter come from Google's font server
-	#   img-src       our own server, R2 (both the custom domain and the r2.dev
-	#                 address), data: for generated barcodes and QR codes, and
-	#                 blob: for the preview shown while a photo uploads
+	#   img-src       any picture over https, plus data: for generated barcodes
+	#                 and QR codes and blob: for the preview shown while a photo
+	#                 uploads. Deliberately wide, and the report-only run is
+	#                 what showed why: a product's image_url is free text, so
+	#                 the back office was loading thirty photos straight from
+	#                 lego.com. Suppliers' own sites are where catalog pictures
+	#                 come from, and the next import will name a different one —
+	#                 an allowlist here would be a list nobody can finish, and
+	#                 the cost of missing an entry is a shop full of broken
+	#                 photos. A picture is also the least dangerous thing to
+	#                 allow: it cannot execute, and script-src and connect-src
+	#                 below are what actually stop an attack.
 	#   connect-src   the API and the presence WebSocket on our own host, plus
 	#                 EmailJS, which is still the fallback route in lib/emailer.js
 	#   frame-src     nothing is embedded, and nothing should be
@@ -73,7 +82,7 @@ bricksandjoy.com, www.bricksandjoy.com {
 	#   base-uri      stops an injected <base> quietly repointing every link
 	#   form-action   a form on our page may only post back to our own site
 	#   frame-ancestors  the same thing X-Frame-Options says, for newer browsers
-	header Content-Security-Policy-Report-Only "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https://files.bricksandjoy.com https://*.r2.dev; connect-src 'self' wss://bricksandjoy.com https://api.emailjs.com; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; report-uri /api/csp-report"
+	header Content-Security-Policy-Report-Only "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; connect-src 'self' wss://bricksandjoy.com https://api.emailjs.com; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; report-uri /api/csp-report"
 
 	# The back office holds the whole business. Keep it out of search results —
 	# public/robots.txt says the same thing, this makes sure of it.
