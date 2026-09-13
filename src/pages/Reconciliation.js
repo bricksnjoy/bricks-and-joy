@@ -387,17 +387,31 @@ export default function Reconciliation() {
           groups.get(b.id).lines.push({ i, amt })
         })
       })
-      const claimed = new Set()
+      // Only the groups whose parts actually add up to the record are candidates.
+      const candidates = []
       groups.forEach(({ entry, lines }) => {
         if (lines.length < 2) return
         if (Math.abs(lines.reduce((s, l) => s + l.amt, 0) - entry.amount) > 0.01) return
-        // If a line could belong to two different groups the sum proves
-        // nothing, so leave the whole group for a person to look at
-        if (lines.some(l => claimed.has(l.i))) return
-        lines.forEach((l, n) => {
-          claimed.add(l.i)
-          splitOf.set(l.i, { entry, part: n + 1, of: lines.length })
-        })
+        candidates.push({ entry, lines })
+      })
+
+      // If a line could belong to two different groups the sum proves nothing,
+      // so every group it appears in is left for a person to look at.
+      //
+      // This used to be decided as the groups were walked: the first group to
+      // reach a line claimed it, and later groups wanting the same line were
+      // the only ones held back. But the first group was every bit as ambiguous
+      // as the ones it beat — whichever happened to come first won, and won at
+      // "high confidence". Two payments of the same amount pointing at the same
+      // pair of transfers would see one of them settled against a record nobody
+      // had checked. Which line is contested has to be known before any group is
+      // accepted, so it is counted first.
+      const seen = new Map()
+      candidates.forEach(({ lines }) => lines.forEach(l => seen.set(l.i, (seen.get(l.i) || 0) + 1)))
+
+      candidates.forEach(({ entry, lines }) => {
+        if (lines.some(l => seen.get(l.i) > 1)) return
+        lines.forEach((l, n) => splitOf.set(l.i, { entry, part: n + 1, of: lines.length }))
       })
     }
 

@@ -69,9 +69,19 @@ export default function Categories() {
       const oldName = modal.name
       const { error } = await supabase.from('categories').update({ name: form.name.trim(), color: form.color }).eq('id', modal.id)
       if (error) { toast.error('Failed to update'); setSaving(false); return }
-      // Rename in products if name changed
+      // Rename in products if name changed.
+      //
+      // Checked, because the message below says it happened. It used to be sent
+      // whatever the answer, so a failure here left the category renamed, every
+      // product still filed under a name that no longer exists — and therefore
+      // missing from that category everywhere — while the screen said all the
+      // products had been updated.
       if (oldName !== form.name.trim()) {
-        await supabase.from('products').update({ category: form.name.trim() }).eq('category', oldName)
+        const { error: prodErr } = await supabase.from('products').update({ category: form.name.trim() }).eq('category', oldName)
+        if (prodErr) {
+          toast.error(`Category renamed, but the products still say "${oldName}" — try the rename again`)
+          setSaving(false); load(); setModal(null); return
+        }
         toast.success(`Renamed "${oldName}" → "${form.name.trim()}" and updated all products`)
       } else {
         toast.success('Category updated!')
@@ -92,9 +102,20 @@ export default function Categories() {
 
   async function confirmDelete() {
     const { cat } = deleteConfirm
-    // Reassign products to 'Other'
-    await supabase.from('products').update({ category: 'Other' }).eq('category', cat.name)
-    await supabase.from('categories').delete().eq('id', cat.id)
+    // Move the products first, and only delete the category once they have
+    // actually moved. The other way round — or without looking at the answer —
+    // loses the category while its products still point at it, and they drop
+    // out of every list that goes by category.
+    const { error: moveErr } = await supabase.from('products').update({ category: 'Other' }).eq('category', cat.name)
+    if (moveErr) {
+      toast.error(`Could not move the ${deleteConfirm.count} product(s) — "${cat.name}" has been left alone`)
+      setDeleteConfirm(null); load(); return
+    }
+    const { error: delErr } = await supabase.from('categories').delete().eq('id', cat.id)
+    if (delErr) {
+      toast.error(`Products moved to "Other", but "${cat.name}" could not be deleted`)
+      setDeleteConfirm(null); load(); return
+    }
     toast.success(`Deleted "${cat.name}" — ${deleteConfirm.count} product(s) moved to "Other"`)
     setDeleteConfirm(null)
     load()

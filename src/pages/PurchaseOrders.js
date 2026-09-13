@@ -8,6 +8,7 @@ import { PageHeader, Card, Button, Input, Select, Modal, Spinner, FormRow, useTo
 import { Plus, Trash2, Package, Truck, X, Info, AlertTriangle, CreditCard, Wallet, Paperclip, Eye, Pencil, LayoutGrid, List, ChevronDown } from 'lucide-react'
 import { restockPredictions } from '../lib/insights'
 import { SlipNote, RescanButton, useSlipScan } from '../components/SlipScan'
+import { adjustStock } from '../lib/stock'
 
 const AVATAR_COLORS = ['#7F77DD', '#1D9E75', '#FFA500', '#378ADD', '#E24B4A', '#0F6E56']
 function avatarColor(name = '') {
@@ -330,10 +331,11 @@ export default function PurchaseOrders() {
         ? Number(row.unit_cost)
         : (Number(row.qty) > 0 ? Number(row.total_cost || 0) / Number(row.qty) : 0)
       if (row.product_id) {
-        const { data: prod, error: prodErr } = await supabase.from('products').select('id, stock_qty, name').eq('id', row.product_id).single()
-        if (!prodErr && prod) {
-          await supabase.from('products').update({ stock_qty: (prod.stock_qty || 0) + Number(row.qty) }).eq('id', prod.id)
-          toast.success(`${prod.name}: +${row.qty} units in stock`)
+        // One statement in the database. Receiving a shipment while somebody
+        // dispatches an order is the same race as two dispatches at once.
+        const moved = await adjustStock(row.product_id, Number(row.qty))
+        if (moved) {
+          toast.success(`${moved.name}: +${row.qty} units in stock`)
           ok = true
         }
       }
@@ -341,12 +343,13 @@ export default function PurchaseOrders() {
         const { data: found } = await supabase.from('products').select('id, stock_qty, name, cost_price').ilike('name', row.product_name).limit(1)
         const existing = found?.[0]
         if (existing) {
-          const upd = { stock_qty: (existing.stock_qty || 0) + Number(row.qty) }
-          // Record cost from this purchase if not already set
+          await adjustStock(existing.id, Number(row.qty))
+          // Record cost from this purchase if not already set. Stock moved above,
+          // in its own statement; this is only the price, and only when there is
+          // one to write — an empty update is a round trip that changes nothing.
           if ((!existing.cost_price || Number(existing.cost_price) === 0) && unitCost > 0) {
-            upd.cost_price = unitCost
+            await supabase.from('products').update({ cost_price: unitCost }).eq('id', existing.id)
           }
-          await supabase.from('products').update(upd).eq('id', existing.id)
           toast.success(`${existing.name}: +${row.qty} added to stock`)
           ok = true
         } else {
@@ -726,7 +729,7 @@ export default function PurchaseOrders() {
     if (productId) { const { data } = await supabase.from('products').select('id, stock_qty').eq('id', productId).maybeSingle(); prod = data }
     if (!prod && productName) { const { data } = await supabase.from('products').select('id, stock_qty').ilike('name', productName.trim()).limit(1); prod = (data && data[0]) || null }
     if (!prod) return false
-    await supabase.from('products').update({ stock_qty: (Number(prod.stock_qty) || 0) + delta }).eq('id', prod.id)
+    await adjustStock(prod.id, delta)
     return true
   }
 
