@@ -209,6 +209,13 @@ cp deploy/Caddyfile /etc/caddy/Caddyfile
 systemctl reload caddy
 ```
 
+That copy is needed once, here, to put the first config in place. After this you
+should not have to do it again: every deploy compares `deploy/Caddyfile` with
+the live one and, when they differ, validates the new one, installs it and
+reloads Caddy — keeping the previous file as `/etc/caddy/Caddyfile.bak`. A
+Caddyfile that fails validation is never installed, and the deploy stops before
+anything is restarted.
+
 Check it:
 
 ```bash
