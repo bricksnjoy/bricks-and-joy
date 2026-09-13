@@ -770,3 +770,16 @@ alter table product_reviews alter column approved set default false;
 -- there was nowhere to put it, so the whole save failed and a signed-in
 -- shopper's details were never remembered.
 alter table customer_profiles add column if not exists landmark text;
+
+-- Signing out everywhere used to leave access tokens working.
+--
+-- Ending a session deleted the refresh token, but identify() trusts the access
+-- token on its own — so for up to an hour afterwards a stolen one still
+-- answered. Changing a password because somebody else had it did not actually
+-- shut them out, which is the one moment it most needed to.
+--
+-- Any access token issued before this moment is refused. Truncated to the
+-- second because a JWT's iat is whole seconds: with a fractional value here,
+-- the replacement token minted immediately after a password change would be
+-- older than the mark and lock the user straight back out.
+alter table app_users add column if not exists tokens_valid_from timestamptz default date_trunc('second', now());

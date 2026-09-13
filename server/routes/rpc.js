@@ -34,7 +34,12 @@ router.post('/:name', async (req, res) => {
     // second, and the shop reads data[0], so the array is what goes back.
     return res.json({ data: out.rows, error: null })
   } catch (e) {
-    return res.status(400).json({ data: null, error: { message: e.message, code: e.code || 'P0000', details: e.detail || null } })
+    // Postgres says useful things in its errors — column names, constraint
+    // names, sometimes the offending value — and this endpoint answers anyone
+    // who can reach the shop. The detail goes to the log, where it is for us;
+    // the caller gets told it did not work.
+    console.error(`[rpc] ${req.params.name} failed:`, e.message, e.detail || '')
+    return res.status(400).json({ data: null, error: { message: 'That request could not be completed', code: 'P0000', details: null } })
   }
 })
 

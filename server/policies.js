@@ -18,7 +18,6 @@
 
 const ANY = ['anon', 'customer', 'staff']
 const STAFF = ['staff']
-const SIGNED_IN = ['customer', 'staff']
 
 // Every back-office table: signed-in staff, everything, same as
 // "Authenticated users can do everything" was.
@@ -62,8 +61,12 @@ const GUARDS = {
 
   // A review is written by a stranger and read by everyone, so it waits for
   // somebody to say yes. Back office → Website → Reviews.
+  //
+  // author_id is not on this list on purpose: it is written by the server from
+  // whoever is signed in (see the `own` rule below), because a column naming
+  // who said something must not be set by the one saying it.
   product_reviews: guard(
-    ['product_id', 'author_id', 'author_name', 'rating', 'comment'],
+    ['product_id', 'author_name', 'rating', 'comment'],
     { approved: false },
   ),
 
@@ -125,7 +128,16 @@ const TABLES = {
   site_settings:         { select: ANY, insert: STAFF, update: STAFF, delete: STAFF },
 
   // Anyone can read reviews; you must be signed in to leave one.
-  product_reviews:       { select: ANY, insert: SIGNED_IN, update: STAFF, delete: STAFF },
+  //
+  // A customer reaches insert through `own` rather than through the list, so
+  // the server stamps author_id with whoever is actually signed in. Left on
+  // the list, a shopper could have posted a review under somebody else's id.
+  // Staff insert directly, because importing a review on a customer's behalf
+  // is a thing the back office legitimately does.
+  product_reviews: {
+    select: ANY, insert: STAFF, update: STAFF, delete: STAFF,
+    own: { role: 'customer', column: 'author_id', ops: ['insert'] },
+  },
 
   // A visitor checking out creates their customer record; a signed-in shopper
   // may update their own and nobody else's.

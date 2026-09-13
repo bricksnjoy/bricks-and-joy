@@ -227,9 +227,29 @@ router.get('/google/callback', async (req, res) => {
     })
     const info = await infoRes.json()
     if (!info?.email) return bounce('Google did not share an email address')
-    if (info.email_verified === false) return bounce('That Google account has an unverified email')
+    // Must be verified, not merely "not stated". The check here was
+    // `=== false`, which let a missing field through — and a missing field is
+    // exactly what we cannot afford, since the whole of the next step rests on
+    // Google having actually confirmed this address belongs to them.
+    if (info.email_verified !== true) return bounce('That Google account has an unverified email')
 
     let user = await auth.findUserByEmail(info.email)
+
+    // An account already here with a password on it is not proof that the
+    // person at Google owns it. Anyone can sign up with anyone's address —
+    // nothing verifies it — so somebody could register a victim's email today,
+    // and the day that victim first clicked "Sign in with Google" they would
+    // be handed straight into the waiting account, which its owner can still
+    // open with the password they chose. Known as pre-hijacking, and the fix
+    // is to refuse the link rather than guess.
+    //
+    // Accounts made by Google have no password and are matched as before, so
+    // the ordinary case is untouched. Someone who really does own both can
+    // still get in with their password, or reset it by email.
+    if (user && user.password_hash) {
+      return bounce('That email already has a password account here — sign in with your password instead')
+    }
+
     if (!user) {
       user = await auth.createUser({
         email: info.email,
