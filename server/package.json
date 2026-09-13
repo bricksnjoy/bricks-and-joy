@@ -22,9 +22,20 @@
     "express-rate-limit": "^7.5.0",
     "jsonwebtoken": "^9.0.2",
     "multer": "^1.4.5-lts.1",
-    "node-cron": "^3.0.3",
+    "node-cron": "^4.6.0",
     "pg": "^8.13.1",
     "ws": "^8.18.0"
+  },
+  "//overrides": [
+    "qs is what Express uses to read the ?name=value part of every request, so",
+    "it runs on traffic from anyone on the internet. 6.15.3 and earlier have two",
+    "flaws: an array-limit bypass, and a denial of service through an",
+    "attacker-controlled value. 6.16.0 fixes both — but Express 4 pins ~6.15.1,",
+    "which can never reach it, so the patch has to be forced from here.",
+    "Remove this once Express ships a release that allows 6.16 on its own."
+  ],
+  "overrides": {
+    "qs": "^6.16.0"
   },
   "engines": {
     "node": ">=20"
