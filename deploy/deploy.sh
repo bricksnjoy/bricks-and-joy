@@ -107,6 +107,54 @@ fi
 as_app psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -f db/schema.sql
 echo "  up to date"
 
+step "Web server config"
+# deploy/Caddyfile is where the Caddy config is kept and reviewed, but Caddy
+# reads /etc/caddy/Caddyfile. Until now that gap was crossed by hand over SSH,
+# which is exactly the sort of step that gets skipped — leaving the change
+# sitting in git while the live server runs last month's config. A security
+# header that only exists in the repository protects nobody.
+#
+# The order here is the whole point: validate, then copy, then reload. A
+# Caddyfile with a mistake in it stops Caddy starting at all, which takes the
+# entire site down — so the new file is checked BEFORE it replaces anything,
+# and if the check fails nothing is touched and the deploy stops here, with the
+# API not yet restarted and the site still serving.
+CADDY_SRC="$APP_DIR/deploy/Caddyfile"
+CADDY_DST="${CADDY_DST:-/etc/caddy/Caddyfile}"
+
+if ! command -v caddy >/dev/null 2>&1; then
+	echo "  caddy is not installed here — skipping"
+elif [ ! -f "$CADDY_DST" ]; then
+	# Somewhere Caddy is not the front end, or is configured elsewhere. Writing
+	# a file it may never read would only be misleading.
+	echo "  no $CADDY_DST — skipping"
+elif cmp -s "$CADDY_SRC" "$CADDY_DST"; then
+	echo "  unchanged"
+else
+	if ! as_root caddy validate --adapter caddyfile --config "$CADDY_SRC" >/dev/null 2>&1; then
+		echo "  the new Caddyfile is NOT valid — the live one has not been touched:"
+		as_root caddy validate --adapter caddyfile --config "$CADDY_SRC" 2>&1 | sed 's/^/    /' || true
+		exit 1
+	fi
+	as_root cp "$CADDY_DST" "$CADDY_DST.bak"
+	as_root cp "$CADDY_SRC" "$CADDY_DST"
+
+	if ! systemctl is-active --quiet caddy 2>/dev/null; then
+		echo "  installed — caddy is not running, so nothing to reload"
+	elif as_root systemctl reload caddy; then
+		echo "  installed and reloaded (previous config kept at $CADDY_DST.bak)"
+	else
+		# Validation passed and the reload still failed, so the fault is in
+		# something only the running server knows about — a certificate, a port
+		# already taken. Put back what was working rather than leave the site
+		# on a config Caddy has refused.
+		as_root cp "$CADDY_DST.bak" "$CADDY_DST"
+		as_root systemctl reload caddy || true
+		echo "  reload FAILED — the previous config has been put back"
+		exit 1
+	fi
+fi
+
 step "Restarting the API"
 as_root systemctl restart "$SERVICE"
 
