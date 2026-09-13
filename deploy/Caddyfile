@@ -31,6 +31,50 @@ bricksandjoy.com, www.bricksandjoy.com {
 		-Server
 	}
 
+	# ── Content-Security-Policy, in Report-Only mode ────────────────────────
+	#
+	# The header above are each one rule. This one is the backstop: a list of
+	# where the page is allowed to load things from. If a way to inject a
+	# <script> into a page ever appears — a customer name rendered unescaped,
+	# a dependency that turns bad — this is what stops the injected script from
+	# running or from sending anything anywhere.
+	#
+	# Report-Only means exactly what it says: the browser works out what the
+	# policy WOULD block, allows it anyway, and posts a note to /api/csp-report
+	# (see server/routes/csp-report.js), which writes it to the journal:
+	#
+	#   journalctl -u bricksandjoy -f | grep csp
+	#
+	# So this cannot break the site. It is here to be watched for a week of
+	# ordinary use — printing invoices, uploading slips, a customer checking
+	# out — and then, once the log stays quiet, the header is renamed to
+	# Content-Security-Policy and starts actually enforcing.
+	#
+	# Known already, from reading the code rather than waiting for a report:
+	# the print windows (receipts, invoices, barcode labels, the P&L) are built
+	# with window.open + document.write and carry an inline <script> that calls
+	# window.print(). Those will be reported, and they have to be changed to
+	# call print from the opening page before this can be enforced — otherwise
+	# printing stops working. That is a separate, careful change.
+	#
+	# Each line, in order:
+	#   default-src   nothing from anywhere unless a rule below says otherwise
+	#   script-src    our own JavaScript only — no CDN, no inline, no eval
+	#   style-src     inline styles are needed: index.html carries a <style>
+	#                 block and the app sets style={{…}} all over
+	#   font-src      Poppins and Inter come from Google's font server
+	#   img-src       our own server, R2 (both the custom domain and the r2.dev
+	#                 address), data: for generated barcodes and QR codes, and
+	#                 blob: for the preview shown while a photo uploads
+	#   connect-src   the API and the presence WebSocket on our own host, plus
+	#                 EmailJS, which is still the fallback route in lib/emailer.js
+	#   frame-src     nothing is embedded, and nothing should be
+	#   object-src    no Flash, no applets, no embedded PDF viewers
+	#   base-uri      stops an injected <base> quietly repointing every link
+	#   form-action   a form on our page may only post back to our own site
+	#   frame-ancestors  the same thing X-Frame-Options says, for newer browsers
+	header Content-Security-Policy-Report-Only "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https://files.bricksandjoy.com https://*.r2.dev; connect-src 'self' wss://bricksandjoy.com https://api.emailjs.com; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; report-uri /api/csp-report"
+
 	# The back office holds the whole business. Keep it out of search results —
 	# public/robots.txt says the same thing, this makes sure of it.
 	@backoffice path /backoffice /backoffice/*
