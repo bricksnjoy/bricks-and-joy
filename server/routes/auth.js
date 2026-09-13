@@ -9,6 +9,7 @@ const crypto = require('crypto')
 const auth = require('../auth')
 const db = require('../db')
 const { sendEmail } = require('../lib/mail')
+const { safeReturnTo } = require('../lib/safeUrl')
 
 const router = express.Router()
 
@@ -22,7 +23,6 @@ const tight = rateLimit({
 const ok = (res, body) => res.json({ data: body, error: null })
 const no = (res, status, message) => res.status(status).json({ data: { user: null, session: null }, error: { message, status } })
 
-const siteUrl = () => (process.env.PUBLIC_SITE_URL || '').replace(/\/+$/, '')
 
 // ── password sign-in ────────────────────────────────────────────────────────
 router.post('/signin', tight, async (req, res) => {
@@ -95,7 +95,12 @@ router.post('/recover', tight, async (req, res) => {
   // otherwise this becomes a way to find out who shops here.
   if (user) {
     const token = await auth.createResetToken(user.id)
-    const base = String(redirectTo || `${siteUrl()}/account`).split('#')[0]
+    // The address this link points at decides who ends up holding the token,
+    // and it arrived in the request — so it is checked against our own origin
+    // rather than used as given. Anything else and this endpoint would post a
+    // genuine email from us, carrying a working reset token, to a page of the
+    // sender's choosing: an attacker needed only the victim's address.
+    const base = safeReturnTo(redirectTo)
     const link = `${base}${base.includes('?') ? '&' : '?'}reset_token=${encodeURIComponent(token)}`
     await sendEmail({
       to: user.email,
@@ -173,9 +178,12 @@ const googleRedirectUri = () =>
 router.get('/google', (req, res) => {
   if (!googleConfigured()) return res.status(503).send('Google sign-in is not configured on this server')
 
-  const returnTo = String(req.query.redirect_to || `${siteUrl()}/account`)
-  // Only ever bounce back to our own site.
-  const safeReturn = returnTo.startsWith(siteUrl()) ? returnTo : `${siteUrl()}/account`
+  // Only ever bounce back to our own site. The callback appends the access and
+  // refresh tokens to this address, so anywhere it can be pointed is somewhere
+  // a session can be read out of the address bar. It used to be checked with
+  // startsWith, which let through any host merely beginning with ours —
+  // bricksandjoy.com.somebodyelse.example, and the same again with an @.
+  const safeReturn = safeReturnTo(req.query.redirect_to)
 
   const url = new URL('https://accounts.google.com/o/oauth2/v2/auth')
   url.searchParams.set('client_id', process.env.GOOGLE_CLIENT_ID)
@@ -189,7 +197,11 @@ router.get('/google', (req, res) => {
 
 router.get('/google/callback', async (req, res) => {
   const state = readState(req.query.state)
-  const back = state?.returnTo || `${siteUrl()}/account`
+  // Checked again on the way back, not only on the way out. The state is
+  // signed and cannot be forged, but one signed in the ten minutes before this
+  // check existed would still carry whatever it was given — and this is the
+  // request that attaches the tokens.
+  const back = safeReturnTo(state?.returnTo)
   const bounce = msg => res.redirect(`${back}${back.includes('?') ? '&' : '?'}auth_error=${encodeURIComponent(msg)}`)
 
   if (!state) return bounce('That sign-in link expired — try again')
