@@ -2,6 +2,8 @@
 // Tiers are based on the number of *delivered* orders; "at risk" flags
 // previously-active customers who have gone quiet.
 
+import { sumNet } from './money'
+
 export const TIERS = [
   { key: 'vip',       label: 'VIP',       min: 8, color: '#7F77DD', emoji: '👑', perk: 'Best customer — offer early access & exclusive bundles' },
   { key: 'loyal',     label: 'Loyal',     min: 4, color: '#1D9E75', emoji: '⭐', perk: 'Reward with a thank-you discount or free add-on' },
@@ -22,6 +24,7 @@ export function dedupeInvoices(rows) {
     const prev = map.get(key)
     if (prev) {
       prev.total_price = Number(prev.total_price || 0) + Number(o.total_price || 0)
+      prev.discount = Number(prev.discount || 0) + Number(o.discount || 0)
       // A charge row shouldn't decide the invoice's status/product — keep the first product row's
       if (!prev.product_id && o.product_id) { prev.product_id = o.product_id; prev.product_name = o.product_name; prev.status = o.status }
     } else {
@@ -46,7 +49,7 @@ export function daysSince(dateStr) {
 export function loyaltyProfile(custRows) {
   const custOrders = dedupeInvoices(custRows)   // one entry per invoice
   const delivered = custOrders.filter(o => o.status === 'delivered')
-  const totalSpent = delivered.reduce((s, o) => s + Number(o.total_price || 0), 0)
+  const totalSpent = sumNet(delivered)
   const dates = custOrders.map(o => o.order_date).filter(Boolean).sort()
   const lastOrder = dates[dates.length - 1] || null
   const firstOrder = dates[0] || null

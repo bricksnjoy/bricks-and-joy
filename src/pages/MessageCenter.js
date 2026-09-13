@@ -9,6 +9,7 @@ import {
   Truck, Users, Megaphone, Search, AlertTriangle, Lightbulb, Calendar,
   CheckCircle, XCircle, ClipboardList, History, RefreshCw
 } from 'lucide-react'
+import { netOf } from '../lib/money'
 
 const BNJ_NAME = "Brick's & Joy"
 
@@ -257,7 +258,7 @@ export default function MessageCenter() {
       `Name: ${name}${phone ? ` - ${phone}` : ''}`,
       customer.address ? `Address: ${customer.address}${customer.landmark ? `, ${customer.landmark}` : ''}` : null,
       when ? `When: ${when}` : null,
-      `Total: MVR ${Number(order.total_price || 0).toFixed(2)} (${pay})`,
+      `Total: MVR ${netOf(order).toFixed(2)} (${pay})`,
       customer.notes ? `Drop: ${customer.notes}` : null,
     ].filter(Boolean).join('\n')
   }
@@ -288,7 +289,7 @@ Product:     ${order.product_name}
 Quantity:    ${order.qty}
 Order date:  ${order.order_date || '—'}${deliveryWhen(order) ? `\nDelivery:    ${deliveryWhen(order)}` : ''}
 Status:      ${order.status}
-Total:       MVR ${Number(order.total_price || 0).toFixed(2)} (${pay})
+Total:       MVR ${netOf(order).toFixed(2)} (${pay})
 
 ━━━━━━━━━━━━━━━━━━━━
 CUSTOMER / DELIVERY INFO

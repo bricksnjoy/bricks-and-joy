@@ -783,3 +783,51 @@ alter table customer_profiles add column if not exists landmark text;
 -- the replacement token minted immediately after a password change would be
 -- older than the mark and lock the user straight back out.
 alter table app_users add column if not exists tokens_valid_from timestamptz default date_trunc('second', now());
+
+-- What a line cost us, recorded when the order is placed.
+--
+-- Every profit figure multiplied the quantity sold by the product's cost price
+-- *today*. Change a supplier's price and last year's profit changed with it; a
+-- product later deleted left its orders costing nothing at all, which read as
+-- pure profit. Cost is a fact about the day of the sale, so it is written down
+-- on the day of the sale.
+--
+-- Filled by the trigger below rather than by whoever is inserting, because the
+-- shop's checkout is an anonymous stranger and cost price is not theirs to set
+-- — it is not even a column they are allowed to send. Rows written before this
+-- existed stay null and fall back to the product's cost today, which is what
+-- every calculation did for every row until now.
+alter table orders add column if not exists unit_cost numeric(10,2);
+
+create or replace function orders_record_unit_cost() returns trigger
+language plpgsql as $$
+begin
+  if new.unit_cost is null and new.product_id is not null then
+    select cost_price into new.unit_cost from products where id = new.product_id;
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists orders_unit_cost on orders;
+create trigger orders_unit_cost before insert on orders
+  for each row execute function orders_record_unit_cost();
+
+-- Moving stock without losing a movement.
+--
+-- Dispatching read stock_qty, subtracted, and wrote the answer back. Two people
+-- dispatching the same product in the same moment both read the same number and
+-- the second write erased the first, so stock drifted upward — the shop
+-- believing it held toys it had already sent out. Postgres can do the whole
+-- thing in one statement, where it cannot be interleaved.
+--
+-- Returns the new level so the caller can still warn about running low.
+create or replace function adjust_stock(p_product_id uuid, p_delta integer)
+returns table(stock_qty integer, name text, low_stock_threshold integer)
+language plpgsql as $$
+begin
+  return query
+    update products
+       set stock_qty = coalesce(products.stock_qty, 0) + p_delta
+     where id = p_product_id
+     returning products.stock_qty, products.name, products.low_stock_threshold;
+end $$;

@@ -13,6 +13,7 @@ import { supabase } from './supabase'
 import { computeSummary, num } from './business'
 import { getSettings, saveSettings } from './settings'
 import { localToday } from './dates'
+import { netOf } from './money'
 
 const FORM_URL = '/forms/mira-schedule-2.pdf'
 // The TIN lives in Settings → Financial so it can be set in one place. An older
@@ -43,7 +44,7 @@ export function computeFinancialPosition(data) {
   const inventories = s.inventory.closing                                   // B6
   const receivables = orders
     .filter(o => o.status !== 'cancelled' && (o.payment_status === 'unpaid' || o.payment_status === 'partial'))
-    .reduce((t, o) => t + num(o.total_price), 0)                            // B7
+    .reduce((t, o) => t + netOf(o), 0)                                      // B7
   const cash = s.closingBank                                                // B8
   const totalAssets = inventories + receivables + cash                     // B10
 

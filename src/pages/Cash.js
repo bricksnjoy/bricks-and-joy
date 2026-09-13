@@ -4,6 +4,7 @@ import { localToday } from '../lib/dates'
 import { logAudit } from '../lib/audit'
 import { PageHeader, Card, Button, Input, Select, Modal, Spinner, FormRow, useToast, Toasts, Badge } from '../components/UI'
 import { Wallet, Plus, Banknote, Scale, TrendingUp, TrendingDown, AlertTriangle, Trash2, ArrowRight } from 'lucide-react'
+import { netOf, sumNet } from '../lib/money'
 
 const num = v => { const n = parseFloat(v); return isNaN(n) ? 0 : n }
 const money = n => `MVR ${num(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -49,7 +50,7 @@ export default function Cash() {
   // A count doesn't move money — it records what was actually there.
   const position = useMemo(() => {
     const salesRows = orders.filter(isCashSale)
-    const sales = salesRows.reduce((s, o) => s + num(o.total_price), 0)
+    const sales = sumNet(salesRows)          // what came in, not what was listed
     const costRows = expenses.filter(e => (e.paid_from || 'bank') === 'cash')
     const costs = costRows.reduce((s, e) => s + num(e.amount), 0)
     const banked = moves.filter(m => m.kind === 'banked').reduce((s, m) => s + num(m.amount), 0)
@@ -67,7 +68,7 @@ export default function Cash() {
   const ledger = useMemo(() => {
     const rows = [
       ...orders.filter(isCashSale).map(o => ({
-        id: 'o' + o.id, date: o.order_date, dir: 'in', amount: num(o.total_price),
+        id: 'o' + o.id, date: o.order_date, dir: 'in', amount: netOf(o),
         label: `Cash sale · ${o.customer_name || 'Walk-in'}`, sub: o.invoice_number || '',
       })),
       ...expenses.filter(e => (e.paid_from || 'bank') === 'cash').map(e => ({

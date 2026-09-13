@@ -163,6 +163,11 @@ const TABLES = {
 // Functions callable through /api/rpc, and who may call them.
 const FUNCTIONS = {
   validate_coupon: { roles: ANY, args: ['p_code', 'p_subtotal'] },
+
+  // Moving stock in one statement, so two people dispatching at once cannot
+  // erase each other's deduction. Staff only — nobody browsing the shop has any
+  // business changing what is on the shelf.
+  adjust_stock: { roles: STAFF, args: ['p_product_id', 'p_delta'] },
 }
 
 // Server-side functions (what used to be Edge Functions), and who may invoke

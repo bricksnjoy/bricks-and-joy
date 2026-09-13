@@ -6,7 +6,7 @@ import { Plus, Trash2, AlertTriangle, Package, Upload, Eye, CreditCard, X, Camer
 import BarcodeScanner from '../components/BarcodeScanner'
 import { SlipNote, RescanButton, useSlipScan } from '../components/SlipScan'
 import { sendSMS } from '../lib/sms'
-import { netOf, sumNet, sumDiscount, sumGross } from '../lib/money'
+import { netOf, sumNet, sumDiscount, sumGross, sumRevenue } from '../lib/money'
 import { getSettings } from '../lib/settings'
 import { printHtml } from '../lib/printWindow'
 import { localToday } from '../lib/dates'
@@ -424,8 +424,13 @@ export default function Orders() {
     }
   }
 
+  // Retry without a column this database does not have yet — and only that.
+  // Matching any error that mentions a column meant a not-null violation deleted
+  // the offending field and saved anyway, which loses the very data that failed.
   function dropMissingCol(error, payload) {
-    const m = (error?.message || '').match(/'([a-z_]+)' column/i) || (error?.message || '').match(/column "?([a-z_]+)"?/i)
+    const msg = error?.message || ''
+    if (!/column .* does not exist|could not find|schema cache/i.test(msg)) return false
+    const m = msg.match(/'([a-z_]+)' column/i) || msg.match(/column "?([a-z_]+)"?/i)
     const col = m && m[1]
     if (col && col in payload) { delete payload[col]; return true }
     return false
@@ -567,7 +572,7 @@ export default function Orders() {
   // `target` is the order being paid — passed in so the total is right even when
   // the scan starts as the modal opens (before payModal state has settled).
   function scanCustomerSlip(source, target) {
-    const total = Number((target || payModal)?.total_price || 0)
+    const total = netOf(target || payModal)     // the slip is matched against what is owed
     return slip.scan(source, found => {
       let before
       setPayForm(p => {
@@ -700,11 +705,19 @@ export default function Orders() {
       // Move stock only when the holding state actually changes — take it out when
       // dispatched, put it back if it comes off dispatch or is cancelled.
       if (row.product_id && want !== held) {
-        const { data: prod } = await supabase.from('products').select('stock_qty, name, low_stock_threshold').eq('id', row.product_id).single()
+        const qty = Number(row.qty) || 0
+        // One statement, in the database. Reading the level, subtracting here and
+        // writing it back meant two people dispatching the same product at the
+        // same moment both read the same number and the second write erased the
+        // first — stock creeping upward, the shop thinking it held toys it had
+        // already sent out.
+        const { data: adjusted } = await supabase.rpc('adjust_stock', {
+          p_product_id: row.product_id,
+          p_delta: want ? -qty : qty,
+        })
+        const prod = Array.isArray(adjusted) ? adjusted[0] : adjusted
         if (prod) {
-          const qty = Number(row.qty) || 0
-          const newStock = (Number(prod.stock_qty) || 0) + (want ? -qty : qty)
-          await supabase.from('products').update({ stock_qty: newStock }).eq('id', row.product_id)
+          const newStock = Number(prod.stock_qty) || 0
           if (want) {
             const { lowStockThreshold } = getSettings()
             if (newStock <= 0) toast.error(`⚠️ ${prod.name} OUT OF STOCK!`)
@@ -729,13 +742,13 @@ export default function Orders() {
       : 'Delete this order? Stock will be restored.')) return
     for (const row of rows) {
       if (holdsStock(row) && row.product_id) {
-        const { data: prod } = await supabase.from('products').select('stock_qty').eq('id', row.product_id).single()
-        if (prod) await supabase.from('products').update({ stock_qty: (Number(prod.stock_qty) || 0) + (Number(row.qty) || 0) }).eq('id', row.product_id)
+        // Atomic, for the same reason as dispatching above.
+        await supabase.rpc('adjust_stock', { p_product_id: row.product_id, p_delta: Number(row.qty) || 0 })
       }
       await supabase.from('orders').delete().eq('id', row.id)
     }
     logAudit('delete', 'order', `${order?.invoice_number || id} — ${order?.customer_name || ''}`,
-      { total: rows.reduce((s, r) => s + Number(r.total_price || 0), 0), items: rows.length })
+      { total: sumNet(rows), items: rows.length })
     toast.success(many ? `Deleted (${rows.length} lines)` : 'Deleted'); load()
   }
 
@@ -845,7 +858,8 @@ export default function Orders() {
       ? orders.filter(o => o.customer_id === order.customer_id && o.invoice_number === order.invoice_number)
       : [order]
     const items = lineItems.length ? lineItems : [order]
-    const itemsTotal = items.reduce((s, it) => s + Number(it.total_price || 0), 0)
+    const itemsTotal = sumGross(items)                 // the lines, before discount
+    const netTotal = sumNet(items)                     // and what the SMS already says
     const discountTotal = items.reduce((s, it) => s + Number(it.discount || 0), 0)
     const payStatus = order.payment_status || 'unpaid'
     const payColor = payStatus === 'paid' ? '#1D9E75' : payStatus === 'partial' ? '#f57f17' : '#c62828'
@@ -920,7 +934,7 @@ export default function Orders() {
         ${discountTotal > 0 ? `<div class="item-row" style="color:#1D9E75"><span style="font-size:12px">Discount</span><span style="font-weight:700">-MVR ${discountTotal.toFixed(2)}</span></div>` : ''}
         <div class="total-block">
           <div class="total-label">Total Amount</div>
-          <div class="total-amount">MVR ${itemsTotal.toFixed(2)}</div>
+          <div class="total-amount">MVR ${netTotal.toFixed(2)}</div>
         </div>
         <div class="pay-section">
           <span class="badge">${payStatus.toUpperCase()}</span>
@@ -985,8 +999,10 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
   // inside the first card, not as separate orders.
   const displayOrders = groupRows(filter === 'all' ? orders : orders.filter(o => o.status === filter))
   const filteredOrders = displayOrders
-  const totalRevenue = orders.filter(o => o.status !== 'cancelled' && (o.status === 'delivered' || o.payment_status === 'paid')).reduce((s, o) => s + Number(o.total_price || 0), 0)
-  const unpaidTotal = orders.filter(o => (o.payment_status || 'unpaid') === 'unpaid' && o.status !== 'cancelled').reduce((s, o) => s + Number(o.total_price || 0), 0)
+  // Same rule as the Profit & Loss page and the Business Sheet — it was spelled
+  // out here a third time, which is how three places come to disagree.
+  const totalRevenue = sumRevenue(orders)
+  const unpaidTotal = sumNet(orders.filter(o => (o.payment_status || 'unpaid') === 'unpaid' && o.status !== 'cancelled'))
   const lowStockCount = products.filter(p => p.stock_qty > 0 && p.stock_qty <= (p.low_stock_threshold ?? 10)).length
   const outOfStockCount = products.filter(p => p.stock_qty <= 0).length
 

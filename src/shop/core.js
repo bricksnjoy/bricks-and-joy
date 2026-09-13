@@ -76,8 +76,22 @@ export const readWish = () => { try { const v = JSON.parse(localStorage.getItem(
 export const writeWish = w => { try { localStorage.setItem(WISH_KEY, JSON.stringify(w)) } catch {} }
 
 // Drop an unknown column and retry — keeps checkout working across schema drift.
+// Retry a save without a column this database does not have yet.
+//
+// Only for that. This used to match any error message with a column name in it,
+// and Postgres puts a column name in plenty of them — "null value in column
+// \"qty\" violates not-null constraint" among others. So an order that should
+// have been refused had its quantity quietly deleted and was saved again, taking
+// the column default of 1. An error handler that discards the data it could not
+// save is worse than the error.
+//
+// The message has to actually say the column is missing.
+const MISSING_COLUMN = /column .* does not exist|could not find|schema cache/i
+
 export function dropMissingCol(error, payload) {
-  const m = (error?.message || '').match(/'([a-z_]+)' column/i) || (error?.message || '').match(/column "?([a-z_]+)"?/i)
+  const msg = error?.message || ''
+  if (!MISSING_COLUMN.test(msg)) return false
+  const m = msg.match(/'([a-z_]+)' column/i) || msg.match(/column "?([a-z_]+)"?/i)
   const col = m && m[1]
   if (col && col in payload) { delete payload[col]; return true }
   return false
