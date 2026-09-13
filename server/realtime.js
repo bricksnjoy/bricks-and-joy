@@ -69,7 +69,17 @@ function attach(server, { path = '/realtime' } = {}) {
     verifyClient(info, done) {
       const token = new URL(info.req.url, 'http://x').searchParams.get('token')
       try {
-        info.req.claims = jwt.verify(token, process.env.JWT_SECRET, { issuer: 'bricksandjoy' })
+        const claims = jwt.verify(token, process.env.JWT_SECRET, { issuer: 'bricksandjoy' })
+
+        // A valid token is not enough, which is what this used to settle for.
+        // Anyone can hold one: signing up on the shop is free and instant. And
+        // the channel name is in the front-end bundle, so it is not a secret
+        // either. A shopper could therefore sit and watch which colleague was
+        // on which back-office page, with their name and email beside it.
+        // Only the back office belongs in here.
+        if (claims.role !== 'staff') return done(false, 403, 'Forbidden')
+
+        info.req.claims = claims
         done(true)
       } catch {
         done(false, 401, 'Unauthorized')

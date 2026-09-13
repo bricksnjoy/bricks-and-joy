@@ -89,7 +89,19 @@ async function refreshSession(refreshToken, userAgent) {
 }
 
 const endSession = token => db.query('delete from auth_sessions where token = $1', [token])
-const endAllSessions = userId => db.query('delete from auth_sessions where user_id = $1', [userId])
+
+// Signing out everywhere has to reach the access tokens too, not just the
+// refresh tokens. Deleting the rows below stops anyone getting a *new* access
+// token; the mark stops the ones already handed out from being accepted.
+// Without it, changing a password because somebody else had it left them an
+// hour of continued access — the one moment it most needed to work.
+async function endAllSessions(userId) {
+  await db.query('delete from auth_sessions where user_id = $1', [userId])
+  await db.query(
+    "update app_users set tokens_valid_from = date_trunc('second', now()) where id = $1",
+    [userId]
+  )
+}
 
 // ── accounts ────────────────────────────────────────────────────────────────
 const hashPassword = pw => bcrypt.hash(pw, 12)
@@ -156,23 +168,47 @@ async function consumeResetToken(token) {
 // Runs on every request. A missing or expired token is not an error: it just
 // means the caller is anonymous, which is a perfectly ordinary thing to be on
 // the shop. Policies decide what that is worth.
-function identify(req, _res, next) {
+async function identify(req, _res, next) {
   req.auth = { role: 'anon', userId: null, email: null }
 
   const header = req.get('authorization') || ''
   const token = header.startsWith('Bearer ') ? header.slice(7).trim() : null
-  if (!token) return next()
+  if (!token) return next()          // the shop is public; anonymous is normal
 
+  let claims
   try {
-    const claims = jwt.verify(token, SECRET, { issuer: 'bricksandjoy' })
-    req.auth = {
-      role: claims.role === 'staff' ? 'staff' : 'customer',
-      userId: claims.sub,
-      email: claims.email || null,
-    }
+    claims = jwt.verify(token, SECRET, { issuer: 'bricksandjoy' })
   } catch {
     // Expired or forged — treated as anonymous. The shim sees the 401 that
     // follows on a protected call and refreshes.
+    return next()
+  }
+
+  // A signature alone only proves we issued this token once, not that it still
+  // means anything. The account may have been signed out everywhere, had its
+  // password changed, lost the staff role, or been deleted since — and the
+  // token would say none of it. So the row is read, and it is the row that
+  // decides. One lookup by primary key, and only for requests that actually
+  // carry a token.
+  try {
+    const user = await findUserById(claims.sub)
+    if (!user) return next()                       // deleted account
+
+    const validFrom = user.tokens_valid_from ? new Date(user.tokens_valid_from).getTime() / 1000 : 0
+    if (claims.iat && claims.iat < validFrom) return next()   // issued before a sign-out-everywhere
+
+    req.auth = {
+      // The role comes from the row, not the token, so losing staff takes
+      // effect at once rather than whenever the token happens to expire.
+      role: user.role === 'staff' ? 'staff' : 'customer',
+      userId: user.id,
+      email: user.email || null,
+    }
+  } catch (e) {
+    // The database is the thing that says who you are. If it cannot answer,
+    // the honest reply is "nobody" — a request that matters will fail loudly
+    // rather than quietly running as somebody it could not confirm.
+    console.error('[auth] could not confirm the caller:', e.message)
   }
   next()
 }
