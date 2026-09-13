@@ -31,7 +31,7 @@ bricksandjoy.com, www.bricksandjoy.com {
 		-Server
 	}
 
-	# ── Content-Security-Policy, enforcing ──────────────────────────────────
+	# ── Content-Security-Policy, back in Report-Only mode ───────────────────
 	#
 	# The header above are each one rule. This one is the backstop: a list of
 	# where the page is allowed to load things from. If a way to inject a
@@ -39,27 +39,35 @@ bricksandjoy.com, www.bricksandjoy.com {
 	# a dependency that turns bad — this is what stops the injected script from
 	# running or from sending anything anywhere.
 	#
-	# This is now enforcing, not Report-Only. The browser refuses what the policy
-	# refuses, rather than allowing it and filing a note.
-	#
-	# Reports still arrive at /api/csp-report (see server/routes/csp-report.js)
-	# and still reach the Security page, so a refusal is visible rather than
-	# silent — but it is a refusal now, not a warning:
+	# Report-Only: the browser works out what the policy would block, allows it
+	# anyway, and posts a note to /api/csp-report (see server/routes/csp-report.js),
+	# which reaches the Security page and the journal:
 	#
 	#   journalctl -u bricksandjoy -f | grep csp
 	#
-	# What had to be done first. Every print window — receipts, invoices,
-	# barcode labels, the P&L, the order sheet — was built with document.write
-	# and carried an inline <script> calling window.print(). That is precisely
-	# what script-src 'self' forbids, and a browser cannot tell ours from one an
-	# attacker injected. They now call print from the opening page instead
-	# (src/lib/printWindow.js), which is our own served JavaScript and allowed.
+	# This was briefly switched to enforcing and switched straight back, which is
+	# worth writing down rather than quietly undoing.
 	#
-	# Checked before switching over, with the real build served under this exact
-	# policy: the app mounts with no refusals; the bundle carries no inline
-	# script, no inline handler and no eval; and every print path was driven in
-	# a real browser — it waits for the pictures, gives up after a few seconds
-	# if one never arrives, and prints.
+	# The print windows had been the one known blocker, and they were fixed
+	# (src/lib/printWindow.js — the inline <script> that called window.print()
+	# moved out to the opening page). The whole built app was then served under
+	# this policy in a real browser and mounted with no refusals at all, which
+	# looked like proof. It was not. Loading the app exercises what runs at
+	# startup; it does not touch a feature nobody clicked. Two were broken:
+	#
+	#   • the shop's demo videos — a YouTube <iframe>, against frame-src 'none'
+	#   • reading a payment slip — tesseract.js fetches its engine and language
+	#     data from jsdelivr at the moment it is first used, runs it as a worker
+	#     made from a blob:, and compiles WebAssembly. Three separate refusals,
+	#     none of them visible until somebody uploads a slip.
+	#
+	# Both found by grepping for what the *features* need rather than by loading
+	# a page, which is the check that should have come first. The directives
+	# below now say so. But the same reasoning applies to everything not yet
+	# looked at, so this goes back to watching until a stretch of ordinary use —
+	# a slip read, a video played, a barcode scanned, a receipt printed — has
+	# gone by with the Security page staying empty. That is what report-only is
+	# for, and it had not been allowed to finish.
 	#
 	# Each line, in order:
 	#   default-src   nothing from anywhere unless a rule below says otherwise
@@ -80,13 +88,21 @@ bricksandjoy.com, www.bricksandjoy.com {
 	#                 allow: it cannot execute, and script-src and connect-src
 	#                 below are what actually stop an attack.
 	#   connect-src   the API and the presence WebSocket on our own host, plus
-	#                 EmailJS, which is still the fallback route in lib/emailer.js
-	#   frame-src     nothing is embedded, and nothing should be
+	#                 EmailJS, which is still the fallback route in lib/emailer.js,
+	#                 plus jsdelivr, which is where tesseract.js fetches its OCR
+	#                 engine and English data the first time a payment slip is read
+	#   worker-src    the OCR runs in a worker built from a blob:, and pulls its
+	#                 worker script from the same CDN
+	#   media-src     a product's demo video may be a plain .mp4 on a supplier's
+	#                 site, same as the photographs above and safe for the same
+	#                 reason — it cannot execute
+	#   frame-src     YouTube only, for the demo video on a product page. Nothing
+	#                 else is embedded and nothing else should be
 	#   object-src    no Flash, no applets, no embedded PDF viewers
 	#   base-uri      stops an injected <base> quietly repointing every link
 	#   form-action   a form on our page may only post back to our own site
 	#   frame-ancestors  the same thing X-Frame-Options says, for newer browsers
-	header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; connect-src 'self' wss://bricksandjoy.com https://api.emailjs.com; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; report-uri /api/csp-report"
+	header Content-Security-Policy-Report-Only "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; media-src 'self' blob: https:; connect-src 'self' wss://bricksandjoy.com https://api.emailjs.com https://cdn.jsdelivr.net; worker-src 'self' blob: https://cdn.jsdelivr.net; frame-src https://www.youtube.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; report-uri /api/csp-report"
 
 	# The back office holds the whole business. Keep it out of search results —
 	# public/robots.txt says the same thing, this makes sure of it.
