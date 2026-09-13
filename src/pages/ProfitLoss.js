@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { printHtml } from '../lib/printWindow'
 import { PageHeader, Card, Spinner } from '../components/UI'
 import { FinancialBusiness } from '../components/BusinessSections'
 import { exportBusinessSummary } from '../lib/business'
@@ -394,8 +395,7 @@ export default function Accounting() {
 
   function printIncomeStatement() {
     const logoUrl = window.location.origin + '/logo-full.png'
-    const w = window.open('', '_blank')
-    w.document.write(`
+    printHtml(`
       <html><head><title>Income Statement — ${companyName}</title>
       <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800&display=swap" rel="stylesheet">
       <style>
@@ -491,9 +491,7 @@ export default function Accounting() {
           <div class="footer-brand">Brick's &amp; Joy</div>
           <div>Rate: 1 USD = ${MVR_RATE} MVR &nbsp;·&nbsp; Revenue recognized on paid & delivered orders</div>
         </div>
-        <script>window.onload = () => window.print()</script>
-      </body></html>`)
-    w.document.close()
+      </body></html>`, { closeAfter: false })   // stays open, as it did before
   }
 
   if (loading) return <Spinner />

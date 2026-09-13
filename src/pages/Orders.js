@@ -8,6 +8,7 @@ import { SlipNote, RescanButton, useSlipScan } from '../components/SlipScan'
 import { sendSMS } from '../lib/sms'
 import { netOf, sumNet, sumDiscount, sumGross } from '../lib/money'
 import { getSettings } from '../lib/settings'
+import { printHtml } from '../lib/printWindow'
 import { localToday } from '../lib/dates'
 import { logAudit } from '../lib/audit'
 import { blockedByLock } from '../lib/periodLock'
@@ -846,11 +847,10 @@ export default function Orders() {
     const items = lineItems.length ? lineItems : [order]
     const itemsTotal = items.reduce((s, it) => s + Number(it.total_price || 0), 0)
     const discountTotal = items.reduce((s, it) => s + Number(it.discount || 0), 0)
-    const w = window.open('', '_blank', 'width=480,height=640')
     const payStatus = order.payment_status || 'unpaid'
     const payColor = payStatus === 'paid' ? '#1D9E75' : payStatus === 'partial' ? '#f57f17' : '#c62828'
     const logoUrl = window.location.origin + '/logo-full.png'
-    w.document.write(`
+    printHtml(`
       <html><head><title>Receipt — ${order.invoice_number || 'Order'}</title>
       <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800&display=swap" rel="stylesheet">
       <style>
@@ -932,9 +932,7 @@ export default function Orders() {
           <div class="footer-msg">This is a computer generated receipt.</div>
           <div class="footer-brand">Brick's &amp; Joy</div>
         </div>
-        <script>window.onload = () => { window.print(); window.onafterprint = () => window.close(); }</script>
-      </body></html>`)
-    w.document.close()
+      </body></html>`, { features: 'width=480,height=640' })
   }
 
 const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))

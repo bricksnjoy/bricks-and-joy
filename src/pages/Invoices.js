@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { PageHeader, Card, Spinner, useToast, Toasts } from '../components/UI'
 import { Printer, Search, ChevronDown, ChevronRight, Download, FileText } from 'lucide-react'
 import { getSettings } from '../lib/settings'
+import { printHtml } from '../lib/printWindow'
 
 const payColors = { paid: '#1D9E75', partial: '#f57f17', unpaid: '#c62828' }
 
@@ -101,11 +102,10 @@ export default function Invoices() {
     const customer = customers.find(c => c.id === inv.customer_id) || { name: inv.customer_name }
     const items = inv.items
     const discountTotal = items.reduce((s, it) => s + Number(it.discount || 0), 0)
-    const w = window.open('', '_blank', 'width=480,height=640')
     const payStatus = inv.payment_status
     const payColor = payColors[payStatus] || '#888'
     const logoUrl = window.location.origin + '/logo-full.png'
-    w.document.write(`
+    printHtml(`
       <html><head><title>Receipt — ${inv.invoice_number || 'Order'}</title>
       <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800&display=swap" rel="stylesheet">
       <style>
@@ -187,9 +187,7 @@ export default function Invoices() {
           <div class="footer-msg">This is a computer generated receipt.</div>
           <div class="footer-brand">Brick's &amp; Joy</div>
         </div>
-        <script>window.onload = () => { window.print(); window.onafterprint = () => window.close(); }</script>
-      </body></html>`)
-    w.document.close()
+      </body></html>`, { features: 'width=480,height=640' })
   }
 
   function downloadCSV() {
