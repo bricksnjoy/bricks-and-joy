@@ -10,7 +10,7 @@ import {
 } from 'lucide-react'
 import { actionItems, generateInsights, restockPredictions } from '../lib/insights'
 import { loyaltyProfile } from '../lib/loyalty'
-import { netOf } from '../lib/money'
+import { netOf, isRevenue } from '../lib/money'
 
 const AVATAR_COLORS = ['#7F77DD','#1D9E75','#FFA500','#378ADD','#E24B4A','#0F6E56']
 
@@ -204,7 +204,7 @@ export default function Dashboard() {
     const custs = customers.data || []
     const delivered = ords.filter(o => o.status === 'delivered')
     // Count revenue for all paid orders (even if not yet delivered) + all delivered orders
-    const revenueOrders = ords.filter(o => o.status !== 'cancelled' && (o.status === 'delivered' || o.payment_status === 'paid'))
+    const revenueOrders = ords.filter(isRevenue)
     const revenue = revenueOrders.reduce((s, o) => s + netOf(o), 0)
     const cogs = delivered.reduce((s, o) => {
       const p = prods.find(p => p.id === o.product_id)

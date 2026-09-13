@@ -12,6 +12,7 @@ import BarcodeScanner from '../components/BarcodeScanner'
 import { restockPredictions, costHistoryByProduct } from '../lib/insights'
 import { groupAdjacent, familyRuns, sizeOf, splitName } from '../lib/variants'
 import { loadCategories, ensureCategory, BUILT_IN } from '../lib/categories'
+import { adjustStock } from '../lib/stock'
 
 // Custom line-art icons matching the toy/store brand
 const BrickIcon = ({ size = 14, color = '#FFA500' }) => (
@@ -377,9 +378,9 @@ export default function Inventory() {
     }
     const { error } = await supabase.from('orders').insert(payload)
     if (error) { setPlacingOrder(false); toast.error('Failed to create order: ' + error.message); return }
-    // decrement stock
-    const newStock = (p.stock_qty || 0) - qty
-    await supabase.from('products').update({ stock_qty: newStock }).eq('id', p.id)
+    // decrement stock, in one statement so a walk-in sale and a dispatch at the
+    // same moment cannot erase one another
+    await adjustStock(p.id, -qty)
     setPlacingOrder(false)
     setOrderModal(null)
     logAudit('create', 'order', `${payload.invoice_number} — ${payload.customer_name || 'Walk-in'} (${p.name} ×${qty})`, { total: payload.total_price })

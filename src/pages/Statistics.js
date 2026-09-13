@@ -5,7 +5,7 @@ import { AnalyticsMonthly, AnalyticsProducts, AnalyticsCategories } from '../com
 import { BarChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, AreaChart, Area, ComposedChart } from 'recharts'
 import { TrendingUp, TrendingDown, Package, ShoppingCart, Users, AlertTriangle, BarChart3, PieChart as PieIcon, LineChart as LineIcon, Activity, Trophy, Medal, Award, Flame, ArrowUpRight, ArrowDownRight, ArrowRight, CheckCircle, Minus, Coins, Tag, Rocket, Wallet, Target, RotateCcw, CalendarDays, CalendarRange } from 'lucide-react'
 import { toLocalISO } from '../lib/dates'
-import { netOf } from '../lib/money'
+import { netOf, isRevenue } from '../lib/money'
 
 const COLORS = ['#FFA500','#0d1b2a','#1D9E75','#378ADD','#f57f17','#7F77DD','#c62828','#29b6f6']
 
@@ -94,7 +94,7 @@ export default function Statistics() {
     const exps = expenses.data || []
     const delivered = ords.filter(o => o.status === 'delivered')
     // Revenue includes paid orders even if not yet delivered
-    const revenueOrders = ords.filter(o => o.status !== 'cancelled' && (o.status === 'delivered' || o.payment_status === 'paid'))
+    const revenueOrders = ords.filter(isRevenue)
 
     // Revenue by month
     const revByMonth = {}
@@ -158,7 +158,7 @@ export default function Statistics() {
     ords.forEach(o => {
       if (isChargeLine(o)) return
       if (!productPerf[o.product_name]) productPerf[o.product_name] = { name: o.product_name, revenue: 0, units: 0, orders: 0, cancelled: 0, cogs: 0 }
-      if (o.status !== 'cancelled' && (o.status === 'delivered' || o.payment_status === 'paid')) {
+      if (isRevenue(o)) {
         productPerf[o.product_name].revenue += netOf(o)
         productPerf[o.product_name].units += o.qty
         const p = prodById[o.product_id]
@@ -231,17 +231,21 @@ export default function Statistics() {
     // Product forecast — which products will sell most next month based on trend
     const productTrend = {}
     months.slice(-3).forEach(m => {
-      ords.filter(o => !isChargeLine(o) && o.status !== 'cancelled' && (o.status === 'delivered' || o.payment_status === 'paid') && o.order_date?.startsWith(m)).forEach(o => {
+      ords.filter(o => !isChargeLine(o) && isRevenue(o) && o.order_date?.startsWith(m)).forEach(o => {
         if (!productTrend[o.product_name]) productTrend[o.product_name] = { name: o.product_name, recent: 0, older: 0 }
         const isRecent = m === months[months.length - 1]
         if (isRecent) productTrend[o.product_name].recent += o.qty
         else productTrend[o.product_name].older += o.qty
       })
     })
-    const hotProducts = Object.values(productTrend).map(p => ({
-      ...p,
-      trend: p.older > 0 ? ((p.recent - p.older / 2) / (p.older / 2) * 100).toFixed(0) : 100,
-    })).sort((a, b) => b.recent - a.recent)
+    // Against the average of the older months, however many there are. This
+    // divided by 2 whatever the window held, so with only two months of trading
+    // a product selling exactly the same as last month showed +100%.
+    const olderMonths = Math.max(1, months.slice(-3).length - 1)
+    const hotProducts = Object.values(productTrend).map(p => {
+      const olderAvg = p.older / olderMonths
+      return { ...p, trend: olderAvg > 0 ? ((p.recent - olderAvg) / olderAvg * 100).toFixed(0) : 100 }
+    }).sort((a, b) => b.recent - a.recent)
 
     // Top customers. An order is one invoice, not one row — a basket of three
     // products, or a product plus its delivery charge, is still one order.

@@ -1610,7 +1610,15 @@ export default function SupplierCatalog() {
             {form.cost_price && form.sell_price && (
               <div style={{ display:'flex', alignItems:'flex-end', paddingBottom:2 }}>
                 <div style={{ background:'#E1F5EE', borderRadius:9, padding:'9px 14px', fontSize:12, color:'#1D9E75', fontWeight:600 }}>
-                  Margin: MVR {(parseFloat(form.sell_price||0)-parseFloat(form.cost_price||0)).toFixed(2)} ({form.cost_price>0?((parseFloat(form.sell_price||0)-parseFloat(form.cost_price||0))/parseFloat(form.cost_price)*100).toFixed(0):0}%)
+                  {/* Margin is profit as a share of the SALE; markup is the same
+                      profit as a share of the cost. This showed the markup and
+                      called it the margin, which reads far healthier than it is:
+                      100 bought and 150 sold is a 50% markup and a 33% margin.
+                      Order Analysis has always kept the two apart — both are
+                      shown here now, in its words. */}
+                  Profit: MVR {(parseFloat(form.sell_price||0)-parseFloat(form.cost_price||0)).toFixed(2)}
+                  {parseFloat(form.sell_price)>0 && <> · margin {(((parseFloat(form.sell_price||0)-parseFloat(form.cost_price||0))/parseFloat(form.sell_price))*100).toFixed(0)}%</>}
+                  {parseFloat(form.cost_price)>0 && <> · markup {(((parseFloat(form.sell_price||0)-parseFloat(form.cost_price||0))/parseFloat(form.cost_price))*100).toFixed(0)}%</>}
                 </div>
               </div>
             )}

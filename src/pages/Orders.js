@@ -12,6 +12,7 @@ import { printHtml } from '../lib/printWindow'
 import { localToday } from '../lib/dates'
 import { logAudit } from '../lib/audit'
 import { blockedByLock } from '../lib/periodLock'
+import { adjustStock, announceStock } from '../lib/stock'
 
 // Bank account shown in the "Payment" SMS template
 const BANK_ACCOUNT_NO = '7730000819195'
@@ -437,9 +438,7 @@ export default function Orders() {
   }
 
   async function applyStockDelta(productId, delta) {
-    if (!productId || !delta) return
-    const { data: prod } = await supabase.from('products').select('stock_qty').eq('id', productId).single()
-    if (prod) await supabase.from('products').update({ stock_qty: (prod.stock_qty || 0) + delta }).eq('id', productId)
+    await adjustStock(productId, delta)
   }
 
   async function save() {
@@ -511,14 +510,8 @@ export default function Orders() {
       // is dispatched. Before the migration, keep deducting at creation as before.
       const deductNow = stockAtDispatch ? consumesStock(form.status) : true
       if (deductNow && item.product_id) {
-        const { data: prod } = await supabase.from('products').select('stock_qty, name, low_stock_threshold').eq('id', item.product_id).single()
-        if (prod) {
-          const newStock = (prod.stock_qty || 0) - parseInt(item.qty)
-          const { lowStockThreshold } = getSettings()
-          await supabase.from('products').update({ stock_qty: newStock }).eq('id', item.product_id)
-          if (newStock <= 0) toast.error(`⚠️ ${prod.name} OUT OF STOCK!`)
-          else if (newStock <= (prod.low_stock_threshold ?? lowStockThreshold ?? 10)) toast.info(`⚠️ Low stock: ${prod.name} — ${newStock} left`)
-        }
+        const moved = await adjustStock(item.product_id, -(parseInt(item.qty) || 0))
+        announceStock(moved, -1, toast, getSettings().lowStockThreshold)
       }
     }
     // Extra costs as their own invoice lines, and in Cost Management
@@ -644,11 +637,8 @@ export default function Orders() {
     const order = returnModal
     // Put stock back only if this order was actually holding it out.
     if (order.product_id && holdsStock(order)) {
-      const { data: prod } = await supabase.from('products').select('stock_qty, name').eq('id', order.product_id).single()
-      if (prod) {
-        await supabase.from('products').update({ stock_qty: (Number(prod.stock_qty) || 0) + (Number(order.qty) || 0) }).eq('id', order.product_id)
-        toast.info(`Stock restored: ${prod.name} +${order.qty}`)
-      }
+      const moved = await adjustStock(order.product_id, Number(order.qty) || 0)
+      announceStock(moved, 1, toast)
     }
     const refund = parseFloat(returnForm.refund_amount) || 0
     const orderPatch = {
@@ -711,22 +701,8 @@ export default function Orders() {
         // same moment both read the same number and the second write erased the
         // first — stock creeping upward, the shop thinking it held toys it had
         // already sent out.
-        const { data: adjusted } = await supabase.rpc('adjust_stock', {
-          p_product_id: row.product_id,
-          p_delta: want ? -qty : qty,
-        })
-        const prod = Array.isArray(adjusted) ? adjusted[0] : adjusted
-        if (prod) {
-          const newStock = Number(prod.stock_qty) || 0
-          if (want) {
-            const { lowStockThreshold } = getSettings()
-            if (newStock <= 0) toast.error(`⚠️ ${prod.name} OUT OF STOCK!`)
-            else if (newStock <= (prod.low_stock_threshold ?? lowStockThreshold ?? 10)) toast.info(`${prod.name} −${qty} · ${newStock} left`)
-            else toast.info(`${prod.name} −${qty} from stock (dispatched)`)
-          } else {
-            toast.info(`Stock restored: ${prod.name} +${qty}`)
-          }
-        }
+        const prod = await adjustStock(row.product_id, want ? -qty : qty)
+        announceStock(prod, want ? -qty : qty, toast, getSettings().lowStockThreshold)
       }
     }
     logAudit(newStatus === 'cancelled' ? 'cancel' : 'update', 'order', `${order?.invoice_number || id} — ${order?.customer_name || ''}`, { status: newStatus, items: rows.length })

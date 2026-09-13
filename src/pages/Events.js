@@ -4,6 +4,7 @@ import { uploadImage, PHOTO } from '../lib/uploadImage'
 import { localToday } from '../lib/dates'
 import { logAudit } from '../lib/audit'
 import { PageHeader, Card, Button, Input, Select, Modal, Spinner, FormRow, useToast, Toasts, MetricCard, SearchSelect } from '../components/UI'
+import { adjustStock, announceStock } from '../lib/stock'
 import {
   PartyPopper, Plus, Trash2, Edit2, Gift, Lightbulb, CalendarClock, CheckCircle2,
   Eye, Radio, Heart, MessageCircle, Share2, Bookmark, TrendingUp, Wallet, UserPlus,
@@ -172,14 +173,9 @@ export default function Events() {
   // Adjust one product's stock by delta (positive = give back, negative = take out)
   async function adjustStock(productId, delta, reason) {
     if (!productId || !delta) return
-    const { data: fresh } = await supabase.from('products').select('stock_qty, name, low_stock_threshold').eq('id', productId).single()
+    const fresh = await adjustStock(productId, delta)
     if (!fresh) return
-    const newStock = (Number(fresh.stock_qty) || 0) + delta
-    await supabase.from('products').update({ stock_qty: newStock }).eq('id', productId)
-    if (delta < 0) {
-      if (newStock <= 0) toast.error(`⚠️ ${fresh.name} OUT OF STOCK!`)
-      else if (newStock <= (fresh.low_stock_threshold ?? 10)) toast.info(`⚠️ Low stock: ${fresh.name} — ${newStock} left`)
-    }
+    if (delta < 0) announceStock(fresh, delta, toast)
     logAudit('stock', 'product', `${fresh.name} ${delta < 0 ? '−' : '+'}${Math.abs(delta)} (${reason})`, { delta })
   }
 

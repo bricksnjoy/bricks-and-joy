@@ -147,13 +147,20 @@ export default function Deliveries() {
     return matchSearch && matchFilter
   })
 
+  // Counted per delivery, not per line. An order is a row for each product, so
+  // a basket of three toys is three rows and one trip to one address — counting
+  // rows said three deliveries, and every multi-item order inflated the day's
+  // numbers. Rows stay as they are below, because each one is assigned and
+  // marked off separately; it is only the counting that had to change.
+  const trips = list => new Set(list.map(o => o.invoice_number ? invKey(o) : 'id:' + o.id)).size
+
   // assigned = has staff AND not yet delivered (delivered ones drop out of this count)
-  const assignedCount = orders.filter(o => o.delivery_person && o.status !== 'delivered').length
-  const unassignedCount = orders.filter(o => !o.delivery_person && !isPickup(o)).length
-  const pickupCount = orders.filter(isPickup).length
-  const deliveredCount = orders.filter(o => o.status === 'delivered').length
+  const assignedCount = trips(orders.filter(o => o.delivery_person && o.status !== 'delivered'))
+  const unassignedCount = trips(orders.filter(o => !o.delivery_person && !isPickup(o)))
+  const pickupCount = trips(orders.filter(isPickup))
+  const deliveredCount = trips(orders.filter(o => o.status === 'delivered'))
   const today = localToday()
-  const todayCount = orders.filter(o => effectiveDate(o) === today).length
+  const todayCount = trips(orders.filter(o => effectiveDate(o) === today))
 
   // Deliveries handled by each staff member (assigned total + completed).
   const staffReport = (() => {

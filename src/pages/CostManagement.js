@@ -7,6 +7,7 @@ import { logAudit } from '../lib/audit'
 import { blockedByLock } from '../lib/periodLock'
 import { PageHeader, Card, Button, Input, Select, Table, Modal, Spinner, FormRow, useToast, Toasts, Badge } from '../components/UI'
 import { Plus, Trash2, Edit2, Gift, FlaskConical, Megaphone, Instagram, Users, Package, Truck, User, Store, Lightbulb, Undo2, FileText, ArrowLeftRight, Tag, PieChart, Filter, Paperclip, X, Laptop, ScrollText } from 'lucide-react'
+import { adjustStock, announceStock } from '../lib/stock'
 
 const MVR_RATE = 15.42
 
@@ -193,14 +194,9 @@ export default function CostManagement() {
         amount: +(qty * unitCost).toFixed(2), expense_date: gaForm.expense_date,
       })
       if (error) { setSaving(false); toast.error('Failed to save: ' + error.message); return }
-      // Deduct stock using a fresh read so concurrent edits aren't clobbered
-      const { data: fresh } = await supabase.from('products').select('stock_qty, name, low_stock_threshold').eq('id', r.product_id).single()
-      if (fresh) {
-        const newStock = (Number(fresh.stock_qty) || 0) - qty
-        await supabase.from('products').update({ stock_qty: newStock }).eq('id', r.product_id)
-        if (newStock <= 0) toast.error(`⚠️ ${fresh.name} OUT OF STOCK!`)
-        else if (newStock <= (fresh.low_stock_threshold ?? 10)) toast.info(`⚠️ Low stock: ${fresh.name} — ${newStock} left`)
-      }
+      // In one statement, so a giveaway and a dispatch at the same moment cannot
+      // erase one another.
+      announceStock(await adjustStock(r.product_id, -qty), -1, toast)
       logAudit('stock', 'product', `${prod?.name || r.product_id} −${qty} given away (${gaForm.category})`, { qty, unit_cost: unitCost, reason: gaForm.description || null })
     }
     setSaving(false)
