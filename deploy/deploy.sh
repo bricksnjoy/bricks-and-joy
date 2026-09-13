@@ -72,8 +72,17 @@ step "Building the site"
 # API keeps getting the processor and the disk whenever it wants them, so the
 # shop stays responsive to anyone using it while a deploy is going out. It
 # costs the build a little time and nobody is watching it.
+#
+# GENERATE_SOURCEMAP=false leaves out the .map files. Those are the translation
+# back from the shipped, minified JavaScript to the code we actually wrote —
+# every file name, every variable name, every comment. React puts them next to
+# the bundle by default, which means anyone could read the whole back office at
+# bricksandjoy.com/static/js/….map. No password or key is in there to steal,
+# but there is no reason to hand someone a labelled floor plan of the building.
+# Nothing is lost by dropping them: they are only read by a browser's developer
+# tools, and we debug against the code here, not against the live site.
 as_app rm -rf build.new
-as_app nice -n 19 ionice -c 3 env BUILD_PATH=build.new CI=1 npx react-scripts build
+as_app nice -n 19 ionice -c 3 env BUILD_PATH=build.new CI=1 GENERATE_SOURCEMAP=false npx react-scripts build
 as_app rm -rf build.old
 [ -d build ] && as_app mv build build.old
 as_app mv build.new build
