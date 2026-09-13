@@ -44,27 +44,54 @@ const JSON_COLUMNS = [
 
 const log = (...a) => console.log(...a)
 
+const decode = s => { try { return decodeURIComponent(s) } catch { return s } }
+
 // The object key inside the bucket, from whatever URL shape was stored.
+//
+// Three shapes are in the database, because slips uploaded at different times
+// were addressed differently and all of them are still in there:
+//
+//   .../object/public/uploads/NAME   the old Supabase URLs
+//   .../api/storage/uploads/NAME     served by our own API
+//   https://files.example.com/NAME   R2's public bucket domain
+//
+// Only the last part is the key. The first version of this treated the whole
+// path as the key, so it asked R2 for "api/storage/uploads/slip-….jpeg" — an
+// object that has never existed — and every single move would have failed.
+// (Harmlessly: the database is only updated after a copy succeeds. But it
+// would have done nothing at all, while looking like it had tried.)
 function keyOf(url) {
   if (!url || typeof url !== 'string') return null
   if (url.startsWith('data:')) return null              // never uploaded
-  try {
-    const path = new URL(url).pathname.replace(/^\/+/, '')
-    // Some URL shapes carry the bucket as the first segment.
-    const bucket = r2.BUCKET()
-    return path.startsWith(bucket + '/') ? path.slice(bucket.length + 1) : path
-  } catch {
-    return null
-  }
+
+  let path
+  try { path = new URL(url).pathname } catch { return null }
+
+  const viaSupabase = path.match(/\/object\/(?:public|sign)\/[^/]+\/(.+)$/)
+  if (viaSupabase) return decode(viaSupabase[1])
+
+  const viaApi = path.match(/\/storage\/[^/]+\/(.+)$/)
+  if (viaApi) return decode(viaApi[1])
+
+  // A bucket's own public domain: the path is the key, give or take a bucket
+  // name in front of it.
+  const bare = path.replace(/^\/+/, '')
+  const bucket = r2.BUCKET()
+  return decode(bare.startsWith(bucket + '/') ? bare.slice(bucket.length + 1) : bare)
 }
 
 // Already unguessable? A UUID is 36 characters of hex and dashes.
 const alreadySafe = key => /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(key)
 
+// Keep whatever the name was prefixed with — slip-, po-slip-, web- — so a
+// renamed object still says what it is at a glance. Flattening po-slip- to
+// slip- would lose which ones came from a batch order for no reason.
 const newKeyFor = key => {
-  const ext = (key.split('.').pop() || 'jpg').toLowerCase()
-  const prefix = key.startsWith('web-') ? 'web' : 'slip'
-  return `${prefix}-${crypto.randomUUID()}.${ext.replace(/[^a-z0-9]/g, '') || 'jpg'}`
+  const base = key.split('/').pop() || key
+  const ext = (base.includes('.') ? base.split('.').pop() : '').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg'
+  const m = base.match(/^([a-z]+(?:-[a-z]+)*)-/i)
+  const prefix = m ? m[1].toLowerCase() : 'slip'
+  return `${prefix}-${crypto.randomUUID()}.${ext}`
 }
 
 async function moveObject(oldKey, newKey) {
