@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
+import { printHtml } from '../lib/printWindow'
 import { uploadImage, PHOTO } from '../lib/uploadImage'
 import { localToday } from '../lib/dates'
 import { logAudit } from '../lib/audit'
@@ -141,7 +142,6 @@ function labelSheetHtml({ labels, logoUrl, title }) {
       The dashed guides are on screen only.
     </div>
     <div class="grid">${labels.map(one).join('')}</div>
-    <script>window.onload = () => window.print()</script>
     </body></html>`
 }
 
@@ -444,7 +444,6 @@ export default function Inventory() {
   // Print barcode label
   function printBarcode() {
     const logoUrl = window.location.origin + '/logo-full.png'
-    const w = window.open('', '_blank', 'width=400,height=300')
     const isQR = barcodeType === 'qr'
     let imgSrc = ''
     
@@ -481,7 +480,7 @@ export default function Inventory() {
             </div>
           </div>
         </div>`
-    w.document.write(`
+    printHtml(`
       <html><head><title>Label — ${barcodeModal.name}</title>
       <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800&display=swap" rel="stylesheet">
       <style>
@@ -517,9 +516,7 @@ export default function Inventory() {
       </style></head>
       <body>
         <div class="sheet">${Array.from({ length: qty }, () => oneLabel).join('')}</div>
-        <script>window.onload = () => { window.print(); window.onafterprint = () => window.close(); }</script>
-      </body></html>`)
-    w.document.close()
+      </body></html>`, { features: 'width=400,height=300' })
   }
 
   // Print all barcodes
@@ -532,9 +529,9 @@ export default function Inventory() {
         return Array.from({ length: qty }, () => ({ name: p.name, price: p.sell_price, barcode: p.barcode, svg }))
       } catch { return [] }
     })
-    const w = window.open('', '_blank')
-    w.document.write(labelSheetHtml({ labels, logoUrl, title: "All Labels — Brick's & Joy" }))
-    w.document.close()
+    // Stays open after the dialog, as it always has: a sheet of thirty is worth
+    // reprinting without building it again.
+    printHtml(labelSheetHtml({ labels, logoUrl, title: "All Labels — Brick's & Joy" }), { closeAfter: false })
   }
 
   function handleScanResult(code) {
@@ -585,9 +582,7 @@ export default function Inventory() {
         return Array.from({ length: qty }, () => ({ name: p.name, price: p.sell_price, barcode: p.barcode, svg }))
       } catch { return [] }
     })
-    const w = window.open('', '_blank')
-    w.document.write(labelSheetHtml({ labels, logoUrl, title: 'Labels' }))
-    w.document.close()
+    printHtml(labelSheetHtml({ labels, logoUrl, title: 'Labels' }), { closeAfter: false })
   }
 
   const restock = restockPredictions(products, orders)

@@ -1,10 +1,11 @@
-// Where the browser says what the security policy would have blocked.
+// Where the browser says what the security policy blocked.
 //
-// The Content-Security-Policy in deploy/Caddyfile is set in Report-Only mode:
-// the browser works out what the policy would stop, lets it through anyway, and
-// posts a note here. That is the whole point of the exercise — a policy written
-// blind will always miss something the site genuinely needs, and finding that
-// out from a customer whose checkout went blank is the wrong way round.
+// The Content-Security-Policy in deploy/Caddyfile is now enforcing, so what
+// arrives here is a refusal that already happened, not a warning about one that
+// would. The report-only run did its job first: it is what found the back
+// office loading thirty product photographs straight from lego.com, which no
+// amount of reading the code would have shown, because the URLs were in the
+// data rather than in the source.
 //
 // What arrives is saved to the security_reports table and shown on the Security
 // page in the back office, with a count in the header so somebody actually sees
@@ -13,9 +14,12 @@
 //
 //   journalctl -u bricksandjoy -f | grep csp
 //
-// An empty list after a few days of normal use is the signal that the policy
-// can be switched from Report-Only to enforcing. Anything that shows up is
-// either something to allow or something to fix first.
+// A report now means one of two things, and they need telling apart: either an
+// attack was stopped, which is the policy working, or the shop has grown a
+// legitimate need the policy does not know about yet — a new payment provider,
+// an embedded map — and somebody is looking at a page with a piece missing. The
+// second kind is a one-line change in the Caddyfile; it is not a reason to turn
+// the policy off.
 
 const express = require('express')
 const rateLimit = require('express-rate-limit')

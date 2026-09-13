@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
+import { printHtml, printInFrame, wirePrintButton } from '../lib/printWindow'
 import { localDaysAgo, localToday } from '../lib/dates'
 import { logAudit } from '../lib/audit'
 import { groupAdjacent, familyRuns, familyOf, sizeOf } from '../lib/variants'
@@ -982,46 +983,28 @@ export default function OrderAnalysis() {
         }
         @media print { body { background:#fff; } .page { margin:0; box-shadow:none; } .printbar { display:none !important; } }
       </style></head><body>
-      <div class="printbar"><span>Order sheet ready</span><button onclick="window.print()">Print / Save as PDF</button></div>
+      <div class="printbar"><span>Order sheet ready</span><button type="button">Print / Save as PDF</button></div>
       ${body}
-      <script>
-        window.onload = function () {
-          var imgs = Array.prototype.slice.call(document.images)
-          var pending = imgs.filter(function (i) { return !i.complete }).length
-          function go(){ window.focus(); window.print() }
-          if (!pending) return go()
-          imgs.forEach(function (i) { if (!i.complete) i.onload = i.onerror = function () { if (--pending === 0) go() } })
-          setTimeout(go, 6000)
-        }
-      </script>
       </body></html>`
     // Phones can't print from a hidden frame — iOS and Android only offer print
     // (or Share → Print) for a page you are actually looking at. So open the
     // sheet in its own tab there, with a Print button at the top. This runs
     // straight off the tap, so the pop-up blocker allows it.
+    // An order sheet is mostly supplier photographs, so it is given longer than
+    // a receipt to fetch them before printing.
+    const PHOTOS = 6000
     const onPhone = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || window.innerWidth < 820
     if (onPhone) {
-      const tab = window.open('', '_blank')
+      const tab = printHtml(html, { closeAfter: false, timeout: PHOTOS })
       if (tab) {
-        tab.document.write(html); tab.document.close()
+        wirePrintButton(tab)     // the button in the sheet, for when the tap is needed
         toast.info('Tap "Print / Save as PDF" at the top')
         return
       }
       // Pop-up refused — fall through to the frame and hope the browser obliges
     }
 
-    // On a desktop the frame is smoother: the print dialog opens straight away
-    // with no extra tab to close. Kept full page size and merely parked
-    // off-screen, so it lays out exactly as it will print.
-    const frame = document.createElement('iframe')
-    frame.setAttribute('aria-hidden', 'true')
-    frame.style.cssText = 'position:fixed; left:-10000px; top:0; width:210mm; height:297mm; border:0;'
-    document.body.appendChild(frame)
-    const drop = () => { if (frame.parentNode) frame.remove() }
-    frame.contentWindow.onafterprint = () => setTimeout(drop, 500)
-    setTimeout(drop, 120000)   // never leave it behind if printing is dismissed
-    const doc = frame.contentWindow.document
-    doc.open(); doc.write(html); doc.close()
+    printInFrame(html, { timeout: PHOTOS })
     toast.info('Opening the print view — choose "Save as PDF" as the destination')
   }
 
