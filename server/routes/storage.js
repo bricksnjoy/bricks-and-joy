@@ -13,12 +13,16 @@
 //               and checkout happens before there is an account. So anonymous
 //               uploads are allowed, but the server picks the name, refuses to
 //               overwrite anything, and only takes images and PDFs.
+//
+// "Only images and PDFs" is decided by reading the file, not by believing the
+// type the browser sends with it — see lib/filetype.js.
 
 const express = require('express')
 const multer = require('multer')
 const rateLimit = require('express-rate-limit')
 const crypto = require('crypto')
 const r2 = require('../lib/r2')
+const { sniff } = require('../lib/filetype')
 
 const router = express.Router()
 
@@ -26,7 +30,7 @@ const MAX_BYTES = Number(process.env.UPLOAD_MAX_BYTES || 10 * 1024 * 1024)
 
 const ALLOWED = new Set([
   'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif',
-  'application/pdf',
+  'image/avif', 'application/pdf',
 ])
 
 const upload = multer({
@@ -45,7 +49,8 @@ const anonLimit = rateLimit({
 
 const extFor = (mime, fallback) => ({
   'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif',
-  'image/heic': 'heic', 'image/heif': 'heif', 'application/pdf': 'pdf',
+  'image/heic': 'heic', 'image/heif': 'heif', 'image/avif': 'avif',
+  'application/pdf': 'pdf',
 }[mime] || fallback || 'bin')
 
 const fail = (res, status, message) =>
@@ -56,8 +61,16 @@ router.post('/:bucket/upload', anonLimit, upload.single('file'), async (req, res
   if (req.params.bucket !== r2.BUCKET()) return fail(res, 404, `No bucket named '${req.params.bucket}'`)
   if (!req.file) return fail(res, 400, 'No file was sent')
 
-  const type = req.file.mimetype || 'application/octet-stream'
-  if (!ALLOWED.has(type)) return fail(res, 415, `${type} files are not accepted`)
+  // What the upload claims to be, and what it actually is. The claim is only
+  // used to word the refusal; everything after this point goes by the bytes,
+  // because the claim is chosen by whoever is posting and the bytes are not.
+  const claimed = req.file.mimetype || 'application/octet-stream'
+  const type = sniff(req.file.buffer)
+  if (!type || !ALLOWED.has(type)) {
+    return fail(res, 415, claimed && claimed !== 'application/octet-stream'
+      ? `That file is not a picture or a PDF, whatever its name says (it was sent as ${claimed})`
+      : 'That file is not a picture or a PDF')
+  }
 
   const isStaff = req.auth?.role === 'staff'
   const requested = String(req.body?.name || '')
