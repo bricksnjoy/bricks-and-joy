@@ -784,6 +784,47 @@ alter table customer_profiles add column if not exists landmark text;
 -- older than the mark and lock the user straight back out.
 alter table app_users add column if not exists tokens_valid_from timestamptz default date_trunc('second', now());
 
+-- Proving somebody owns the address they signed up with.
+--
+-- Nothing did. app_users.confirmed_at was stamped with now() at the moment of
+-- creation, which records the question being asked and never answered — so
+-- anybody could register anybody's email. Two things followed from that: a
+-- stranger could take a customer's address before they ever used it, and the
+-- shop could then be signed into with Google by whoever got there first; and
+-- signup had to say "that email is already taken", which tells a stranger who
+-- shops here.
+--
+-- Same shape as password_resets, which has worked for exactly this since the
+-- move: one row per attempt, single use, and it expires.
+create table if not exists email_verifications (
+  token      text primary key,
+  user_id    uuid not null references app_users(id) on delete cascade,
+  expires_at timestamptz not null,
+  used_at    timestamptz,
+  created_at timestamptz default now()
+);
+create index if not exists email_verifications_user_idx on email_verifications(user_id);
+
+-- Everybody who already had an account keeps it.
+--
+-- Accounts brought over from Supabase kept whatever confirmation state they had
+-- there, and that migration wrote null where Supabase had nothing — so some
+-- customers who have been signing in for months have no confirmed_at at all.
+-- Requiring confirmation without this would lock them out of an account they
+-- used yesterday, for a rule that did not exist when they made it.
+--
+-- So confirmation applies from here on. It does not reach back and undo a
+-- squatted address registered under the old regime — nothing can, short of
+-- asking every customer to prove themselves again — but it stops another one
+-- being made, which is what it was for.
+--
+-- The cutoff is the moment this shipped, and re-running the file is harmless:
+-- an unconfirmed account created after it is not touched.
+update app_users
+   set confirmed_at = coalesce(created_at, now())
+ where confirmed_at is null
+   and coalesce(created_at, now()) < timestamptz '2026-09-14 07:00:00+00';
+
 -- What a line cost us, recorded when the order is placed.
 --
 -- Every profit figure multiplied the quantity sold by the product's cost price

@@ -64,7 +64,7 @@ async function main() {
     console.log(`Updated ${email} — password changed, role is staff.`)
     console.log('Every other device signed in as this person has been signed out.')
   } else {
-    const user = await auth.createUser({ email, password, fullName, role: 'staff' })
+    const user = await auth.createUser({ email, password, fullName, role: 'staff', confirmed: true })
     console.log(`Created staff account ${user.email} (${user.id}).`)
   }
 
