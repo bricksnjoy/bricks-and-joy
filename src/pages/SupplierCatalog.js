@@ -1007,10 +1007,25 @@ export default function SupplierCatalog() {
       const productName = get('product name','product','name','item','item name','product title','title')
       // getWithKey returns [value, matchedHeader] so we can tell a USD column from
       // an MVR one and only convert the dollars.
+      // Exact header first, then any header that merely contains one of the
+      // names. A supplier writes "cost (mvr)" or "Unit Cost USD" at least as
+      // often as "Cost Price", and an exact list will never be finished — a real
+      // sheet headed "cost (mvr)" matched nothing at all, so its costs were read
+      // as blank and the whole catalog came in priced at nothing.
+      //
+      // Returns the header actually found, not the name we went looking for, so
+      // the currency can be read off what the supplier wrote.
       const getWithKey = (...names) => {
+        const keys = Object.keys(row)
+        const norm = k => k.toLowerCase().trim()
+        const filled = k => row[k] !== '' && row[k] !== undefined && row[k] !== null
         for (const n of names) {
-          const k = Object.keys(row).find(k => k.toLowerCase().trim() === n)
-          if (k && row[k] !== '' && row[k] !== undefined) return [String(row[k]).trim(), n]
+          const k = keys.find(k => norm(k) === n && filled(k))
+          if (k) return [String(row[k]).trim(), norm(k)]
+        }
+        for (const n of names) {
+          const k = keys.find(k => norm(k).includes(n) && filled(k))
+          if (k) return [String(row[k]).trim(), norm(k)]
         }
         return ['', '']
       }
@@ -1018,7 +1033,18 @@ export default function SupplierCatalog() {
       // Costs are quoted in USD (the template and supplier sheets), so convert to
       // MVR using the Settings rate. But a column explicitly labelled MVR — e.g. a
       // catalog export re-imported — is already MVR and must NOT be converted.
-      const costIsMvr = /mvr/.test(costHeader)
+      // Which currency this column is in, and the cost of getting it wrong is a
+      // factor of fifteen either way.
+      //
+      // The header usually says — "cost (mvr)", "Cost Price (USD)". When it does
+      // not, the cell very often does: a supplier sheet writes "MVR 354.66" in
+      // the cell itself, currency and all. An explicit USD header settles it;
+      // failing that, either the header or the value saying rufiyaa settles it;
+      // failing both, dollars, which is what the template documents and what
+      // these sheets have always been.
+      const saysMvr = s => /\bmvr\b|rufiyaa|\brf\b/i.test(String(s))
+      const saysUsd = s => /\busd\b|\$|dollar/i.test(String(s))
+      const costIsMvr = saysUsd(costHeader) ? false : (saysMvr(costHeader) || saysMvr(costRaw))
       // toNumber, not parseFloat: a sheet writes "1,250" or "$80" as often as it
       // writes 80, and parseFloat stops at the first character it cannot read —
       // so "1,250" became 1, and then MVR 15.42 once the dollar rate was applied.
