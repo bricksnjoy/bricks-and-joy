@@ -87,8 +87,11 @@ function diffFields(row, existing) {
   const changed = new Set()
   for (const k of COMPARE_KEYS) {
     const a = normVal(row[k]), b = normVal(existing[k])
-    // A blank image cell means "keep the existing image" — never treat as a change.
-    if (k === 'image_url' && a === '') continue
+    // A blank cell means "keep what is there", for every column and not just the
+    // image — which is what the save does now, so the preview has to say the
+    // same. Otherwise it lists a sell price as about to be cleared and then
+    // quite rightly does not clear it.
+    if (a === '') continue
     if (NUMERIC_KEYS.has(k)) {
       const na = parseFloat(a) || 0, nb = parseFloat(b) || 0
       if (na !== nb) changed.add(k)
@@ -1135,7 +1138,7 @@ export default function SupplierCatalog() {
       // Original USD cost (blank for MVR columns) — lets a later rate change re-price it
       cost_usd: numOrNull(r.cost_usd),
       sell_price: numOrNull(r.sell_price),
-      unit: r.unit || 'piece',
+      unit: r.unit || null,          // the 'piece' default is applied on insert only
       description: r.description || null,
       tags: r.tags || null,
       notes: r.notes || null,
@@ -1155,6 +1158,7 @@ export default function SupplierCatalog() {
         sku: r.sku || genSKU(r.product_name, activeSupplier.name),
         barcode: genBarcode(r.product_name, activeSupplier.id + r.product_name),
         ...fields(r),
+        unit: r.unit || 'piece',       // a brand-new product needs one
       }))
       let res = await supabase.from('supplier_products').insert(records)
       error = res.error
@@ -1171,8 +1175,22 @@ export default function SupplierCatalog() {
     if (!error) {
       for (const r of changedRows) {
         const payload = { ...fields(r), ...(r.sku ? { sku: r.sku } : {}) }
-        // Blank image cell → keep the product's existing image instead of clearing it.
-        if (!r.image_url) delete payload.image_url
+        // A blank cell means "leave this as it is", not "empty it".
+        //
+        // Every column went into the update, filled with null for anything the
+        // sheet did not have — so importing a perfectly ordinary list of names
+        // and costs stripped the sell price, brand, category, description and
+        // unit off every product it touched, and said it had updated them.
+        // Only the image was protected, and the same reasoning applies to all
+        // of it: a sheet says what it says, and is silent about the rest.
+        //
+        // Clearing a field is still possible, from the product's own edit form,
+        // where it is deliberate and visible.
+        Object.keys(payload).forEach(k => {
+          if (k === 'product_name') return
+          const v = payload[k]
+          if (v === null || v === undefined || v === '') delete payload[k]
+        })
         let res = await supabase.from('supplier_products').update(payload).eq('id', r._existingId)
         let e = res.error
         while (e && /column .* does not exist|could not find/i.test(e.message || '')) {
