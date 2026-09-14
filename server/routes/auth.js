@@ -35,6 +35,16 @@ router.post('/signin', tight, async (req, res) => {
     return no(res, 400, 'Invalid login credentials')
   }
 
+  // An account whose address was never confirmed is not an account anybody has
+  // proved they own. Said plainly, with a code the shop uses to offer another
+  // email — a person who has lost the first one is stuck otherwise.
+  if (!auth.isConfirmed(user)) {
+    return res.status(403).json({
+      data: { user: null, session: null },
+      error: { message: 'Check your email to finish creating your account', status: 403, code: 'email_not_confirmed' },
+    })
+  }
+
   const session = await auth.createSession(user, req.get('user-agent'))
   return ok(res, { user: session.user, session })
 })
@@ -45,8 +55,33 @@ router.post('/signin', tight, async (req, res) => {
 router.post('/signup', tight, async (req, res) => {
   const { email, password, data } = req.body || {}
 
+  // Answer the same whether or not this address is already registered.
+  //
+  // It used to say "an account with that email already exists", which turns the
+  // signup form into a way of asking whether somebody shops here — the very
+  // thing /auth/recover below is careful not to answer. It could only say it
+  // because it signed you straight in and had to decide on the spot. Now that
+  // nobody is signed in until the link comes back, there is nothing to give
+  // away: both answers are "we have sent you an email", and both are true.
   const existing = await auth.findUserByEmail(email)
-  if (existing) return no(res, 400, 'An account with that email already exists')
+  if (existing) {
+    if (auth.isConfirmed(existing)) {
+      // Tell the owner of the address, not the person at the form.
+      sendEmail({
+        to: existing.email,
+        subject: "You already have a Brick's & Joy account",
+        text: `Somebody just tried to create an account with this email address.
+
+You already have one, so nothing has changed. If that was you, sign in as usual — and if you have forgotten your password, use "Forgot password" on the sign-in page.
+
+If it wasn't you, you can ignore this. Nobody can get into your account from that form.`,
+      }).catch(() => {})
+    } else {
+      // Never confirmed — so this may well be the owner, trying again.
+      await sendVerification(existing, req)
+    }
+    return ok(res, { user: null, session: null })
+  }
 
   let user
   try {
@@ -56,13 +91,54 @@ router.post('/signup', tight, async (req, res) => {
       fullName: data?.full_name || null,
       role: 'customer',
       metadata: data || {},
+      confirmed: false,     // until the link in the email comes back
     })
   } catch (e) {
     return no(res, 400, e.message)
   }
 
+  await sendVerification(user, req)
+  // No session. The shop already knows to say "check your email" when none
+  // comes back — it has said so since the move.
+  return ok(res, { user: auth.publicUser(user), session: null })
+})
+
+// ── confirming the address ──────────────────────────────────────────────────
+async function sendVerification(user, req) {
+  const token = await auth.createVerificationToken(user.id)
+  const base = safeReturnTo(req.body?.redirectTo)
+  const link = `${base}${base.includes('?') ? '&' : '?'}verify_token=${encodeURIComponent(token)}`
+  await sendEmail({
+    to: user.email,
+    subject: "Confirm your Brick's & Joy account",
+    text: `Welcome to Brick's & Joy!
+
+Open this link to finish creating your account:
+${link}
+
+The link works for ${auth.VERIFY_TTL_HOURS} hours. If you didn't sign up, you can ignore this email — the account cannot be used until somebody opens that link.`,
+    html: `<p>Welcome to Brick's &amp; Joy!</p>
+           <p><a href="${link}">Confirm your account</a></p>
+           <p>The link works for ${auth.VERIFY_TTL_HOURS} hours. If you didn't sign up, you can ignore this email — the account cannot be used until somebody opens that link.</p>`,
+  }).catch(e => console.error('[auth] could not send verification:', e.message))
+}
+
+router.post('/verify', tight, async (req, res) => {
+  const userId = await auth.consumeVerificationToken(req.body?.token)
+  if (!userId) return no(res, 400, 'That confirmation link has expired — ask for a new one')
+  const user = await auth.findUserById(userId)
+  if (!user) return no(res, 400, 'That account no longer exists')
+  // Confirmed, so sign them in — they have just proved the address is theirs.
   const session = await auth.createSession(user, req.get('user-agent'))
   return ok(res, { user: session.user, session })
+})
+
+// Another copy of the email, for the one that never arrived. Same answer
+// whatever the address, for the same reason as signup.
+router.post('/resend', tight, async (req, res) => {
+  const user = await auth.findUserByEmail(req.body?.email)
+  if (user && !auth.isConfirmed(user)) await sendVerification(user, req)
+  return ok(res, {})
 })
 
 // ── keeping a session alive ─────────────────────────────────────────────────
@@ -123,6 +199,11 @@ router.post('/reset', tight, async (req, res) => {
   } catch (e) {
     return no(res, 400, e.message)
   }
+  // Opening a link sent to an address proves the address, whichever link it was.
+  // Somebody who signed up, lost the confirmation email and reset their password
+  // instead has proved exactly what the confirmation was asking for, and should
+  // not then be told to go and find that first email.
+  await db.query('update app_users set confirmed_at = coalesce(confirmed_at, now()) where id = $1', [userId])
   const user = await auth.findUserById(userId)
   const session = await auth.createSession(user, req.get('user-agent'))
   return ok(res, { user: session.user, session })
@@ -246,8 +327,15 @@ router.get('/google/callback', async (req, res) => {
     // Accounts made by Google have no password and are matched as before, so
     // the ordinary case is untouched. Someone who really does own both can
     // still get in with their password, or reset it by email.
-    if (user && user.password_hash) {
-      return bounce('That email already has a password account here — sign in with your password instead')
+    // A password account whose address was confirmed belongs to whoever opened
+    // the link sent to it, and Google has just told us it belongs to the person
+    // signing in. Same address, both proved — same person, so they are linked.
+    //
+    // An unconfirmed one has proved nothing. That is the account somebody could
+    // have registered in a stranger's name and sat waiting on, which is what
+    // this refusal is for.
+    if (user && user.password_hash && !auth.isConfirmed(user)) {
+      return bounce('That email has an account here that was never confirmed — finish that first, or reset its password')
     }
 
     if (!user) {
@@ -258,6 +346,7 @@ router.get('/google/callback', async (req, res) => {
         role: 'customer',
         provider: 'google',
         metadata: { full_name: info.name, avatar_url: info.picture, provider: 'google' },
+        confirmed: true,        // Google told us it verified this address
       })
     }
 

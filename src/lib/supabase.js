@@ -409,6 +409,8 @@ class PresenceChannel {
 // them, and tidy the address bar.
 
 let pendingResetToken = null
+// The confirmation exchange, in flight — a page can await it to know how it went.
+let pendingVerify = null
 
 if (typeof window !== 'undefined') {
   const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''))
@@ -429,6 +431,19 @@ if (typeof window !== 'undefined') {
     params.delete('reset_token')
     const qs = params.toString()
     window.history.replaceState({}, '', window.location.pathname + (qs ? `?${qs}` : ''))
+  }
+  // The confirmation link. Unlike a reset, there is nothing further to ask the
+  // person for — opening it is the whole of the proof — so it is exchanged for a
+  // session straight away and they arrive signed in.
+  if (params.get('verify_token')) {
+    const token = params.get('verify_token')
+    params.delete('verify_token')
+    const qs = params.toString()
+    window.history.replaceState({}, '', window.location.pathname + (qs ? `?${qs}` : ''))
+    pendingVerify = apiFetch('/auth/verify', { body: { token } }).then(({ data, error }) => {
+      if (!error && data?.session) setSession(data.session, 'SIGNED_IN')
+      return { error: error || null }
+    })
   }
 }
 
@@ -451,11 +466,25 @@ const auth = {
     return { data: { user: data.user, session: data.session }, error: null }
   },
 
+  // Signing up no longer signs you in: the address has to be confirmed first,
+  // and the shop already says "check your email" when no session comes back.
+  // Where the server sends one anyway, it is honoured — so this keeps working
+  // whichever way confirmation is configured.
   async signUp({ email, password, options = {} }) {
-    const { data, error } = await apiFetch('/auth/signup', { body: { email, password, data: options.data || {} } })
+    const { data, error } = await apiFetch('/auth/signup', {
+      body: { email, password, data: options.data || {}, redirectTo: options.emailRedirectTo || window.location.origin + '/account' },
+    })
     if (error) return { data: { user: null, session: null }, error }
-    setSession(data.session, 'SIGNED_IN')
-    return { data: { user: data.user, session: data.session }, error: null }
+    if (data.session) setSession(data.session, 'SIGNED_IN')
+    return { data: { user: data.user, session: data.session || null }, error: null }
+  },
+
+  // Another copy of the confirmation email.
+  async resendConfirmation(email) {
+    const { error } = await apiFetch('/auth/resend', {
+      body: { email, redirectTo: window.location.origin + '/account' },
+    })
+    return { error: error || null }
   },
 
   async signOut() {
@@ -532,6 +561,10 @@ const auth = {
   // True when the page was opened from a reset link, so the shop knows to show
   // the "choose a new password" form.
   hasRecoveryToken() { return Boolean(pendingResetToken) },
+
+  // Was this page opened from a confirmation link, and did it work?
+  hasVerification() { return Boolean(pendingVerify) },
+  async verificationResult() { return pendingVerify ? pendingVerify : { error: null } },
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

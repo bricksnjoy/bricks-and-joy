@@ -1059,6 +1059,7 @@ export function AccountPage() {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [info, setInfo] = useState('')
+  const [needsConfirm, setNeedsConfirm] = useState(false)   // signed up but never confirmed
   const setA = (k, v) => { setAuth(a => ({ ...a, [k]: v })); setErr(''); setInfo('') }
 
   useEffect(() => {
@@ -1106,10 +1107,23 @@ export function AccountPage() {
   }
   async function doLogin() {
     if (!auth.email || !auth.password) { setErr('Enter your email and password'); return }
-    setBusy(true); setErr(''); setInfo('')
+    setBusy(true); setErr(''); setInfo(''); setNeedsConfirm(false)
     const { error } = await supabase.auth.signInWithPassword({ email: auth.email.trim(), password: auth.password })
     setBusy(false)
-    if (error) setErr(error.message)
+    if (!error) return
+    // The password was right and the address was never confirmed. Saying so and
+    // offering another email is the difference between a hurdle and a dead end —
+    // the first message is easy to lose, and there is nothing else they can do.
+    if (error.code === 'email_not_confirmed') { setNeedsConfirm(true); setErr(error.message); return }
+    setErr(error.message)
+  }
+
+  async function resendConfirmation() {
+    if (!auth.email) { setErr('Enter your email first'); return }
+    setBusy(true); setErr('')
+    await supabase.auth.resendConfirmation(auth.email.trim())
+    setBusy(false); setNeedsConfirm(false)
+    setInfo(`Sent again — check ${auth.email.trim()} for the confirmation link.`)
   }
   async function forgot() {
     if (!auth.email) { setErr('Enter your email first, then tap Forgot password'); return }
@@ -1156,6 +1170,15 @@ export function AccountPage() {
         )}
 
         {err && <p className="sh-err">{err}</p>}
+        {/* The one case where the error is not the end of it: the account exists
+            and the password was right, and all that is missing is the link from
+            an email that may well have been lost. */}
+        {needsConfirm && (
+          <button type="button" onClick={resendConfirmation} disabled={busy}
+            style={{ background: 'none', border: 'none', padding: 0, marginTop: 6, color: '#E24B4A', fontWeight: 700, fontSize: 13, textDecoration: 'underline', cursor: 'pointer', fontFamily: 'inherit' }}>
+            Send the confirmation email again
+          </button>
+        )}
         {info && <p className="sh-info">{info}</p>}
 
         <button className="sh-authbtn" disabled={busy} onClick={signup ? doSignup : doLogin}>{busy ? 'Please wait…' : signup ? 'Create account' : 'Log in'}</button>

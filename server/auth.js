@@ -116,7 +116,15 @@ async function findUserById(id) {
   return rows[0] || null
 }
 
-async function createUser({ email, password, fullName, role = 'customer', provider = 'password', metadata = {} }) {
+// `confirmed` says whether we already know this person owns the address.
+//
+// It used to be stamped with now() for everybody, which recorded the question
+// being asked and never answered — anybody could register anybody's email. It
+// is true where something has actually vouched for the address: Google, which
+// tells us it verified it, and a staff account made on the server by somebody
+// with a shell on the box. A shop signup has vouched for nothing yet, so it is
+// false until the link in the email comes back.
+async function createUser({ email, password, fullName, role = 'customer', provider = 'password', metadata = {}, confirmed = false }) {
   const clean = String(email || '').trim().toLowerCase()
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(clean)) throw new Error('That email address does not look right')
   if (provider === 'password' && (!password || password.length < 8)) {
@@ -125,8 +133,8 @@ async function createUser({ email, password, fullName, role = 'customer', provid
   const hash = password ? await hashPassword(password) : null
   const { rows } = await db.query(
     `insert into app_users (email, password_hash, role, full_name, provider, metadata, confirmed_at)
-     values ($1, $2, $3, $4, $5, $6, now()) returning *`,
-    [clean, hash, role, fullName || null, provider, JSON.stringify(metadata || {})]
+     values ($1, $2, $3, $4, $5, $6, $7) returning *`,
+    [clean, hash, role, fullName || null, provider, JSON.stringify(metadata || {}), confirmed ? new Date() : null]
   )
   return rows[0]
 }
@@ -163,6 +171,38 @@ async function consumeResetToken(token) {
   )
   return rows.length ? rows[0].user_id : null
 }
+
+// ── email verification ──────────────────────────────────────────────────────
+// The same single-use, expiring token as a password reset, for the same reason:
+// the only proof that somebody owns an address is that something sent to it
+// came back.
+const VERIFY_TTL_HOURS = Number(process.env.VERIFY_TOKEN_TTL_HOURS || 48)
+
+async function createVerificationToken(userId) {
+  const token = randomToken()
+  await db.query(
+    'insert into email_verifications (token, user_id, expires_at) values ($1, $2, $3)',
+    [token, userId, new Date(Date.now() + VERIFY_TTL_HOURS * 3_600_000)]
+  )
+  return token
+}
+
+// Marks the token used and the account confirmed in one go, and only if the
+// token was still unused and unexpired — so a link cannot be replayed.
+async function consumeVerificationToken(token) {
+  const { rows } = await db.query(
+    `update email_verifications set used_at = now()
+      where token = $1 and used_at is null and expires_at > now()
+      returning user_id`,
+    [token]
+  )
+  if (!rows.length) return null
+  const userId = rows[0].user_id
+  await db.query('update app_users set confirmed_at = coalesce(confirmed_at, now()) where id = $1', [userId])
+  return userId
+}
+
+const isConfirmed = user => Boolean(user && user.confirmed_at)
 
 // ── "who is asking" ─────────────────────────────────────────────────────────
 // Runs on every request. A missing or expired token is not an error: it just
@@ -223,6 +263,7 @@ module.exports = {
   publicUser, signAccessToken, createSession, refreshSession, endSession, endAllSessions,
   findUserByEmail, findUserById, createUser, verifyPassword, setPassword,
   createResetToken, consumeResetToken,
+  createVerificationToken, consumeVerificationToken, isConfirmed, VERIFY_TTL_HOURS,
   identify, requireStaff, requireUser,
   ACCESS_TTL_SECONDS, RESET_TTL_MINUTES,
 }
