@@ -7,6 +7,7 @@ import { getSettings } from '../lib/settings'
 import { netOf } from '../lib/money'
 import { getLock, setLock } from '../lib/periodLock'
 import { loadBooksStart, saveBooksStart as persistBooksStart, loadSettled, addSettled, removeSettled, readLocalStart, readLocalSettled } from '../lib/reconStore'
+import { parseNum as sharedParseNum } from '../lib/parseNum'
 
 // Trading that happened before the shop started keeping records here has no
 // counterpart to match and never will. It is explained, not missing.
@@ -76,12 +77,9 @@ const LS_KEY = 'bnj_reconciliations_v1'
 const readLocal = () => { try { const v = JSON.parse(localStorage.getItem(LS_KEY)); return Array.isArray(v) ? v : [] } catch { return [] } }
 const writeLocal = arr => localStorage.setItem(LS_KEY, JSON.stringify(arr))
 
-const parseNum = v => {
-  if (v == null || v === '') return 0
-  if (typeof v === 'number') return v
-  const n = parseFloat(String(v).replace(/[, ]/g, ''))
-  return isNaN(n) ? 0 : n
-}
+// Was a local copy; now the shared one, which also copes with a currency symbol
+// and with the European way round of writing a decimal.
+const parseNum = v => sharedParseNum(v)
 // "21-06-2026 21-22-46" or "21/06/2026" → Date (local midnight)
 function parseStmtDate(s, serialFallback) {
   if (s) {

@@ -17,6 +17,15 @@ import JsBarcode from 'jsbarcode'
 import QRCode from 'qrcode'
 import * as XLSX from 'xlsx'
 import JSZip from 'jszip'
+import { toNumber } from '../lib/parseNum'
+
+// A number for the database, or nothing. `whole` rounds to an integer, for the
+// columns that count things rather than measure them.
+const numOrNull = (v, whole = false) => {
+  const n = toNumber(v)
+  if (!Number.isFinite(n)) return null
+  return whole ? Math.round(n) : n
+}
 
 const AVATAR_COLORS = ['#7F77DD','#1D9E75','#FFA500','#378ADD','#E24B4A','#0F6E56']
 
@@ -1010,11 +1019,16 @@ export default function SupplierCatalog() {
       // MVR using the Settings rate. But a column explicitly labelled MVR — e.g. a
       // catalog export re-imported — is already MVR and must NOT be converted.
       const costIsMvr = /mvr/.test(costHeader)
-      const costUsdNum = costRaw ? parseFloat(costRaw) : NaN
+      // toNumber, not parseFloat: a sheet writes "1,250" or "$80" as often as it
+      // writes 80, and parseFloat stops at the first character it cannot read —
+      // so "1,250" became 1, and then MVR 15.42 once the dollar rate was applied.
+      const costUsdNum = toNumber(costRaw)
       const doConvert = !costIsMvr && !isNaN(costUsdNum) && usdRate > 0
       const cost = doConvert
         ? String(Math.round(costUsdNum * usdRate * 100) / 100)
-        : costRaw
+        // Not converted — but still worth storing as the number it is, rather
+        // than the text it arrived as.
+        : (Number.isFinite(toNumber(costRaw)) ? String(toNumber(costRaw)) : costRaw)
       const sell = get('sell price (mvr)','sell price','delivery price','selling price','sale price','retail price','unit price','price','mrp','rate')
       const onlyPrice = get('amount','value')
       // Image URL column takes priority (guaranteed correct match); fallback to embedded image by row
@@ -1083,14 +1097,18 @@ export default function SupplierCatalog() {
       category: r.category || null,
       brand: r.brand || null,
       age_range: r.age_range || null,
-      pieces: r.pieces ? parseInt(r.pieces) || null : null,
+      // Everything numeric goes through toNumber, because these values came out
+      // of somebody's spreadsheet and may still be carrying a comma, a currency
+      // symbol or a stray space. A cell that is not a number at all stores as
+      // null rather than as whatever parseFloat made of its first character.
+      pieces: numOrNull(r.pieces, true),
       sizes: r.sizes || null,
       weight: r.weight || null,
       dimensions: r.dimensions || null,
-      cost_price: r.cost_price ? parseFloat(r.cost_price) : null,
+      cost_price: numOrNull(r.cost_price),
       // Original USD cost (blank for MVR columns) — lets a later rate change re-price it
-      cost_usd: r.cost_usd ? parseFloat(r.cost_usd) : null,
-      sell_price: r.sell_price ? parseFloat(r.sell_price) : null,
+      cost_usd: numOrNull(r.cost_usd),
+      sell_price: numOrNull(r.sell_price),
       unit: r.unit || 'piece',
       description: r.description || null,
       tags: r.tags || null,

@@ -76,10 +76,27 @@ async function insertStrip(table, rows, select) {
 // only within that vendor's order; an untagged one spreads across everything.
 function analyse(items, extraCosts, targetMargin, velocityFor, vendorOf) {
   const costs = extraCosts || []
-  const sharedTotal = costs.filter(c => !c.supplier_id).reduce((s, c) => s + num(c.amount), 0)
+  let sharedTotal = costs.filter(c => !c.supplier_id).reduce((s, c) => s + num(c.amount), 0)
   const vendorTotals = {}
   costs.filter(c => c.supplier_id).forEach(c => {
     vendorTotals[c.supplier_id] = (vendorTotals[c.supplier_id] || 0) + num(c.amount)
+  })
+
+  // A cost tagged to a vendor who is no longer in the analysis has nothing to
+  // spread across, and was simply vanishing — the money had been spent, the
+  // landed cost did not include it, and every product came out looking more
+  // profitable than it was. Which is the dangerous direction: prices set from
+  // it would be too low.
+  //
+  // The vendor list only offers vendors that are present, so this cannot be
+  // chosen; it is arrived at by tagging a cost and then removing that vendor's
+  // items. The cost is real either way, so it falls back to being shared across
+  // everything rather than quietly leaving the sum.
+  const presentVendors = new Set(items.map(i => vendorOf(i).id || 'none'))
+  Object.keys(vendorTotals).forEach(id => {
+    if (presentVendors.has(id)) return
+    sharedTotal += vendorTotals[id]
+    delete vendorTotals[id]
   })
 
   const lineCostOf = i => num(i.qty) * num(i.unit_cost)
@@ -304,30 +321,9 @@ export default function OrderAnalysis() {
   }
 
   // ── Sales velocity: how fast each product actually moves ────────────────────
-  const velocity = useMemo(() => {
-    const WINDOW = 60
-    const since = localDaysAgo(WINDOW)
-    const byId = {}, byName = {}
-    orders.filter(o => o.status === 'delivered' && (o.order_date || '') >= since).forEach(o => {
-      const q = num(o.qty)
-      if (o.product_id) byId[o.product_id] = (byId[o.product_id] || 0) + q
-      const n = normName(o.product_name)
-      if (n) byName[n] = (byName[n] || 0) + q
-    })
-    const prodById = new Map(products.map(p => [p.id, p]))
-    const prodByName = new Map(products.map(p => [normName(p.name), p]))
-    return item => {
-      // A catalog product may not be in inventory yet — match on name as a fallback
-      const p = (item.product_id && prodById.get(item.product_id)) || prodByName.get(normName(item.product_name))
-      const sold = (p && byId[p.id]) || byName[normName(item.product_name)] || 0
-      const perDay = sold / WINDOW
-      return {
-        stock: p ? num(p.stock_qty) : num(item.current_stock),
-        sold, perDay, perMonth: perDay * 30,
-        known: !!p,
-      }
-    }
-  }, [orders, products])
+  // Shared with the restock suggestions in lib/insights, so the same toy cannot
+  // show one sales rate here and a different one there.
+  const velocity = useMemo(() => buildVelocity(products, orders), [orders, products])
 
   // Which vendor an analysis line belongs to. Catalog lines carry their supplier
   // through the catalog record; inventory lines through the product. Falls back
