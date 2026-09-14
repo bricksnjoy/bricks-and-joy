@@ -12,6 +12,23 @@
 # to "Full (strict)". "Flexible" would make Cloudflare talk to us over plain
 # HTTP, which is worse than no encryption at all because the padlock still shows.
 
+# ── other apps on this box ──────────────────────────────────────────────────
+#
+# This file is copied over /etc/caddy/Caddyfile on every one of the shop's
+# deploys, so anything another app added to the live file by hand would be
+# deleted the next time the shop shipped — and that app would vanish from the
+# internet at a moment nobody would connect to the shop's deploy.
+#
+# So every other app on this machine owns exactly one file in /etc/caddy/sites/
+# and this line is what pulls them in. The shop does not need to know what is
+# in there, and nothing in there can edit this file.
+#
+# Currently: settleup.tech (splitwise-mv, on port 4100 — the shop is on 4000).
+#
+# A glob matching nothing is not an error, so this is safe to deploy before
+# /etc/caddy/sites exists or while it is empty.
+import sites/*.caddy
+
 bricksandjoy.com, www.bricksandjoy.com {
 
 	# Anything that isn't the shop's own hostname is not our traffic.
