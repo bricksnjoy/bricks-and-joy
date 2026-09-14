@@ -821,6 +821,22 @@ create trigger orders_unit_cost before insert on orders
 -- thing in one statement, where it cannot be interleaved.
 --
 -- Returns the new level so the caller can still warn about running low.
+-- What actually tried to run.
+--
+-- A report saying script-src-elem was tripped by something "inline" names the
+-- rule and nothing else, which is where one arrived from the back office and
+-- left us reading the whole bundle to work out whether it was ours. Browsers
+-- send the first characters of the offending script, and the file and line it
+-- came from, for exactly this — the fields were being read off the report and
+-- thrown away.
+--
+-- The sample is short by design: browsers cap it at around forty characters,
+-- deliberately, so a page cannot leak its secrets through its own violation
+-- reports. Enough to recognise, not enough to steal.
+alter table security_reports add column if not exists sample text;
+alter table security_reports add column if not exists source_file text;
+alter table security_reports add column if not exists line_number integer;
+
 create or replace function adjust_stock(p_product_id uuid, p_delta integer)
 returns table(stock_qty integer, name text, low_stock_threshold integer)
 language plpgsql as $$

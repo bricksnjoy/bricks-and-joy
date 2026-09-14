@@ -1,11 +1,13 @@
 // Where the browser says what the security policy blocked.
 //
-// The Content-Security-Policy in deploy/Caddyfile is now enforcing, so what
-// arrives here is a refusal that already happened, not a warning about one that
-// would. The report-only run did its job first: it is what found the back
-// office loading thirty product photographs straight from lego.com, which no
-// amount of reading the code would have shown, because the URLs were in the
-// data rather than in the source.
+// The Content-Security-Policy in deploy/Caddyfile is in Report-Only mode, so
+// what arrives here is a warning about what the policy *would* have stopped,
+// not something that was actually blocked. It has already earned its keep
+// twice: it found the back office loading thirty product photographs straight
+// from lego.com — which no amount of reading the code would have shown, because
+// the URLs were in the data rather than in the source — and it caught a stale
+// browser tab still running a version of the site from before the inline print
+// scripts were taken out.
 //
 // What arrives is saved to the security_reports table and shown on the Security
 // page in the back office, with a count in the header so somebody actually sees
@@ -86,22 +88,42 @@ const pageOf = u => {
   try { const p = new URL(s); return p.origin + p.pathname } catch { return s.slice(0, 200) }
 }
 
+// Something short and printable, or nothing at all. An empty string in the
+// table reads as "we know it was blank"; null reads as "the browser did not
+// say", which is the truth.
+const text = (v, cap = 200) => {
+  const s = String(v == null ? '' : v).replace(/\s+/g, ' ').trim()
+  return s ? s.slice(0, cap) : null
+}
+
+const int = v => {
+  const n = Number(v)
+  return Number.isFinite(n) && n >= 0 ? Math.trunc(n) : null
+}
+
 // One row per distinct problem. A repeat bumps the count and the time rather
 // than adding a row — see the unique index in db/schema.sql. A violation that
 // was already marked as dealt with comes back unacknowledged, because it
 // happening again means it was not dealt with.
-async function record(directive, blocked, doc) {
+//
+// The sample and its source are overwritten by the most recent report, so a
+// rule that keeps tripping shows what tripped it *last* rather than what tripped
+// it first — which is the one somebody can still go and look at.
+async function record(directive, blocked, doc, sample, sourceFile, line) {
   await db.query(
-    `insert into security_reports (directive, blocked_uri, document_uri)
-          values ($1, $2, $3)
+    `insert into security_reports (directive, blocked_uri, document_uri, sample, source_file, line_number)
+          values ($1, $2, $3, $4, $5, $6)
      on conflict (directive, blocked_uri) do update
             set hits = security_reports.hits + 1,
                 last_seen = now(),
                 document_uri = excluded.document_uri,
+                sample = coalesce(excluded.sample, security_reports.sample),
+                source_file = coalesce(excluded.source_file, security_reports.source_file),
+                line_number = coalesce(excluded.line_number, security_reports.line_number),
                 acknowledged = false,
                 acknowledged_by = null,
                 acknowledged_at = null`,
-    [directive, blocked, doc],
+    [directive, blocked, doc, sample, sourceFile, line],
   )
 }
 
@@ -124,8 +146,20 @@ router.post('/', limit, parse, async (req, res) => {
     const blocked = originOf(rawBlocked) || 'unknown'
     const doc = pageOf(r['document-uri'] || r.documentURL)
 
+    // What actually tried to run, and where it came from. "inline" on its own
+    // says a rule was tripped and nothing about by what; these three say which
+    // script, in which file, on which line. Browsers only fill them in for the
+    // violations where they mean something — an inline script or a piece of
+    // eval — and cap the sample at around forty characters on purpose, so a
+    // page cannot leak its own secrets through its violation reports.
+    // pageOf, not originOf: which *file* is the whole point here, where for a
+    // blocked URL the origin was enough.
+    const sample = text(r['script-sample'] || r.sample, 200)
+    const sourceFile = text(pageOf(r['source-file'] || r.sourceFile), 300)
+    const line = int(r['line-number'] ?? r.lineNumber)
+
     try {
-      await record(directive, blocked, doc)
+      await record(directive, blocked, doc, sample, sourceFile, line)
     } catch (e) {
       console.error('[csp] could not save report:', e.message)
     }
@@ -133,7 +167,9 @@ router.post('/', limit, parse, async (req, res) => {
     const key = `${directive} ${blocked}`
     if (!shouldLog(key)) continue
     const n = seen.get(key)?.count || 1
-    console.log(`[csp] would block ${directive} <- ${blocked}  (on ${doc})${n > 1 ? ` ×${n}` : ''}`)
+    const where = sourceFile ? `  from ${sourceFile}${line ? ':' + line : ''}` : ''
+    const what = sample ? `  «${sample.slice(0, 60)}»` : ''
+    console.log(`[csp] would block ${directive} <- ${blocked}  (on ${doc})${n > 1 ? ` ×${n}` : ''}${where}${what}`)
   }
 })
 
