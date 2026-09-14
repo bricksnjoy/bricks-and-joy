@@ -1,5 +1,6 @@
 import { localToday, localDaysAgo } from './dates'
 import { sumNet, isRevenue } from './money'
+import { buildVelocity } from './velocity'
 // Lightweight, rule-based analytics — no external AI calls.
 // Produces restock predictions, an action checklist, and plain-English insights
 // from the data the app already has.
@@ -14,19 +15,17 @@ function daysAgo(n) {
 // Sell-through velocity per product over a recent window → days until stockout
 // and a suggested reorder quantity (cover `coverDays` of demand).
 export function restockPredictions(products, orders, { windowDays = 60, coverDays = 30 } = {}) {
-  const since = daysAgo(windowDays)
-  const delivered = orders.filter(o => o.status === 'delivered' && o.order_date >= since)
-  const soldByProduct = {}
-  delivered.forEach(o => {
-    if (!o.product_id) return
-    soldByProduct[o.product_id] = (soldByProduct[o.product_id] || 0) + Number(o.qty || 0)
-  })
+  // The shared one, so this and the order analysis cannot answer the same
+  // question differently — and so a product that has not been on sale for the
+  // whole window is measured against the days it has actually had.
+  const velocity = buildVelocity(products, orders, { windowDays })
 
   return products
     .filter(p => !p.discontinued)
     .map(p => {
-      const sold = soldByProduct[p.id] || 0
-      const perDay = sold / windowDays
+      const v = velocity({ product_id: p.id, product_name: p.name })
+      const sold = v.sold
+      const perDay = v.perDay
       const stock = Number(p.stock_qty || 0)
       const daysLeft = perDay > 0 ? Math.round(stock / perDay) : Infinity
       const perMonth = perDay * 30
