@@ -239,6 +239,26 @@ export default function Security() {
                       <div style={{ fontSize: 11.5, color: '#999', lineHeight: 1.7 }}>
                         <div><span style={{ color: '#bbb' }}>Where it wanted to load from: </span><code style={{ background: '#f6f6f6', padding: '1px 6px', borderRadius: 4, color: '#556' }}>{r.blocked_uri}</code></div>
                         <div><span style={{ color: '#bbb' }}>On the page: </span>{r.document_uri || '—'}</div>
+
+                        {/* What actually tried to run. "inline" names the rule and
+                            nothing else; this names the script. Browsers send only
+                            the first characters, on purpose — enough to recognise a
+                            thing, not enough to give away what it was carrying. */}
+                        {r.sample && (
+                          <div>
+                            <span style={{ color: '#bbb' }}>What tried to run: </span>
+                            <code style={{ background: '#fff8ec', border: '1px solid #ffe2b8', padding: '1px 6px', borderRadius: 4, color: '#8a5a00', wordBreak: 'break-all' }}>{r.sample}</code>
+                            <span style={{ color: '#ccc' }}> (first few characters only)</span>
+                          </div>
+                        )}
+                        {r.source_file && (
+                          <div>
+                            <span style={{ color: '#bbb' }}>Came from: </span>
+                            <code style={{ background: '#f6f6f6', padding: '1px 6px', borderRadius: 4, color: '#556', wordBreak: 'break-all' }}>
+                              {r.source_file}{r.line_number ? `:${r.line_number}` : ''}
+                            </code>
+                          </div>
+                        )}
                         <div>
                           <span style={{ color: '#bbb' }}>Seen: </span>
                           {r.hits} time{r.hits === 1 ? '' : 's'} · first {fmtWhen(r.first_seen)} · last {fmtWhen(r.last_seen)}
