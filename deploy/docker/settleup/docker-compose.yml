@@ -3,31 +3,57 @@
 #   cd deploy/docker/settleup
 #   docker compose up -d
 #
-# The code lives in its own repository, so this file only says how it runs
-# here. Point `build.context` at wherever that checkout is on this box, or drop
-# `build` entirely and give `image` a tag you push from its own CI.
+# The code lives in its own repository (bricksnjoy/settleup-mv), checked out on
+# this box at /srv/settleup-mv, which is also where its systemd unit and its
+# server/.env live today. Nothing is copied here: this file only says how that
+# checkout runs as a container.
+#
+# ── one thing has to change in settleup-mv first ────────────────────────────
+#
+# server/index.js ends with:
+#
+#     app.listen(PORT, '127.0.0.1', …)
+#
+# The address is written into the code, with no way to set it from outside. On
+# a bare server that is exactly right — it is what stops anything but the local
+# Caddy reaching the API. In a container it means the proxy cannot reach it
+# either, because 127.0.0.1 there is the container's own loopback and nothing
+# else can knock on it. The container starts, the log says it is listening, and
+# every request 502s.
+#
+# So settleup-mv needs the same line the shop already has — an address that
+# defaults to 127.0.0.1 and can be overridden:
+#
+#     const HOST = process.env.HOST || '127.0.0.1'
+#     app.listen(PORT, HOST, …)
+#
+# That keeps the bare-metal deploy behaving exactly as it does now, and lets
+# this file set HOST=0.0.0.0. It also needs a Dockerfile; the shop's is a
+# working model, since the two projects are built the same way.
 
 services:
   app:
     container_name: settleup-app
 
-    # One or the other, not both:
     build:
-      context: /srv/settleup
+      context: /srv/settleup-mv
       dockerfile: Dockerfile
-    # image: ghcr.io/bricksnjoy/settleup:latest
 
     restart: unless-stopped
 
+    # Its own secrets, in the file its systemd unit already reads — one place,
+    # not two. settleup-mv talks to its own database (settleup, owned by
+    # settleup_app) with its own role, and shares nothing with the shop.
     env_file:
-      - ./settleup.env
+      - /srv/settleup-mv/server/.env
 
     environment:
       HOST: 0.0.0.0
       PORT: 4100
       NODE_ENV: production
 
-    # Only needed if it uses the PostgreSQL on the host.
+    # PostgreSQL is on the host. DATABASE_URL has to say host.docker.internal
+    # rather than 127.0.0.1, and the firewall needs the rule in the README.
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
