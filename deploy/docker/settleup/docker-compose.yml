@@ -1,0 +1,43 @@
+# settleup.tech — splitwise-mv, as its own application.
+#
+#   cd deploy/docker/settleup
+#   docker compose up -d
+#
+# The code lives in its own repository, so this file only says how it runs
+# here. Point `build.context` at wherever that checkout is on this box, or drop
+# `build` entirely and give `image` a tag you push from its own CI.
+
+services:
+  app:
+    container_name: settleup-app
+
+    # One or the other, not both:
+    build:
+      context: /srv/settleup
+      dockerfile: Dockerfile
+    # image: ghcr.io/bricksnjoy/settleup:latest
+
+    restart: unless-stopped
+
+    env_file:
+      - ./settleup.env
+
+    environment:
+      HOST: 0.0.0.0
+      PORT: 4100
+      NODE_ENV: production
+
+    # Only needed if it uses the PostgreSQL on the host.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    networks:
+      - edge
+
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+networks:
+  edge:
+    external: true

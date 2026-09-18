@@ -19,6 +19,18 @@ the switch-over.
 
 ---
 
+> **Running more than one site on this box?** This guide installs the shop
+> directly onto the machine: Node as a systemd service, Caddy owning port 443,
+> PostgreSQL alongside. That is the arrangement running today, and it is fine
+> for one site. Once `settleup.tech` and `urahacreativehub.com` share the
+> machine, the three start standing on each other — most sharply in
+> `/etc/caddy/Caddyfile`, which the shop's deploy overwrites and the others
+> depend on. `deploy/docker/README.md` is the way out: one container per site,
+> one shared proxy in front, nothing else shared. Follow that instead of this
+> if you are setting the box up fresh.
+
+---
+
 ## What runs where now
 
 ```

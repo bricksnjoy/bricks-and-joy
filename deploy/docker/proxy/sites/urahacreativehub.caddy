@@ -1,0 +1,27 @@
+# urahacreativehub.com
+#
+# Written for a container serving on port 80 — which is what every static-site
+# image (nginx, caddy, httpd) does by default. If the app is a Node server
+# instead, change the port below to whatever it listens on; nothing else here
+# changes, because the port is the container's own and collides with nothing.
+
+urahacreativehub.com, www.urahacreativehub.com {
+	@www host www.urahacreativehub.com
+	redir @www https://urahacreativehub.com{uri} permanent
+
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	reverse_proxy uraha-app:80
+
+	log {
+		output stderr
+	}
+}

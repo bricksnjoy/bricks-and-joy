@@ -1,0 +1,56 @@
+# The edge — the only container on the box with a port open to the internet.
+#
+#   cd deploy/docker/proxy && docker compose up -d
+#
+# Everything else on this machine is reached through here and publishes no
+# ports of its own, so a mistake in one site's config cannot expose its API,
+# its database or its admin pages directly. Caddy gets and renews every
+# certificate by itself; there is nothing to configure and nothing to renew.
+#
+# In Hostinger's Docker Manager this shows up as one application called
+# "proxy", alongside one per site.
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: edge-caddy
+    restart: unless-stopped
+
+    # 80 as well as 443: it is where the certificate challenge arrives and
+    # where visitors who typed "http://" are redirected from.
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"   # HTTP/3
+
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./sites:/etc/caddy/sites:ro
+      # Certificates and Caddy's own state. Losing this volume means every
+      # certificate is requested again on the next start, and Let's Encrypt
+      # rate-limits that — five per domain per week. It is the one thing here
+      # worth backing up.
+      - caddy_data:/data
+      - caddy_config:/config
+
+    networks:
+      - edge
+
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+# Created once, by hand, and shared by every site's compose file:
+#
+#   docker network create edge
+#
+# Declaring it external rather than letting compose make it is deliberate — a
+# `docker compose down` in this directory must never delete the network the
+# other three applications are still attached to.
+networks:
+  edge:
+    external: true
+
+volumes:
+  caddy_data:
+  caddy_config:

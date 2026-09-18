@@ -13,3 +13,11 @@ server/.env
 .claude/
 *.log
 .DS_Store
+
+# Docker: each site's real secrets live next to its compose file. The .example
+# templates are meant to be committed; the filled-in ones never are.
+deploy/docker/*/*.env
+!deploy/docker/*/*.env.example
+# Somebody else's built site, dropped in on the server.
+deploy/docker/urahacreativehub/site/*
+!deploy/docker/urahacreativehub/site/README.md
