@@ -1,0 +1,31 @@
+# urahacreativehub.com — its own application.
+#
+#   cd deploy/docker/urahacreativehub
+#   docker compose up -d
+#
+# Written for a built static site: put the finished HTML, CSS and JavaScript in
+# ./site and nothing else needs to exist — no Dockerfile, no build step on this
+# box. If it is a Node app instead, replace the image and volume with a `build`
+# block the way settleup's file does, and change the port in
+# ../proxy/sites/urahacreativehub.caddy to match.
+
+services:
+  app:
+    container_name: uraha-app
+    image: caddy:2-alpine
+    restart: unless-stopped
+
+    # :ro — the web server has no business writing to the site it serves.
+    volumes:
+      - ./site:/usr/share/caddy:ro
+
+    networks:
+      - edge
+
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+networks:
+  edge:
+    external: true

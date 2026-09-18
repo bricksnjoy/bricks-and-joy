@@ -1,0 +1,49 @@
+# bricksandjoy.com — the shop.
+#
+# Same rules as the bare-metal deploy/Caddyfile, with one difference: the
+# traffic goes to a container by name instead of to 127.0.0.1:4000. Docker's
+# own DNS resolves "bricksandjoy-app" on the edge network, so nothing has to
+# know an IP address and the app publishes no port to the host at all.
+
+bricksandjoy.com, www.bricksandjoy.com {
+	@www host www.bricksandjoy.com
+	redir @www https://bricksandjoy.com{uri} permanent
+
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		# Cameras are used for barcode scanning; nothing else is wanted.
+		Permissions-Policy "camera=(self), microphone=(), geolocation=()"
+		-Server
+	}
+
+	# Still report-only, for the reasons written out at length in
+	# deploy/Caddyfile: the OCR and the demo videos each needed a directive
+	# that loading the app never exercised, and the Security page has to stay
+	# empty through a stretch of ordinary use before this is enforced.
+	header Content-Security-Policy-Report-Only "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; media-src 'self' blob: https:; connect-src 'self' wss://bricksandjoy.com https://api.emailjs.com https://cdn.jsdelivr.net; worker-src 'self' blob: https://cdn.jsdelivr.net; frame-src https://www.youtube.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; report-uri /api/csp-report"
+
+	@backoffice path /backoffice /backoffice/*
+	header @backoffice X-Robots-Tag "noindex, nofollow"
+
+	request_body {
+		max_size 12MB
+	}
+
+	reverse_proxy bricksandjoy-app:4000 {
+		header_up X-Real-IP {remote_host}
+		# The presence channel is a WebSocket. The read timeout has to outlast
+		# the 30-second heartbeat or the connection is cut mid-conversation.
+		transport http {
+			read_timeout 300s
+		}
+	}
+
+	log {
+		output stderr
+	}
+}

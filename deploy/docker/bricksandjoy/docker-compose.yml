@@ -1,0 +1,57 @@
+# bricksandjoy.com — the shop, as its own application.
+#
+#   cd deploy/docker/bricksandjoy
+#   docker compose build && docker compose up -d
+#
+# Nothing here is published to the host. The only way in is the proxy, over the
+# shared "edge" network.
+
+services:
+  app:
+    # A fixed name, because the proxy's config reaches this container by name.
+    # Without it compose would call it "bricksandjoy-app-1" and the site would
+    # 502 with nothing in the log to explain why.
+    container_name: bricksandjoy-app
+
+    build:
+      # The repository root: the image needs src/, public/, server/ and db/.
+      context: ../../..
+      dockerfile: Dockerfile
+      args:
+        # Baked into the JavaScript bundle at build time, not read at runtime —
+        # changing either of these means rebuilding the image, not restarting
+        # the container.
+        REACT_APP_API_URL: /api
+        REACT_APP_R2_PUBLIC_BASE: ${REACT_APP_R2_PUBLIC_BASE:-https://files.bricksandjoy.com}
+
+    restart: unless-stopped
+
+    # The database password and every API key, read from the file that has
+    # always held them and is not in git.
+    env_file:
+      - ../../../server/.env
+
+    # Set after env_file so they win: 127.0.0.1 inside a container is the
+    # container, not the machine.
+    environment:
+      HOST: 0.0.0.0
+      PORT: 4000
+      NODE_ENV: production
+
+    # PostgreSQL stays on the host, where its data already is, refusing
+    # connections from anywhere but this machine. This line is what lets the
+    # container reach it: DATABASE_URL must say host.docker.internal rather
+    # than 127.0.0.1 (see the README — it is the one edit the cutover needs).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    networks:
+      - edge
+
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+networks:
+  edge:
+    external: true

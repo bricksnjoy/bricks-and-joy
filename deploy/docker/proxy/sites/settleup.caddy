@@ -1,0 +1,29 @@
+# settleup.tech — splitwise-mv.
+#
+# It used to run on the host as a plain process on port 4100 and was reached
+# through an import in the shop's Caddyfile, which meant one application's
+# deploy rewrote the file the other depended on. Now it is its own container on
+# the edge network and this file is the only thing the two share.
+
+settleup.tech, www.settleup.tech {
+	@www host www.settleup.tech
+	redir @www https://settleup.tech{uri} permanent
+
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	# The port is the container's own, not the host's — nothing on this box has
+	# to stay out of its way, so it can keep the number it always used.
+	reverse_proxy settleup-app:4100
+
+	log {
+		output stderr
+	}
+}

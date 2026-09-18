@@ -1,0 +1,16 @@
+# Everything the image builds for itself, or must never contain.
+node_modules
+server/node_modules
+build
+build.new
+build.old
+.git
+.github
+.env
+.env.local
+.env.*.local
+server/.env
+*.log
+.DS_Store
+.claude
+deploy/docker/**/*.env

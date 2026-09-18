@@ -1,0 +1,13 @@
+# The edge config. One file per site lives in ./sites and is pulled in below,
+# so adding or changing a site never means editing this file and never risks
+# the other two.
+#
+# A glob matching nothing is not an error, so this is safe with an empty
+# sites/ directory.
+{
+	# Where a certificate problem is reported to. Set it and Let's Encrypt will
+	# warn you before a renewal failure becomes an expired certificate.
+	# email you@bricksandjoy.com
+}
+
+import sites/*.caddy
