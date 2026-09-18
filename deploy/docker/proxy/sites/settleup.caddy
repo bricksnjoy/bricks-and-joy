@@ -5,10 +5,16 @@
 # deploy rewrote the file the other depended on. Now it is its own container on
 # the edge network and this file is the only thing the two share.
 
-settleup.tech, www.settleup.tech {
-	@www host www.settleup.tech
-	redir @www https://settleup.tech{uri} permanent
-
+# One name, no www. settleup-mv's own deploy/site.caddy.template never had one,
+# and settleup.tech's DNS has no record for it — which is not a detail that can
+# be papered over here. Caddy asks for a single certificate covering every name
+# on this line, so a www that does not resolve fails the whole request and
+# takes the bare domain down with it:
+#
+#   DNS problem: NXDOMAIN looking up A for www.settleup.tech
+#
+# Put the name back only alongside a DNS record for it.
+settleup.tech {
 	encode zstd gzip
 
 	header {

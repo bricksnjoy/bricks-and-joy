@@ -1,27 +1,37 @@
-# urahacreativehub.com
+# urahacreativehub.com — parked, on purpose.
 #
-# Written for a container serving on port 80 — which is what every static-site
-# image (nginx, caddy, httpd) does by default. If the app is a Node server
-# instead, change the port below to whatever it listens on; nothing else here
-# changes, because the port is the container's own and collides with nothing.
-
-urahacreativehub.com, www.urahacreativehub.com {
-	@www host www.urahacreativehub.com
-	redir @www https://urahacreativehub.com{uri} permanent
-
-	encode zstd gzip
-
-	header {
-		Strict-Transport-Security "max-age=31536000; includeSubDomains"
-		X-Content-Type-Options "nosniff"
-		X-Frame-Options "SAMEORIGIN"
-		Referrer-Policy "strict-origin-when-cross-origin"
-		-Server
-	}
-
-	reverse_proxy uraha-app:80
-
-	log {
-		output stderr
-	}
-}
+# This VPS does not serve it. The domain resolves to 172.67.170.121, which is
+# Cloudflare, and www.urahacreativehub.com has no record at all — so whatever
+# answers for it, it is not this box. (The VPS is *named* urahacreativehub in
+# hPanel, which is what made it look otherwise. The name is just a label.)
+#
+# The block is commented out rather than deleted because an enabled one costs
+# something real: Caddy would ask Let's Encrypt for a certificate it can never
+# pass the challenge for, retry on a loop, and burn through the five-failures-
+# per-hour limit that is shared with the domains on this box that do work.
+#
+# To turn it on, once the domain's A record points here:
+#
+#   1. put the built site in ../../urahacreativehub/site/
+#   2. docker compose up -d   in deploy/docker/urahacreativehub
+#   3. uncomment the block below, adding back the www name only if a DNS
+#      record exists for it — see settleup.caddy for what happens otherwise
+#   4. docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile
+#
+# urahacreativehub.com {
+# 	encode zstd gzip
+#
+# 	header {
+# 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+# 		X-Content-Type-Options "nosniff"
+# 		X-Frame-Options "SAMEORIGIN"
+# 		Referrer-Policy "strict-origin-when-cross-origin"
+# 		-Server
+# 	}
+#
+# 	reverse_proxy uraha-app:80
+#
+# 	log {
+# 		output stderr
+# 	}
+# }
