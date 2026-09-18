@@ -4,6 +4,7 @@ import { printHtml, printInFrame, wirePrintButton } from '../lib/printWindow'
 import { localDaysAgo, localToday } from '../lib/dates'
 import { logAudit } from '../lib/audit'
 import { groupAdjacent, familyRuns, familyOf, sizeOf } from '../lib/variants'
+import { buildVelocity } from '../lib/velocity'
 import { PageHeader, Card, Button, Input, Select, Modal, Spinner, useToast, Toasts, Badge, ImageTile } from '../components/UI'
 import {
   Plus, Trash2, Calculator, Search, Package, BookOpen, TrendingUp, TrendingDown,
