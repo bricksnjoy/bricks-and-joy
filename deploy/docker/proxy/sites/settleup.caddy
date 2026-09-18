@@ -14,7 +14,9 @@ settleup.tech, www.settleup.tech {
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		X-Content-Type-Options "nosniff"
-		X-Frame-Options "SAMEORIGIN"
+		# DENY, not SAMEORIGIN: settleup-mv chose that for itself in
+		# deploy/site.caddy.template and nothing here should quietly loosen it.
+		X-Frame-Options "DENY"
 		Referrer-Policy "strict-origin-when-cross-origin"
 		-Server
 	}

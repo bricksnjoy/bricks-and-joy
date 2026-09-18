@@ -106,8 +106,8 @@ docker compose up -d
 docker compose logs -f app          # "[api] listening on http://0.0.0.0:4000"
 
 # 5. the other two — see the comments in each compose file first
-cd ../settleup          && cp settleup.env.example settleup.env && $EDITOR settleup.env
-docker compose up -d
+cd ../settleup          # read its compose file first: settleup-mv needs a
+docker compose up -d      # HOST override and a Dockerfile before this works
 cd ../urahacreativehub  && docker compose up -d
 
 # 6. the cutover. The host's own Caddy owns 80 and 443, so it has to let go
