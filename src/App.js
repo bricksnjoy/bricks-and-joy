@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from 'react'
 import { supabase } from './lib/supabase'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
+import ErrorBoundary from './components/ErrorBoundary'
 import Orders from './pages/Orders'
 import Inventory from './pages/Inventory'
 import Customers from './pages/Customers'
@@ -557,7 +558,16 @@ export default function App() {
         </div>
 
         <div key={page} className="page-content" style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '22px 26px' }}>
-          {ITEMS[page]?.render || <Dashboard />}
+          {/* One page throwing must not take the back office with it.
+              React unmounts the whole tree on an uncaught render error — the
+              sidebar included — so without this a single broken page shows as
+              a blank screen and looks like everything is down.
+              key={page} is on the div above, which remounts the boundary on
+              every navigation, so a crash on one page never follows you to
+              the next. */}
+          <ErrorBoundary name={ITEMS[page]?.label || 'This page'}>
+            {ITEMS[page]?.render || <Dashboard />}
+          </ErrorBoundary>
         </div>
       </div>
 

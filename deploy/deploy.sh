@@ -63,6 +63,29 @@ echo "  now at $(as_app git rev-parse --short HEAD) — $(as_app git log -1 --pr
 step "Front-end dependencies"
 as_app npm ci --no-audit --no-fund --silent
 
+# ── the crash gate ──────────────────────────────────────────────────────────
+# Before the build, because the build does not catch this and shipped it once.
+#
+# A name used but never defined is a ReferenceError the moment React renders
+# that page — and an uncaught render error unmounts the whole tree, so a single
+# missing import shows up as the entire back office going blank. That is
+# exactly what happened to Order Analysis: `buildVelocity` was called and never
+# imported, `react-scripts build` exited 0, and it went live.
+#
+# Two rules only. Turning on full linting would fail the deploy over unused
+# variables and missing alt attributes, which is how a useful gate gets
+# switched off again.
+step "Checking for names that do not exist"
+if ! as_app npm run --silent lint:undef; then
+	echo
+	echo "  A name above is used but never defined."
+	echo "  That is a blank page for whoever opens it, not a style warning —"
+	echo "  usually an import that was forgotten when the code moved."
+	echo "  Nothing has been built or restarted."
+	exit 1
+fi
+echo "  every name resolves"
+
 step "Building the site"
 # Into a scratch directory first. A failed build must not leave a half-written
 # build/ behind, because that is what visitors are being served.
