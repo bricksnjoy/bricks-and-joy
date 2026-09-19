@@ -181,10 +181,30 @@ docker compose exec --workdir /app/server app npm run schema   # apply db/schema
 docker stats                                # what is using the memory
 ```
 
-A deploy is `git pull && docker compose up -d --build` in the site's
-directory. The build happens before anything is stopped, so a build that fails
-leaves the running container exactly where it was — the same property
-`deploy/deploy.sh` has today, for the same reason.
+A deploy is `deploy/docker/deploy.sh`, which is the bare-metal `deploy.sh`
+translated: fetch, build, apply the schema, swap the container, wait for it to
+answer, reload the proxy. The build happens before anything is stopped, so a
+build that fails leaves the running container exactly where it was — and if
+the new container starts but never answers, the previous image is tagged
+`:previous` and put straight back.
+
+By hand it is `git pull && docker compose up -d --build` in the site's
+directory, which does the same thing without the schema step or the rollback.
+
+**The GitHub deploy button needs one change on the server**, and it is easy to
+miss because nothing fails loudly when it is missed. The workflow sends no
+command: the key in `/root/.ssh/authorized_keys` carries a forced one, and
+that is what decides which script runs. Until that line says
+
+```
+command="/srv/bricksandjoy/deploy/docker/deploy.sh"
+```
+
+the button still runs the bare-metal script — rebuilding `build/`, restarting
+`bricksnjoy-api`, passing its own health check and reporting "live" while the
+container carries on serving the previous code. Two copies of the shop against
+one database, both running the cron schedule, and a deploy that says it
+worked. Change the line the same day you cut over.
 
 ## Adding a fourth site
 

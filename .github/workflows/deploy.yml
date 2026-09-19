@@ -1,8 +1,18 @@
 # Deploy to the VPS, from a button or an API call.
 #
-# The server pulls, builds, applies any schema change and restarts itself — the
-# same deploy/deploy.sh you would run by hand over SSH. This just saves the
-# hand.
+# The server pulls, builds the image, applies any schema change and swaps the
+# container — the same deploy/docker/deploy.sh you would run by hand over SSH.
+# This just saves the hand.
+#
+# Nothing below names the script. The key on the server is registered with a
+# forced command, so WHICH script a deploy runs is decided there, in
+# /root/.ssh/authorized_keys, and not here. That line has to say
+#
+#   command="/srv/bricksandjoy/deploy/docker/deploy.sh"
+#
+# or this button still runs the bare-metal deploy: it would rebuild build/,
+# restart bricksnjoy-api, pass its own health check and report success while
+# the container carried on serving the previous code. Green, and a lie.
 #
 # It never runs on its own. Deploying is deliberate: `workflow_dispatch` means
 # somebody (or something with a token) asked for it, so a merge cannot put the
@@ -110,8 +120,9 @@ jobs:
 
           # No command is sent. The key is registered on the server with a
           # forced command, so this connection can do exactly one thing: run
-          # deploy.sh. If this workflow — or the token that triggered it — were
-          # ever misused, that is the whole of what it could do.
+          # the deploy script that line names. If this workflow — or the token
+          # that triggered it — were ever misused, that is the whole of what it
+          # could do.
           ssh -i ~/.ssh/deploy_key \
               -o StrictHostKeyChecking=yes \
               -o PasswordAuthentication=no \
@@ -128,5 +139,5 @@ jobs:
             fi
             sleep 10
           done
-          echo "::error::The site did not come back healthy. Check: journalctl -u bricksnjoy-api -n 50"
+          echo "::error::The site did not come back healthy. Check: docker compose -f /srv/bricksandjoy/deploy/docker/bricksandjoy/docker-compose.yml logs --tail 50 app"
           exit 1
