@@ -76,24 +76,54 @@ docker network create edge
 #       One line teaches the host the name too, and then both work:
 #         echo "127.0.0.1  host.docker.internal" >> /etc/hosts
 #
-#    b) PostgreSQL listening where the container knocks. Docker resolves
-#       host-gateway to the *default* bridge, 172.17.0.1, even for a container
-#       on another network — so that is the address to add, not the edge
-#       network's own gateway:
-#         listen_addresses = 'localhost,172.17.0.1'      in postgresql.conf
+#    b) the bridge's address pinned. Docker resolves host-gateway to the
+#       *default* bridge, docker0, even for a container on another network —
+#       and the address of docker0 is not fixed unless it is written down.
+#       Without "bip" it is worked out afresh every time Docker starts, from
+#       whatever "default-address-pools" says. On this box that was
+#       "172.17.0.0/12" — which is really 172.16.0.0/12 — so docker0 came up
+#       on 172.16.0.1 after a reboot instead of the 172.17.0.1 everything
+#       below had been told about. PostgreSQL could not listen on an address
+#       that no longer existed, the firewall rule named the old one, and the
+#       shop went down with "connection timeout" two days before anybody
+#       noticed (October 2026). In /etc/docker/daemon.json:
+#         "bip": "172.16.0.1/24"
+#       then: systemctl restart docker     (every container blips; do it quiet)
+#
+#       Whatever address goes there is the one b), c) and d) must name.
+#       `ip -4 addr show docker0` says what it is right now.
+#
+#    c) PostgreSQL listening where the container knocks — the bridge's
+#       address, not the edge network's own gateway:
+#         listen_addresses = 'localhost,172.16.0.1'      in postgresql.conf
 #         host all all 172.16.0.0/12 scram-sha-256       in pg_hba.conf
 #       then: systemctl restart postgresql
 #
-#    c) the firewall letting it through. ufw allows 22, 80 and 443 and drops
+#       And make it start after Docker. At boot both start in the same
+#       second; if PostgreSQL wins, docker0 does not exist yet, it quietly
+#       skips that address, and the shop cannot reach it until somebody
+#       restarts PostgreSQL by hand:
+#         mkdir -p /etc/systemd/system/postgresql@.service.d
+#         printf '[Unit]\nAfter=docker.service\nWants=docker.service\n' \
+#             > /etc/systemd/system/postgresql@.service.d/after-docker.conf
+#         systemctl daemon-reload
+#
+#    d) the firewall letting it through. ufw allows 22, 80 and 443 and drops
 #       the rest, including traffic from the edge network to the bridge:
-#         ufw allow from 172.18.0.0/16 to 172.17.0.1 port 5432 proto tcp \
+#         ufw allow from 172.16.0.0/12 to 172.16.0.1 port 5432 proto tcp \
 #             comment 'docker edge -> postgres'
 #
-#       Check the subnet is really 172.18 before trusting that line —
-#       `docker network inspect edge` prints it, and Docker picks a different
-#       one if the network is ever deleted and recreated. A rule naming a
-#       subnet that no longer exists is a database that times out for no
-#       visible reason.
+#       The source is the whole private 172.16/12 block rather than the edge
+#       network's own subnet, because Docker picks a different subnet if the
+#       network is ever deleted and recreated, and a rule naming a subnet
+#       that no longer exists is a database that times out for no visible
+#       reason. pg_hba.conf above already allows the same block.
+#
+#    After any reboot, this is the check that says all of it held:
+#         docker run --rm --network edge \
+#             --add-host host.docker.internal:host-gateway \
+#             --entrypoint pg_isready bricksandjoy-app -h host.docker.internal -t 5
+#       "accepting connections" is right; "no response" is one of b)–d).
 #
 #    None of this opens 5432 to the internet: every rule names a private
 #    address range that only exists on this machine, and PostgreSQL still
