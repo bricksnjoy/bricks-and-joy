@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react'
+import React, { useEffect, useState, useMemo, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { printHtml, printInFrame, wirePrintButton } from '../lib/printWindow'
 import { localDaysAgo, localToday } from '../lib/dates'
@@ -220,6 +220,7 @@ export default function OrderAnalysis() {
   const [catalog, setCatalog] = useState([])
   const [products, setProducts] = useState([])
   const [orders, setOrders] = useState([])
+  const [openPOs, setOpenPOs] = useState([])   // purchase order lines placed but not yet received
   const [loading, setLoading] = useState(true)
   const [itemsLoading, setItemsLoading] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -253,6 +254,7 @@ export default function OrderAnalysis() {
       // Every line already sitting in some analysis, so a product being thought
       // about isn't also being nagged about — see plannedIds
       supabase.from('order_analysis_items').select('analysis_id, product_id, product_name'),
+      loadOpenPOs(),
     ])
     if (a.error) {
       toast.error('Analysis tables not found — run the SQL in supabase_schema.sql')
@@ -267,6 +269,17 @@ export default function OrderAnalysis() {
     setOrders(o.data || [])
     setAllItems(ai.data || [])
     setLoading(false)
+  }
+
+  // Purchase order lines for stock that has been bought but has not landed yet.
+  // Without these the reorder list nags about toys already sitting in an
+  // unreceived batch, and they get ordered a second time — see `incoming`.
+  // 'extra' lines are freight and duty, not goods, so they never count.
+  async function loadOpenPOs() {
+    const { data } = await supabase.from('purchase_orders')
+      .select('id, product_id, product_name, qty, status, batch_no, supplier_name, expected_date, cost_type, stock_added')
+    setOpenPOs((data || []).filter(r =>
+      r.cost_type !== 'extra' && !r.stock_added && (r.status === 'pending' || r.status === 'ordered')))
   }
 
   async function loadItems(id) {
@@ -384,6 +397,33 @@ export default function OrderAnalysis() {
     return m
   }, [products, velocity])
 
+  // ── Stock that is already bought but hasn't landed ──────────────────────────
+  // A pending or ordered purchase order line is stock on its way: the shelf is
+  // empty today, but ordering it again would double the batch. Matched by id
+  // and, for lines typed in by hand without a product_id, by name.
+  const incoming = useMemo(() => {
+    const byName = new Map()
+    products.forEach(p => byName.set(normName(p.name), p.id))
+    const m = new Map()
+    openPOs.forEach(r => {
+      const id = r.product_id || byName.get(normName(r.product_name))
+      if (!id) return
+      const cur = m.get(id) || { qty: 0, batches: [] }
+      cur.qty += num(r.qty)
+      const label = r.batch_no || r.supplier_name || 'batch'
+      if (!cur.batches.includes(label)) cur.batches.push(label)
+      if (r.expected_date && (!cur.expected || r.expected_date < cur.expected)) cur.expected = r.expected_date
+      m.set(id, cur)
+    })
+    return m
+  }, [openPOs, products])
+
+  // Enough already on the way to cover the shortfall — nothing left to order.
+  const covered = useCallback(
+    id => (incoming.get(id)?.qty || 0) >= (reorderInfo.get(id)?.qty || 0),
+    [incoming, reorderInfo]
+  )
+
   // Products already being considered in a draft analysis. Once a restock is
   // being worked out there is nothing left to prompt about, so it drops off the
   // "needs reordering" list until that draft is ordered or deleted. Matched by
@@ -408,10 +448,12 @@ export default function OrderAnalysis() {
     // just added, so exclude those too.
     const inAnalysis = new Set(items.map(i => i.product_id).filter(Boolean))
     return products
-      .filter(p => reorderInfo.has(p.id) && !inAnalysis.has(p.id) && !plannedIds.has(p.id))
-      .map(p => ({ product: p, ...reorderInfo.get(p.id) }))
+      // A toy with enough already on the way is handled, the same as one sitting
+      // in a draft analysis — it drops off until that batch is received.
+      .filter(p => reorderInfo.has(p.id) && !inAnalysis.has(p.id) && !plannedIds.has(p.id) && !covered(p.id))
+      .map(p => ({ product: p, ...reorderInfo.get(p.id), incoming: incoming.get(p.id) || null }))
       .sort((a, b) => (URGENCY_RANK[a.urgency] - URGENCY_RANK[b.urgency]) || (b.perMonth - a.perMonth))
-  }, [products, reorderInfo, items, plannedIds])
+  }, [products, reorderInfo, items, plannedIds, covered, incoming])
 
   // Pull inventory products straight in at their suggested reorder quantity
   async function addProducts(list) {
@@ -704,6 +746,9 @@ export default function OrderAnalysis() {
     }
     await supabase.from('order_analyses').update(patch).eq('id', open.id)
     setAnalyses(prev => prev.map(a => (a.id === open.id ? { ...a, ...patch } : a)))
+    // The batch just created is stock on its way: pull it in so the reorder
+    // list stops suggesting what was ordered a moment ago.
+    loadOpenPOs()
     setSaving(false)
     toast.success(`${batchNos.length} batch order${batchNos.length > 1 ? 's' : ''} created — ${batchNos.join(', ')}`)
   }
@@ -1026,7 +1071,9 @@ export default function OrderAnalysis() {
       const name = pickModal === 'catalog' ? x.product_name : x.name
       return name?.toLowerCase().includes(q) || x.sku?.toLowerCase().includes(q) || x.category?.toLowerCase().includes(q)
     }
-    const matchesNeeds = x => !pickNeeds || (pickModal === 'inventory' && reorderInfo.has(x.id))
+    // "Needs reordering" means what is still left to buy: anything a pending
+    // batch already covers is on its way and is filtered out here.
+    const matchesNeeds = x => !pickNeeds || (pickModal === 'inventory' && reorderInfo.has(x.id) && !covered(x.id))
     const searched = pickSource.filter(x => matchesSearch(x) && matchesNeeds(x))
     // Vendor tabs are counted off the searched set so the numbers reflect the search
     const vendorTabs = suppliers
@@ -1052,7 +1099,7 @@ export default function OrderAnalysis() {
     })
     pickGroups.forEach(g => g.items.sort((a, b) =>
       (pickModal === 'catalog' ? a.product_name : a.name || '').localeCompare(pickModal === 'catalog' ? b.product_name : b.name || '')))
-    const needsCount = products.filter(p => !p.discontinued && reorderInfo.has(p.id) && !alreadyIn.has(p.id)).length
+    const needsCount = products.filter(p => !p.discontinued && reorderInfo.has(p.id) && !alreadyIn.has(p.id) && !covered(p.id)).length
     const selectableIn = g => g.items.filter(x => !alreadyIn.has(x.id)).map(x => x.id)
 
     return (
@@ -1251,7 +1298,8 @@ export default function OrderAnalysis() {
                 const uColor = r.urgency === 'out' ? '#E24B4A' : r.urgency === 'now' ? '#e6940a' : '#e9b949'
                 return (
                 <button key={r.product.id} onClick={() => addProducts([r.product])} disabled={saving}
-                  title={`${r.urgency === 'out' ? 'Out of stock' : r.urgency === 'now' ? 'Order now' : 'Low'} · ${r.stock} in stock · sells ${r.perMonth.toFixed(1)}/month · suggest ordering ${r.qty}`}
+                  title={`${r.urgency === 'out' ? 'Out of stock' : r.urgency === 'now' ? 'Order now' : 'Low'} · ${r.stock} in stock · sells ${r.perMonth.toFixed(1)}/month · suggest ordering ${r.qty}`
+                    + (r.incoming ? ` · ${r.incoming.qty} already on the way in ${r.incoming.batches.join(', ')}` : '')}
                   style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 9px 3px 4px', borderRadius: 99, border: '1px solid #f0e4cd', background: '#fff', cursor: 'pointer', fontFamily: 'inherit' }}>
                   <span style={{ width: 18, height: 18, borderRadius: '50%', overflow: 'hidden', background: '#f7f5f2', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, position: 'relative' }}>
                     {r.product.photo_url
@@ -1443,6 +1491,12 @@ export default function OrderAnalysis() {
                           {r.known ? (
                             <>
                               <div>{r.stock} in stock · sells {r.perMonth.toFixed(1)}/month</div>
+                              {/* Already bought and not landed yet — ordering it again doubles the batch */}
+                              {r.product_id && incoming.has(r.product_id) && (
+                                <div style={{ color: '#e6940a', fontWeight: 600 }}>
+                                  {incoming.get(r.product_id).qty} already on the way in {incoming.get(r.product_id).batches.join(', ')}
+                                </div>
+                              )}
                               <div style={{ color: r.coverDays && r.coverDays > 270 ? '#e6940a' : '#bbb' }}>
                                 {r.coverDays
                                   ? `${Math.round(r.coverDays)} days of cover after arrival`
@@ -1593,6 +1647,7 @@ export default function OrderAnalysis() {
                       const inAlready = alreadyIn.has(id)
                       const on = picked.has(id)
                       const need = pickModal === 'inventory' ? reorderInfo.get(id) : null
+                      const onWay = pickModal === 'inventory' ? incoming.get(id) : null
                       return (
                         <label key={id} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '9px 12px', borderBottom: '1px solid #f7f7f7', cursor: inAlready ? 'default' : 'pointer', opacity: inAlready ? 0.45 : 1, background: on ? '#fffaf0' : '#fff' }}>
                           <input type="checkbox" checked={on} disabled={inAlready}
@@ -1604,10 +1659,12 @@ export default function OrderAnalysis() {
                             <div style={{ fontSize: 13, fontWeight: 600, color: '#0d1b2a', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                               {name}
                               {need && <Badge color={NEED[need.urgency].color}>{NEED[need.urgency].label}</Badge>}
+                              {onWay && <Badge color="green">{onWay.qty} on the way</Badge>}
                             </div>
                             <div style={{ fontSize: 11, color: '#bbb' }}>
                               {[x.sku, x.category, pickModal === 'inventory' ? `${num(x.stock_qty)} in stock` : null].filter(Boolean).join(' · ')}
                               {need ? ` · suggest +${need.qty}` : ''}
+                              {onWay ? ` · ordered in ${onWay.batches.join(', ')}${onWay.expected ? `, due ${onWay.expected}` : ''}` : ''}
                               {inAlready ? ' · already added' : ''}
                             </div>
                           </div>
