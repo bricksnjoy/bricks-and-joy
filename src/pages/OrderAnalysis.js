@@ -5,6 +5,7 @@ import { localDaysAgo, localToday } from '../lib/dates'
 import { logAudit } from '../lib/audit'
 import { groupAdjacent, familyRuns, familyOf, sizeOf } from '../lib/variants'
 import { buildVelocity } from '../lib/velocity'
+import { openPurchaseOrders } from '../lib/stock'
 import { PageHeader, Card, Button, Input, Select, Modal, Spinner, useToast, Toasts, Badge, ImageTile } from '../components/UI'
 import {
   Plus, Trash2, Calculator, Search, Package, BookOpen, TrendingUp, TrendingDown,
@@ -271,15 +272,13 @@ export default function OrderAnalysis() {
     setLoading(false)
   }
 
-  // Purchase order lines for stock that has been bought but has not landed yet.
-  // Without these the reorder list nags about toys already sitting in an
-  // unreceived batch, and they get ordered a second time — see `incoming`.
-  // 'extra' lines are freight and duty, not goods, so they never count.
+  // Every purchase order line; the open ones are what the reorder list needs,
+  // so that it stops nagging about toys already sitting in an unreceived batch.
   async function loadOpenPOs() {
     const { data } = await supabase.from('purchase_orders')
       .select('id, product_id, product_name, qty, status, batch_no, supplier_name, expected_date, cost_type, stock_added')
-    setOpenPOs((data || []).filter(r =>
-      r.cost_type !== 'extra' && !r.stock_added && (r.status === 'pending' || r.status === 'ordered')))
+    // openPurchaseOrders() decides which of these count — see lib/stock.js.
+    setOpenPOs(data || [])
   }
 
   async function loadItems(id) {
@@ -399,28 +398,16 @@ export default function OrderAnalysis() {
 
   // ── Stock that is already bought but hasn't landed ──────────────────────────
   // A pending or ordered purchase order line is stock on its way: the shelf is
-  // empty today, but ordering it again would double the batch. Matched by id
-  // and, for lines typed in by hand without a product_id, by name.
-  const incoming = useMemo(() => {
-    const byName = new Map()
-    products.forEach(p => byName.set(normName(p.name), p.id))
-    const m = new Map()
-    openPOs.forEach(r => {
-      const id = r.product_id || byName.get(normName(r.product_name))
-      if (!id) return
-      const cur = m.get(id) || { qty: 0, batches: [] }
-      cur.qty += num(r.qty)
-      const label = r.batch_no || r.supplier_name || 'batch'
-      if (!cur.batches.includes(label)) cur.batches.push(label)
-      if (r.expected_date && (!cur.expected || r.expected_date < cur.expected)) cur.expected = r.expected_date
-      m.set(id, cur)
-    })
-    return m
-  }, [openPOs, products])
+  // empty today, but ordering it again would double the batch.
+  const onOrder = useMemo(() => openPurchaseOrders(openPOs), [openPOs])
+  const nameById = useMemo(() => {
+    const m = new Map(); products.forEach(p => m.set(p.id, p.name)); return m
+  }, [products])
+  const incoming = useCallback(id => onOrder.get(id, nameById.get(id)), [onOrder, nameById])
 
   // Enough already on the way to cover the shortfall — nothing left to order.
   const covered = useCallback(
-    id => (incoming.get(id)?.qty || 0) >= (reorderInfo.get(id)?.qty || 0),
+    id => (incoming(id)?.qty || 0) >= (reorderInfo.get(id)?.qty || 0),
     [incoming, reorderInfo]
   )
 
@@ -451,7 +438,7 @@ export default function OrderAnalysis() {
       // A toy with enough already on the way is handled, the same as one sitting
       // in a draft analysis — it drops off until that batch is received.
       .filter(p => reorderInfo.has(p.id) && !inAnalysis.has(p.id) && !plannedIds.has(p.id) && !covered(p.id))
-      .map(p => ({ product: p, ...reorderInfo.get(p.id), incoming: incoming.get(p.id) || null }))
+      .map(p => ({ product: p, ...reorderInfo.get(p.id), incoming: incoming(p.id) }))
       .sort((a, b) => (URGENCY_RANK[a.urgency] - URGENCY_RANK[b.urgency]) || (b.perMonth - a.perMonth))
   }, [products, reorderInfo, items, plannedIds, covered, incoming])
 
@@ -1492,11 +1479,14 @@ export default function OrderAnalysis() {
                             <>
                               <div>{r.stock} in stock · sells {r.perMonth.toFixed(1)}/month</div>
                               {/* Already bought and not landed yet — ordering it again doubles the batch */}
-                              {r.product_id && incoming.has(r.product_id) && (
-                                <div style={{ color: '#e6940a', fontWeight: 600 }}>
-                                  {incoming.get(r.product_id).qty} already on the way in {incoming.get(r.product_id).batches.join(', ')}
-                                </div>
-                              )}
+                              {(() => {
+                                const onWay = onOrder.get(r.product_id, r.product_name)
+                                return onWay && (
+                                  <div style={{ color: '#e6940a', fontWeight: 600 }}>
+                                    {onWay.qty} already on the way in {onWay.batches.join(', ')}
+                                  </div>
+                                )
+                              })()}
                               <div style={{ color: r.coverDays && r.coverDays > 270 ? '#e6940a' : '#bbb' }}>
                                 {r.coverDays
                                   ? `${Math.round(r.coverDays)} days of cover after arrival`
@@ -1647,7 +1637,7 @@ export default function OrderAnalysis() {
                       const inAlready = alreadyIn.has(id)
                       const on = picked.has(id)
                       const need = pickModal === 'inventory' ? reorderInfo.get(id) : null
-                      const onWay = pickModal === 'inventory' ? incoming.get(id) : null
+                      const onWay = pickModal === 'inventory' ? incoming(id) : null
                       return (
                         <label key={id} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '9px 12px', borderBottom: '1px solid #f7f7f7', cursor: inAlready ? 'default' : 'pointer', opacity: inAlready ? 0.45 : 1, background: on ? '#fffaf0' : '#fff' }}>
                           <input type="checkbox" checked={on} disabled={inAlready}

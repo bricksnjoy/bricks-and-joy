@@ -12,7 +12,7 @@ import { printHtml } from '../lib/printWindow'
 import { localToday } from '../lib/dates'
 import { logAudit } from '../lib/audit'
 import { blockedByLock } from '../lib/periodLock'
-import { adjustStock, announceStock } from '../lib/stock'
+import { adjustStock, announceStock, openPurchaseOrders } from '../lib/stock'
 
 // Bank account shown in the "Payment" SMS template
 const BANK_ACCOUNT_NO = '7730000819195'
@@ -95,6 +95,7 @@ export default function Orders() {
   const [uploadingSlip, setUploadingSlip] = useState(false)
   const [scanning, setScanning] = useState(null)
   const [contacts, setContacts] = useState([])
+  const [openPOs, setOpenPOs] = useState([])   // so stock alerts can show what's on the way
   const [smsModal, setSmsModal] = useState(null)
   const [smsForm, setSmsForm] = useState({ mode: 'customer', to: '', message: '', contactId: '' })
   const [smsSending, setSmsSending] = useState(false)
@@ -133,18 +134,22 @@ export default function Orders() {
 
   async function load() {
     setLoading(true)
-    const [o, c, p, ct, u] = await Promise.all([
+    const [o, c, p, ct, u, po] = await Promise.all([
       supabase.from('orders').select('*').order('created_at', { ascending: false }),
       supabase.from('customers').select('id, name, phone, address, instagram, landmark').order('name'),
       supabase.from('products').select('*').order('name'),
       supabase.from('email_contacts').select('*').order('name'),
       supabase.auth.getUser(),
+      // So the stock alerts can say which gaps are already being filled.
+      supabase.from('purchase_orders')
+        .select('product_id, product_name, qty, status, cost_type, stock_added, batch_no, supplier_name, expected_date'),
     ])
     setUserEmail(u?.data?.user?.email || '')
     setOrders(o.data || [])
     setCustomers(c.data || [])
     setProducts(p.data || [])
     setContacts(ct.data || [])
+    setOpenPOs(po.data || [])
     // Does the table track when stock was taken out? Decides create-time vs
     // dispatch-time deduction. A missing column makes the probe error.
     const probe = await supabase.from('orders').select('stock_deducted').limit(1)
@@ -981,6 +986,13 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
   const unpaidTotal = sumNet(orders.filter(o => (o.payment_status || 'unpaid') === 'unpaid' && o.status !== 'cancelled'))
   const lowStockCount = products.filter(p => p.stock_qty > 0 && p.stock_qty <= (p.low_stock_threshold ?? 10)).length
   const outOfStockCount = products.filter(p => p.stock_qty <= 0).length
+  // An empty shelf with a batch already on its way is a different problem from
+  // one with nothing coming — only the second needs somebody to go and buy it.
+  const onOrder = openPurchaseOrders(openPOs)
+  const comingNote = p => {
+    const w = onOrder.get(p.id, p.name)
+    return w ? ` · ${w.qty} on the way${w.expected ? `, due ${w.expected}` : ''} (${w.batches.join(', ')})` : ''
+  }
 
   const AVATAR_COLORS = ['#7F77DD','#1D9E75','#FFA500','#378ADD','#E24B4A','#0F6E56']
   const statusColors = { review: '#E08A00', created: '#7F77DD', pending: '#FFA500', transit: '#378ADD', delivered: '#1D9E75', cancelled: '#E24B4A' }
@@ -1123,9 +1135,15 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
               <div style={{ marginBottom: 8 }}>
                 <div style={{ fontSize: 11, color: '#E24B4A', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 5 }}>Out of stock</div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {products.filter(p => p.stock_qty <= 0).map(p => (
-                    <span key={p.id} style={{ fontSize: 12, background: '#FFE8E8', color: '#c62828', padding: '3px 10px', borderRadius: 99, fontWeight: 600 }}>{p.name}</span>
-                  ))}
+                  {products.filter(p => p.stock_qty <= 0).map(p => {
+                    const w = onOrder.get(p.id, p.name)
+                    return (
+                      <span key={p.id} title={w ? `Ordered in ${w.batches.join(', ')}` : 'Nothing on order'}
+                        style={{ fontSize: 12, background: w ? '#E8F5E9' : '#FFE8E8', color: w ? '#2e7d32' : '#c62828', padding: '3px 10px', borderRadius: 99, fontWeight: 600 }}>
+                        {p.name}{comingNote(p)}
+                      </span>
+                    )
+                  })}
                 </div>
               </div>
             )}
@@ -1133,9 +1151,15 @@ const f = k => e => setForm(p => ({ ...p, [k]: e.target.value }))
               <div>
                 <div style={{ fontSize: 11, color: '#f57f17', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 5 }}>Low stock</div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {products.filter(p => p.stock_qty > 0 && p.stock_qty <= (p.low_stock_threshold ?? 10)).map(p => (
-                    <span key={p.id} style={{ fontSize: 12, background: '#FFF3E0', color: '#e65100', padding: '3px 10px', borderRadius: 99, fontWeight: 600 }}>{p.name} <span style={{ opacity: 0.7 }}>({p.stock_qty} left)</span></span>
-                  ))}
+                  {products.filter(p => p.stock_qty > 0 && p.stock_qty <= (p.low_stock_threshold ?? 10)).map(p => {
+                    const w = onOrder.get(p.id, p.name)
+                    return (
+                      <span key={p.id} title={w ? `Ordered in ${w.batches.join(', ')}` : 'Nothing on order'}
+                        style={{ fontSize: 12, background: w ? '#E8F5E9' : '#FFF3E0', color: w ? '#2e7d32' : '#e65100', padding: '3px 10px', borderRadius: 99, fontWeight: 600 }}>
+                        {p.name} <span style={{ opacity: 0.7 }}>({p.stock_qty} left{comingNote(p)})</span>
+                      </span>
+                    )
+                  })}
                 </div>
               </div>
             )}

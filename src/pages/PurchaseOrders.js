@@ -8,7 +8,7 @@ import { PageHeader, Card, Button, Input, Select, Modal, Spinner, FormRow, useTo
 import { Plus, Trash2, Package, Truck, X, Info, AlertTriangle, CreditCard, Wallet, Paperclip, Eye, Pencil, LayoutGrid, List, ChevronDown } from 'lucide-react'
 import { restockPredictions } from '../lib/insights'
 import { SlipNote, RescanButton, useSlipScan } from '../components/SlipScan'
-import { adjustStock } from '../lib/stock'
+import { adjustStock, openPurchaseOrders } from '../lib/stock'
 
 const AVATAR_COLORS = ['#7F77DD', '#1D9E75', '#FFA500', '#378ADD', '#E24B4A', '#0F6E56']
 function avatarColor(name = '') {
@@ -183,8 +183,13 @@ export default function PurchaseOrders() {
     restockPredictions(products, orders, { windowDays: 60, coverDays: 30 })
       .forEach(r => { reorderById[r.id] = r.suggestedReorder })
 
+    // The low-stock list below the form already skips anything on an open
+    // batch; this pre-fill did not, so "add everything that needs restocking"
+    // quietly re-ordered the shipment that hadn't arrived yet.
+    const coming = openPurchaseOrders(pos)
+
     const suggestedItems = products
-      .filter(p => !p.discontinued)
+      .filter(p => !p.discontinued && !coming.has(p.id, p.name))
       .map(p => {
         const threshold = p.low_stock_threshold ?? 10
         const stock = Number(p.stock_qty || 0)
@@ -876,20 +881,9 @@ export default function PurchaseOrders() {
   const batchTotal = batchItemsTotal + batchCostsTotal
   // Products already on an open batch order (pending/ordered) are on their way,
   // so they drop out of the restock alert until that order is received/cancelled.
-  const onOrder = (() => {
-    const ids = new Set(), names = new Set()
-    pos.forEach(p => {
-      if (p.cost_type === 'extra') return
-      if (p.status !== 'pending' && p.status !== 'ordered') return
-      if (p.product_id) ids.add(p.product_id)
-      if (p.product_name) names.add((p.product_name || '').toLowerCase().trim())
-    })
-    return { ids, names }
-  })()
+  const onOrder = openPurchaseOrders(pos)
   const lowStockProducts = products.filter(p =>
-    p.stock_qty <= (p.low_stock_threshold ?? 10)
-    && !onOrder.ids.has(p.id)
-    && !onOrder.names.has((p.name || '').toLowerCase().trim())
+    p.stock_qty <= (p.low_stock_threshold ?? 10) && !onOrder.has(p.id, p.name)
   )
 
   // Group line items that belong to the same batch order

@@ -58,3 +58,51 @@ export function announceStock(row, delta, toast, fallbackThreshold = 10) {
   else if (row.stock_qty <= limit) toast.info(`⚠️ Low stock: ${row.name} — ${row.stock_qty} left`)
   else toast.info(`${row.name} −${n} from stock`)
 }
+
+// ── Stock that is bought but hasn't landed ───────────────────────────────────
+// A purchase order line that is pending or ordered is stock on its way. The
+// shelf is empty today, but suggesting a reorder would buy the same toys
+// twice — which is exactly what happened, because four pages each worked this
+// out for themselves and two of them forgot to.
+//
+// 'extra' lines are freight, duty and transaction charges, not goods, so they
+// never count. `stock_added` catches a line whose stock has already been
+// booked in while the batch sits at its old status.
+//
+// Products are matched by id, and by name for lines typed in by hand against
+// no product — a batch entered from a supplier's invoice often carries only
+// the name, and those are the lines most likely to be ordered twice.
+
+/**
+ * Index the open purchase order lines so a page can ask what is already coming.
+ *
+ * @param {Array} rows  purchase_orders rows; needs at least product_id,
+ *                      product_name, qty, status, cost_type, stock_added, and
+ *                      batch_no / supplier_name / expected_date for the labels.
+ * @returns {{has:(id:string,name?:string)=>boolean, get:(id:string,name?:string)=>({qty:number,batches:string[],expected:?string}|null)}}
+ */
+export function openPurchaseOrders(rows = []) {
+  const byId = new Map(), byName = new Map()
+  const norm = s => (s || '').toLowerCase().trim()
+
+  rows.forEach(r => {
+    if (r.cost_type === 'extra' || r.stock_added) return
+    if (r.status !== 'pending' && r.status !== 'ordered') return
+    const entry = target => {
+      const cur = target || { qty: 0, batches: [], expected: null }
+      cur.qty += Number(r.qty) || 0
+      const label = r.batch_no || r.supplier_name || 'batch'
+      if (!cur.batches.includes(label)) cur.batches.push(label)
+      // The soonest arrival is the one worth showing.
+      if (r.expected_date && (!cur.expected || r.expected_date < cur.expected)) cur.expected = r.expected_date
+      return cur
+    }
+    if (r.product_id) byId.set(r.product_id, entry(byId.get(r.product_id)))
+    if (r.product_name) byName.set(norm(r.product_name), entry(byName.get(norm(r.product_name))))
+  })
+
+  // Prefer the id match: a line carrying a product_id is the reliable one, and
+  // falling back to the name would double-count the very same line.
+  const get = (id, name) => (id && byId.get(id)) || (name && byName.get(norm(name))) || null
+  return { has: (id, name) => !!get(id, name), get }
+}
